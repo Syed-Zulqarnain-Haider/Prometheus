@@ -28,6 +28,30 @@ export interface Freshness {
   rows_loaded: number | null;
 }
 
+export type Bucket = "day" | "week" | "month";
+export type MetricValue = number | string | null;
+
+export interface SummaryResponse {
+  current: Record<string, number | null>;
+  previous: Record<string, number | null> | null;
+}
+
+export interface TimeseriesResponse {
+  bucket: Bucket;
+  metrics: string[];
+  series: Record<string, MetricValue>[];
+}
+
+export interface BreakdownResponse {
+  group_by: string;
+  rows: Record<string, MetricValue>[];
+}
+
+export interface TableResponse {
+  rows: Record<string, MetricValue>[];
+  next_cursor: string | null;
+}
+
 /** /auth/me payload (roles, metric groups, capabilities, scopes). */
 export interface UserContext {
   user_id: string;
