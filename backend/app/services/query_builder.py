@@ -224,6 +224,8 @@ class QueryBuilder:
                 func.max(FACT_TABLE.c.publisher).label("publisher"),
                 func.max(FACT_TABLE.c.pod).label("pod"),
                 func.max(FACT_TABLE.c.hou).label("hou"),
+                func.max(FACT_TABLE.c.apple_id).label("apple_id"),
+                func.max(FACT_TABLE.c.android_package).label("android_package"),
                 *[self._sum(m).label(m) for m in measures],
             )
             .where(and_(*where))
