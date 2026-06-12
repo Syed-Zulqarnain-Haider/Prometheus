@@ -192,3 +192,22 @@ async def db_sessionmaker() -> AsyncGenerator[async_sessionmaker[Any], None]:
     await _build_schema(engine)
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def fact_session() -> AsyncGenerator[Any, None]:
+    """A session with a fresh, empty ``fact_daily_performance`` table.
+
+    The fact table is sync-owned (its own MetaData), so we create just it here for
+    query-builder tests that seed fact rows directly.
+    """
+    from app.core.fact_table import fact_metadata
+
+    engine = create_async_engine(TEST_DATABASE_URL)
+    async with engine.begin() as conn:
+        await conn.run_sync(fact_metadata.drop_all)
+        await conn.run_sync(fact_metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
+    await engine.dispose()
