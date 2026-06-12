@@ -5,15 +5,22 @@ Decisions here are FINAL unless the owner explicitly changes them in the session
 
 ## What we are building
 An enterprise analytics dashboard (replacing a Looker Studio dashboard) for mobile-app
-performance data. ~5 internal users at launch. Data source: BigQuery. Serving: PostgreSQL.
+performance data. ~50 internal users at launch. Data source: BigQuery. Serving: PostgreSQL.
 
 ## Architecture (LOCKED — do not propose alternatives)
 - **Frontend**: Next.js 14+ App Router, TypeScript strict, Tailwind + shadcn/ui,
   Apache ECharts (`echarts-for-react`, tree-shaken imports), TanStack Table + Virtual + Query.
   Deployed on Vercel.
 - **Backend**: FastAPI (Python 3.12), Pydantic v2, SQLAlchemy 2.0 + Alembic, on Cloud Run.
-- **Serving DB**: PostgreSQL (Cloud SQL, PRIVATE IP only). Users/API never query BigQuery.
-- **Cache**: Redis (Memorystore), key prefix `agg:*`, busted by the daily sync.
+- **Serving DB**: PostgreSQL on **Neon** (serverless, pooled connection string). Users/API
+  never query BigQuery. SECURITY TRADE-OFF (accepted): Neon is reached over the public
+  internet via TLS with strong, Secret-Manager-held credentials — NOT a private IP as a
+  Cloud SQL deployment would allow. This is a deliberate cost/ops choice for ~50 users;
+  mitigations are TLS-required connections, least-privilege DB roles, and rotated secrets.
+  Migrating back to Cloud SQL (private IP) later remains possible — the app code is
+  connection-string agnostic, so only env/secrets and networking change.
+- **Cache**: Redis as a lightweight container running alongside the API (not Memorystore),
+  key prefix `agg:*`, busted by the daily sync.
 - **Auth**: Firebase Auth. JWT verified server-side (firebase-admin) on EVERY route.
 - **Data flow**: BigQuery view `terafort.api.daily_performance_v1` → daily sync job
   (Cloud Run Job, ~06:00 UTC) → `fact_daily_performance` in Postgres via staged load +
