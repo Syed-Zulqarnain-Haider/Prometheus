@@ -1,4 +1,4 @@
-# CLAUDE.md — Terafort Performance Dashboard
+# CLAUDE.md — Prometheus Performance Dashboard
 
 This file is the permanent project memory. Read it fully before any task.
 Decisions here are FINAL unless the owner explicitly changes them in the session.

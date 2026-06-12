@@ -1,7 +1,7 @@
 # Step 1 — Data Foundation (BigQuery view → Sync job → PostgreSQL)
 
 ## What this is
-The complete, tested data pipeline foundation for the Terafort dashboard:
+The complete, tested data pipeline foundation for the Prometheus dashboard:
 - `sql/bigquery/daily_performance_v1.sql` — the stable contract view (run once in BigQuery; re-run only to evolve it while keeping output columns stable)
 - `sql/postgres/001_init.sql` — RBAC, scopes, saved views/reports, admin-approval sharing, append-only audit log, sync state, role seeds, least-privilege DB roles
 - `sql/postgres/002_fact_table.sql` — GENERATED from the metric registry (do not hand-edit)
