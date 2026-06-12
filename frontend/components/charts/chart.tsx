@@ -20,6 +20,15 @@ interface ChartProps {
   height?: number;
   emptyMessage?: string;
   errorMessage?: string;
+  onEvents?: Record<string, (params: EChartsClickParams) => void>;
+}
+
+/** Minimal shape of an ECharts mouse-event param (e.g. a bar/segment click). */
+export interface EChartsClickParams {
+  name: string;
+  value: unknown;
+  dataIndex: number;
+  seriesName?: string;
 }
 
 function ChartFrame({
@@ -47,6 +56,7 @@ export function Chart({
   height = 320,
   emptyMessage = "No data for the selected filters",
   errorMessage = "Failed to load chart",
+  onEvents,
 }: ChartProps) {
   // Register/refresh the theme whenever the dark/light mode changes.
   const { resolvedTheme } = useTheme();
@@ -85,6 +95,7 @@ export function Chart({
       lazyUpdate
       style={{ height }}
       opts={{ renderer: "canvas" }}
+      onEvents={onEvents}
     />
   );
 }

@@ -1,10 +1,12 @@
-import { PageHeader } from "@/components/layout/page-header";
+import { Suspense } from "react";
+
+import { RevenueClient } from "@/components/revenue/revenue-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function RevenuePage() {
   return (
-    <PageHeader
-      title="Revenue Analytics"
-      description="IAP and ad revenue breakdowns. Charts arrive in a later step."
-    />
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <RevenueClient />
+    </Suspense>
   );
 }
