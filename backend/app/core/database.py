@@ -32,3 +32,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency yielding a transactional async session."""
     async with AsyncSessionLocal() as session:
         yield session
+
+
+def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """Dependency returning the session factory.
+
+    Used by services (e.g. audit) that need their OWN independent session/
+    transaction rather than the request-scoped one. Overridable in tests.
+    """
+    return AsyncSessionLocal

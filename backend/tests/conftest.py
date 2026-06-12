@@ -143,7 +143,7 @@ async def _build_schema(engine: AsyncEngine) -> None:
 
 @pytest_asyncio.fixture
 async def auth_env() -> AsyncGenerator[AuthEnv, None]:
-    from app.core.database import get_db
+    from app.core.database import get_db, get_sessionmaker
     from app.core.redis import get_redis
     from app.core.security import get_token_verifier
     from app.main import app
@@ -160,12 +160,17 @@ async def auth_env() -> AsyncGenerator[AuthEnv, None]:
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_redis] = lambda: fake_redis
     app.dependency_overrides[get_token_verifier] = lambda: FakeVerifier(TOKEN_MAP)
+    # Route the audit service (dependency) and the audit middleware at the test DB.
+    app.dependency_overrides[get_sessionmaker] = lambda: session_factory
+    previous_sessionmaker = app.state.sessionmaker
+    app.state.sessionmaker = session_factory
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield AuthEnv(client=client, sessionmaker=session_factory, redis=fake_redis)
 
     app.dependency_overrides.clear()
+    app.state.sessionmaker = previous_sessionmaker
     await engine.dispose()
 
 
@@ -177,4 +182,13 @@ async def db_session() -> AsyncGenerator[Any, None]:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_sessionmaker() -> AsyncGenerator[async_sessionmaker[Any], None]:
+    """A session factory against a freshly built + seeded test database."""
+    engine = create_async_engine(TEST_DATABASE_URL)
+    await _build_schema(engine)
+    yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
