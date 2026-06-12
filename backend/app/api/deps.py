@@ -74,6 +74,8 @@ async def get_user_context(
 
 
 CurrentUser = Annotated[UserContext, Depends(get_user_context)]
+DbSession = Annotated[AsyncSession, Depends(get_db)]
+RedisClient = Annotated[Redis, Depends(get_redis)]
 
 
 def require_capability(

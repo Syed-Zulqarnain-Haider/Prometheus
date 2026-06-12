@@ -16,7 +16,10 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.middleware import audit_query_middleware
+from app.api.v1 import apps as apps_routes
 from app.api.v1 import auth as auth_routes
+from app.api.v1 import meta as meta_routes
+from app.api.v1 import metrics as metrics_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 
@@ -40,11 +43,17 @@ app.add_middleware(
 )
 
 
-def _error_response(code: str, message: str, status_code: int) -> JSONResponse:
+def _error_response(
+    code: str,
+    message: str,
+    status_code: int,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     """Build the canonical error envelope: ``{"error": {"code", "message"}}``."""
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": message}},
+        headers=headers,
     )
 
 
@@ -65,7 +74,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     """Render HTTP errors in the error envelope (no internals leaked)."""
     code = _STATUS_CODE_MAP.get(exc.status_code, "http_error")
     message = exc.detail if isinstance(exc.detail, str) else "Request failed."
-    return _error_response(code, message, exc.status_code)
+    # Preserve headers (e.g. Retry-After on 429).
+    headers = dict(exc.headers) if exc.headers else None
+    return _error_response(code, message, exc.status_code, headers=headers)
 
 
 @app.exception_handler(RequestValidationError)
@@ -89,3 +100,6 @@ async def health() -> dict[str, Any]:
 
 
 app.include_router(auth_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(metrics_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(apps_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(meta_routes.router, prefix=settings.api_v1_prefix)

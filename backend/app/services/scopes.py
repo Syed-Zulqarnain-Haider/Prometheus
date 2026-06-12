@@ -15,7 +15,8 @@ narrow it further, never widen it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import ColumnElement, false, or_, true
 
@@ -32,8 +33,22 @@ SCOPE_TYPE_TO_COLUMN: dict[str, str] = {
 _SCOPE_ORDER = ("hou", "pod", "publisher", "app")
 
 
-def build_scope_filter(scopes: Sequence[ScopeOut]) -> ColumnElement[bool]:
-    """Build the WHERE predicate enforcing a user's row scopes."""
+def _fact_scope_columns() -> dict[str, Any]:
+    return {st: FACT_TABLE.c[col] for st, col in SCOPE_TYPE_TO_COLUMN.items()}
+
+
+def build_scope_filter(
+    scopes: Sequence[ScopeOut],
+    *,
+    columns: Mapping[str, Any] | None = None,
+) -> ColumnElement[bool]:
+    """Build the WHERE predicate enforcing a user's row scopes.
+
+    ``columns`` maps each scope_type (hou/pod/publisher/app) to the column to
+    enforce it against. Defaults to ``fact_daily_performance`` columns; pass
+    ``dim_app`` columns to scope the apps endpoints.
+    """
+    scope_columns = columns if columns is not None else _fact_scope_columns()
     scope_types = {s.scope_type for s in scopes}
 
     # 'all' grants everything — no row restriction.
@@ -54,8 +69,7 @@ def build_scope_filter(scopes: Sequence[ScopeOut]) -> ColumnElement[bool]:
             }
         )
         if values:
-            column = FACT_TABLE.c[SCOPE_TYPE_TO_COLUMN[scope_type]]
-            conditions.append(column.in_(values))
+            conditions.append(scope_columns[scope_type].in_(values))
 
     if not conditions:
         return false()
