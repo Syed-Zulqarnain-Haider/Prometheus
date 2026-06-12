@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -69,6 +69,28 @@ export function useBreakdown(filters: Filters, groupBy: string, metrics: string[
     queryFn: () =>
       apiFetch<BreakdownResponse>(`/api/v1/metrics/breakdown${buildQuery(params)}`),
     enabled: Boolean(user) && metrics.length > 0,
+    staleTime: AGG_STALE,
+  });
+}
+
+/** Keyset-paginated table for the Apps Explorer (server-side sort + cursor). */
+export function useTableInfinite(
+  filters: Filters,
+  sort: string,
+  direction: "asc" | "desc",
+  limit = 50,
+) {
+  const { user } = useAuth();
+  const base = { ...filtersToApiQuery(filters), sort, direction, limit };
+  return useInfiniteQuery({
+    queryKey: ["table-infinite", base],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      apiFetch<TableResponse>(
+        `/api/v1/metrics/table${buildQuery({ ...base, cursor: pageParam ?? undefined })}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    enabled: Boolean(user),
     staleTime: AGG_STALE,
   });
 }
