@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "redis>=5.0",
+    "firebase-admin>=6.5",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +34,8 @@ select = ["E", "F", "I", "B", "UP", "W", "C4", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*" = ["E501"]
+# conftest embeds multi-line seed SQL that mirrors the DDL verbatim.
+"tests/conftest.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -43,6 +46,10 @@ exclude = ['^alembic/']
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["firebase_admin.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
