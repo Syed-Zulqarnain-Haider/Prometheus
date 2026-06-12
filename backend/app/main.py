@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.v1 import auth as auth_routes
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -77,3 +78,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 async def health() -> dict[str, Any]:
     """Liveness probe. Does not touch external dependencies."""
     return {"status": "ok"}
+
+
+app.include_router(auth_routes.router, prefix=settings.api_v1_prefix)
