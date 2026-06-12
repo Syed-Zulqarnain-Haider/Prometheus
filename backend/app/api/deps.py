@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -69,3 +70,20 @@ async def get_user_context(
 
 
 CurrentUser = Annotated[UserContext, Depends(get_user_context)]
+
+
+def require_capability(
+    capability: str,
+) -> Callable[[UserContext], Awaitable[UserContext]]:
+    """Build a dependency that requires the caller to hold ``capability``.
+
+    Usage: ``Depends(require_capability("export"))``. Returns the user context on
+    success; raises 403 otherwise. Capabilities: export, share_report, admin_panel.
+    """
+
+    async def _dependency(context: CurrentUser) -> UserContext:
+        if capability not in context.capabilities:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing required capability")
+        return context
+
+    return _dependency

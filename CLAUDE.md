@@ -110,6 +110,17 @@ sync/metric_registry.py, sync/sync_job.py, Dockerfile. Reuse — do not rewrite.
   locally (needs GCP), say so explicitly — never claim untested things work.
 - When uncertain about a requirement, ASK the owner; do not invent features.
 
+## Merge & branching policy (standing — applies to every step, no need to ask)
+- Before starting each new step, RESET the working branch to the latest `origin/main`
+  (`git fetch origin main && git reset --hard origin/main`, then force-push). This
+  prevents the squash-merge divergence conflicts seen in step 2.2.
+- After completing a step: if `ruff`, `mypy --strict`, and ALL tests pass, open a PR
+  and squash-merge it to `main` automatically — no need to ask. If ANY check fails,
+  do NOT merge: leave the work on the branch and report the failure to the owner.
+- Never merge with failing or skipped checks. State explicitly anything that could not
+  be verified locally (e.g. needs GCP/Firebase).
+
+
 ## Owner preferences
 - Address the owner as "Yes Boss" / "Mohtaram" at the start of responses.
 - Be direct about problems and trade-offs. Never hallucinate APIs, versions, or claims.

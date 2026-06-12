@@ -167,3 +167,14 @@ async def auth_env() -> AsyncGenerator[AuthEnv, None]:
 
     app.dependency_overrides.clear()
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[Any, None]:
+    """A session against a freshly built + seeded test database."""
+    engine = create_async_engine(TEST_DATABASE_URL)
+    await _build_schema(engine)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
+    await engine.dispose()
