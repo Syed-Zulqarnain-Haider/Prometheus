@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StoreLinkIcon } from "@/components/ui/store-link-icon";
 import { useTable } from "@/lib/api-hooks";
 import { num } from "@/lib/chart-helpers";
 import type { Filters } from "@/lib/filters";
@@ -52,12 +53,18 @@ export function TopAppsTable({ filters }: { filters: Filters }) {
               return (
                 <tr key={key} className="border-b border-border-faint hover:bg-accent">
                   <td className="px-4 py-2">
-                    <Link
-                      href={`/apps/${encodeURIComponent(key)}`}
-                      className="font-medium text-[color:var(--color-accent)] hover:underline"
-                    >
-                      {String(row.app_name ?? key)}
-                    </Link>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Link
+                        href={`/apps/${encodeURIComponent(key)}`}
+                        className="font-medium text-[color:var(--color-accent)] hover:underline"
+                      >
+                        {String(row.app_name ?? key)}
+                      </Link>
+                      <StoreLinkIcon
+                        androidPackage={row.android_package as string | null}
+                        appleId={row.apple_id as number | null}
+                      />
+                    </span>
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatUSD(revenue)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatUSD(spend)}</td>

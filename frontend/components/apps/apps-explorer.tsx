@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StoreLinkIcon } from "@/components/ui/store-link-icon";
 import { useTableInfinite } from "@/lib/api-hooks";
 import type { Filters } from "@/lib/filters";
 import { formatNumber, formatUSD } from "@/lib/format";
@@ -67,14 +68,20 @@ function buildColumns(available: Set<string>): ColumnDef<AppRow>[] {
     header: c.label,
     enableSorting: c.sortable,
     enableHiding: c.key !== "app_name",
-    cell: ({ getValue }) => {
+    cell: ({ getValue, row }) => {
       const value = getValue() as number | string | null;
       if (c.kind === "usd") return formatUSD(typeof value === "number" ? value : null);
       if (c.kind === "number") return formatNumber(typeof value === "number" ? value : null);
       if (c.kind === "app") {
         return (
-          <span className="font-medium text-[color:var(--color-accent)]">
-            {String(value ?? "—")}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="font-medium text-[color:var(--color-accent)]">
+              {String(value ?? "—")}
+            </span>
+            <StoreLinkIcon
+              androidPackage={row.original.android_package as string | null}
+              appleId={row.original.apple_id as number | null}
+            />
           </span>
         );
       }

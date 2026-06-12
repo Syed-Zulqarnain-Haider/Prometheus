@@ -38,6 +38,9 @@ def _app_payload(app: DimApp) -> dict[str, Any]:
         "app_category": app.app_category,
         "ownership_type": app.ownership_type,
         "is_mapped": app.is_mapped,
+        "apple_id": app.apple_id,
+        "android_package": app.android_package,
+        "ios_bundle_id": app.ios_bundle_id,
     }
 
 

@@ -2,10 +2,11 @@
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
-import { apiFetch, buildQuery } from "@/lib/api-client";
+import { ApiError, apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { type Filters, filtersToApiQuery } from "@/lib/filters";
 import type {
+  AppDetail,
   AppsResponse,
   BreakdownResponse,
   Bucket,
@@ -34,6 +35,18 @@ export function useApps() {
     queryFn: () => apiFetch<AppsResponse>("/api/v1/apps"),
     enabled: Boolean(user),
     staleTime: 30 * 60 * 1000,
+  });
+}
+
+export function useAppDetail(canonicalKey: string) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["app-detail", canonicalKey],
+    queryFn: () =>
+      apiFetch<AppDetail>(`/api/v1/apps/${encodeURIComponent(canonicalKey)}`),
+    enabled: Boolean(user) && Boolean(canonicalKey),
+    retry: (count, error) =>
+      !(error instanceof ApiError && error.status === 404) && count < 1,
   });
 }
 

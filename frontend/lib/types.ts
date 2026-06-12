@@ -21,6 +21,21 @@ export interface AppsResponse {
   apps: AppListItem[];
 }
 
+export interface AppDetail {
+  canonical_key: string;
+  app_name: string | null;
+  publisher: string | null;
+  pod: string | null;
+  pod_owner: string | null;
+  hou: string | null;
+  app_category: string | null;
+  ownership_type: string | null;
+  is_mapped: boolean | null;
+  apple_id: number | null;
+  android_package: string | null;
+  ios_bundle_id: string | null;
+}
+
 export interface Freshness {
   bq_built_at: string | null;
   last_status: string | null;
