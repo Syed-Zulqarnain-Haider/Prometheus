@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from app.services.auth import (
 
 
 async def get_user_context(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
     cache: Annotated[Redis, Depends(get_redis)],
@@ -54,7 +55,9 @@ async def get_user_context(
     cache_key = user_context_cache_key(firebase_uid)
     cached = await cache.get(cache_key)
     if cached is not None:
-        return UserContext.model_validate_json(cached)
+        cached_context = UserContext.model_validate_json(cached)
+        request.state.user_context = cached_context
+        return cached_context
 
     context = await resolve_user_context(db, firebase_uid)
     if context is None:
@@ -66,6 +69,7 @@ async def get_user_context(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
 
     await cache.set(cache_key, context.model_dump_json(), ex=USER_CONTEXT_TTL_SECONDS)
+    request.state.user_context = context
     return context
 
 

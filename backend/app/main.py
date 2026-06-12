@@ -15,12 +15,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.middleware import audit_query_middleware
 from app.api.v1 import auth as auth_routes
 from app.core.config import get_settings
+from app.core.database import AsyncSessionLocal
 
 settings = get_settings()
 
 app = FastAPI(title=settings.project_name)
+
+# Session factory used by the audit middleware (overridable in tests).
+app.state.sessionmaker = AsyncSessionLocal
+
+# Audit api_query for data routes (added before CORS so it wraps the response).
+app.middleware("http")(audit_query_middleware)
 
 # CORS: exact frontend origins only (never "*"); configured via env.
 app.add_middleware(
