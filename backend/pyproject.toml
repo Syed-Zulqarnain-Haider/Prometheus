@@ -24,6 +24,16 @@ dev = [
     "httpx>=0.27",
 ]
 
+# Flat layout (app/, alembic/, tests/, scripts/ are siblings), so tell setuptools
+# the importable package is `app` (and its subpackages). Without this a fresh
+# `pip install .` fails with "Multiple top-level packages discovered".
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

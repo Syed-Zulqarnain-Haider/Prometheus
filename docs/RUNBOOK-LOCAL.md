@@ -47,6 +47,10 @@ node --version        # v20.x
 docker --version      # only if you installed Docker
 ```
 
+> If `python --version` says "command not found", use the Windows launcher instead:
+> run `py -3.12 --version`, and wherever this guide says `python`, use `py -3.12`
+> (e.g. `py -3.12 -m venv .venv`).
+
 ---
 
 ## 2. Get the code
@@ -89,7 +93,10 @@ Your connection values for later:
    (start from Neon's string, put `+asyncpg` after `postgresql`, and end with
    `?ssl=require`). That's your `DATABASE_URL`.
 2. **Redis on Upstash** — sign up at https://upstash.com (free). Create a Redis
-   database; copy the **"redis://" URL** (not the REST one). That's your `REDIS_URL`.
+   database; copy the connection URL (not the REST one). **It must start with
+   `rediss://`** (two s's — that's the TLS/secure form Upstash requires). If you paste
+   a plain `redis://` URL the backend fails with "Connection closed by server"; just
+   change `redis://` to `rediss://`. That's your `REDIS_URL`.
 
 ---
 
@@ -113,6 +120,11 @@ The dashboard signs you in with Firebase. You need two things from Firebase: the
    Generate new private key → Generate key**. A `.json` file downloads. **Move it
    OUTSIDE the repo**, e.g. to `C:/Users/you/keys/prometheus-admin.json`.
    **Never put this file in the project folder or commit it.**
+   > ⚠️ **Windows hides known extensions.** If "File name extensions" is off in
+   > File Explorer and you rename the file, you can end up with a hidden double
+   > extension like `prometheus-admin.json.json`. The backend then can't find the
+   > key and **every login fails with 401**. Turn on **View → File name extensions**
+   > and confirm the file is exactly `…admin.json` (one `.json`).
 
 ---
 
@@ -180,6 +192,10 @@ npm install
 cp .env.example .env.local
 ```
 
+> `npm install` may print a few "vulnerabilities" notices — that's normal for a dev
+> setup. **Do NOT run `npm audit fix --force`** (npm even suggests it): the `--force`
+> flag upgrades packages across major versions and will break the build. Ignore it.
+
 Open `frontend/.env.local` in Notepad and fill in the **web config** from §4‑4:
 
 ```
@@ -234,9 +250,24 @@ badge.
 
 - Stop a server: click its Git Bash window and press **Ctrl+C**.
 - Stop the database/cache: `docker compose down` (add `-v` to also wipe the data).
-- Next time: `docker compose up -d`, then in backend `source .venv/Scripts/activate`
-  and `uvicorn app.main:app --port 8000 --reload`, and in frontend `npm run dev`.
-  (You only seed/migrate again if you wiped the database.)
+
+### Restarting the backend properly (important)
+
+A **new** Git Bash window forgets the virtual environment **and** the
+`GOOGLE_APPLICATION_CREDENTIALS` setting. If you just run `uvicorn …` in a fresh
+window, the server starts but **login silently fails (401)** because it can no longer
+verify Firebase tokens. Always run the **full four steps** in the backend window:
+
+```bash
+cd ~/Prometheus/backend
+source .venv/Scripts/activate
+export GOOGLE_APPLICATION_CREDENTIALS="C:/Users/you/keys/prometheus-admin.json"
+uvicorn app.main:app --port 8000 --reload
+```
+
+So a normal next-time startup is: `docker compose up -d` (if you use Docker) → the
+four backend steps above → in the frontend window `npm run dev`. You only re-run
+`alembic upgrade head` / the seed scripts if you wiped the database.
 
 ---
 
@@ -249,7 +280,13 @@ badge.
 | Page loads but everything says "—" / empty | You're logged in as a non‑admin, or seeding didn't run. Re‑run `scripts/seed_local.py` and `scripts/create_admin.py`. |
 | CORS error in the browser console | `CORS_ORIGINS` in `backend/.env` must be exactly `http://localhost:3000`. Restart the backend. |
 | `source .venv/bin/activate` not found | On Windows it's `source .venv/Scripts/activate`. |
+| `python` not found | Use the launcher: `py -3.12` (e.g. `py -3.12 -m venv .venv`). |
 | Neon connection fails | Ensure the URL is `postgresql+asyncpg://…?ssl=require` (with `+asyncpg` and `?ssl=require`). |
+| Upstash "Connection closed by server" | The Redis URL must be `rediss://` (TLS), not `redis://`. |
+| Login worked, now 401 after restarting | New window lost `GOOGLE_APPLICATION_CREDENTIALS`. Re‑`export` it before `uvicorn` (see §8). |
+| 401 even with the right UID | The key file may be `…json.json` (hidden double extension). Turn on File name extensions and rename to a single `.json`. |
+| `create_admin.py` errors with "UniqueViolation" | Fixed — re‑pull. The script now updates the existing email's UID instead of crashing. |
+| npm "vulnerabilities" warning | Normal — **do not** run `npm audit fix --force` (it breaks the build). |
 
 ---
 
