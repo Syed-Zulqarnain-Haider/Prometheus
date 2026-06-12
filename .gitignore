@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────
+# Prometheus Performance Dashboard — .gitignore
+# Python (backend, sync) + Node (frontend) + environment/secrets
+# ─────────────────────────────────────────────────────────────
+
+# ── Secrets & environment (NEVER commit — .env.example is the ONLY exception) ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-key.json
+*credentials*.json
+service-account*.json
+secrets/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+# NOTE: bare `lib/`, `build/`, `dist/` are intentionally NOT ignored here —
+# the frontend keeps source in `frontend/lib/`. Python build artifacts are
+# covered by the venv ignores below + path-anchored entries.
+/build/
+develop-eggs/
+/dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing / coverage / type-checking caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# ── Node / Next.js (frontend) ──
+node_modules/
+.npm/
+.pnp.*
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js build output
+.next/
+out/
+
+# Vercel
+.vercel/
+
+# Frontend testing / coverage
+coverage/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Editors / OS ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Logs & temp ──
+*.log
+logs/
+tmp/
+*.tmp
