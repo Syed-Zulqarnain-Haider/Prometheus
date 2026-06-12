@@ -1,10 +1,12 @@
-import { PageHeader } from "@/components/layout/page-header";
+import { Suspense } from "react";
+
+import { StoreClient } from "@/components/store/store-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function StorePage() {
   return (
-    <PageHeader
-      title="Store Performance"
-      description="Installs, organic share, and uninstalls. Charts arrive in a later step."
-    />
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <StoreClient />
+    </Suspense>
   );
 }

@@ -1,9 +1,10 @@
 """Seed the local Postgres with sample fact data for a first run (no BigQuery).
 
 Creates the sync-owned ``fact_daily_performance`` table (from the metric registry),
-fills ~60 days of realistic sample rows across a few apps/pods/publishers/platforms,
-refreshes ``dim_app``, and records a successful ``sync_runs`` row so the freshness
-banner shows green. Run from the ``backend`` directory:
+fills ~60 days of realistic sample rows across a few apps/pods/publishers/platforms —
+populating store, per-network UA (spend/impressions/clicks/engagement), ad-network,
+and IAP-breakdown columns so every dashboard page demos with sample data — refreshes
+``dim_app``, and records a successful ``sync_runs`` row. Idempotent / re-runnable.
 
     PYTHONPATH=. python scripts/seed_local.py
 """
@@ -32,16 +33,60 @@ SAMPLE_APPS = [
 DAYS = 60
 
 
+def _impr_clicks(installs: int) -> tuple[int, int]:
+    impressions = int(installs * random.uniform(180, 360))
+    clicks = int(impressions * random.uniform(0.012, 0.05))
+    return impressions, clicks
+
+
 def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, object]:
     key, name, publisher, pod, pod_owner, hou, platform = app
     base = random.uniform(0.6, 1.4)
-    spend = round(random.uniform(2_000, 9_000) * base, 2)
-    iap_net = round(random.uniform(3_000, 14_000) * base, 2)
+    android = platform == "android"
+
+    # ── UA spend split across networks (FB / Google / Mintegral) ─────────────
+    total_spend = round(random.uniform(2_000, 9_000) * base, 2)
+    fb_spend = round(total_spend * 0.50, 2)
+    gads_spend = round(total_spend * 0.35, 2)
+    mint_spend = round(total_spend - fb_spend - gads_spend, 2)
+
+    fb_installs = int(fb_spend / random.uniform(1.5, 3.0))
+    gads_installs = int(gads_spend / random.uniform(1.2, 2.5))
+    mint_installs = int(mint_spend / random.uniform(0.8, 1.8))
+    total_paid = fb_installs + gads_installs + mint_installs
+
+    fb_impr, fb_clicks = _impr_clicks(fb_installs)
+    gads_impr, gads_clicks = _impr_clicks(gads_installs)
+    mint_impr, mint_clicks = _impr_clicks(mint_installs)
+
+    fb_purchases = int(fb_installs * random.uniform(0.05, 0.2))
+    fb_purchase_value = round(fb_purchases * random.uniform(2, 8), 2)
+    gads_conversions = round(gads_installs * random.uniform(0.1, 0.4), 2)
+    gads_conversions_value = round(gads_conversions * random.uniform(3, 9), 2)
+
+    # ── Store installs ────────────────────────────────────────────────────────
+    organic = int(random.uniform(150, 900) * base)
+    total_store = total_paid + organic
+    redownloads = int(total_store * random.uniform(0.10, 0.25))
+    first_time = total_store - redownloads
+    gp_uninstalls = int(total_store * random.uniform(0.05, 0.15)) if android else 0
+    apple_restores = 0 if android else int(total_store * random.uniform(0.02, 0.08))
+
+    # ── Ad revenue + impressions (eCPM = rev / impr * 1000) ──────────────────
     ad = round(random.uniform(800, 4_000) * base, 2)
-    revenue = round(iap_net + ad, 2)
-    paid_installs = int(random.uniform(400, 2_400) * base)
-    organic = int(paid_installs * random.uniform(0.3, 1.1))
-    total_installs = paid_installs + organic
+    admob_rev = round(ad * 0.6, 2)
+    applovin_rev = round(ad * 0.4, 2)
+    admob_impr = int(admob_rev / random.uniform(8, 20) * 1000)
+    applovin_impr = int(applovin_rev / random.uniform(6, 16) * 1000)
+
+    # ── IAP breakdown: gross → refunds → fees → net (by platform) ────────────
+    gross = round(random.uniform(4_000, 16_000) * base, 2)
+    refunds = round(gross * random.uniform(0.02, 0.06), 2)
+    fees = round((gross - refunds) * 0.30, 2)
+    net = round(gross - refunds - fees, 2)
+
+    revenue = round(net + ad, 2)
+
     return {
         "date": day,
         "platform": platform,
@@ -54,17 +99,54 @@ def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, 
         "pod_owner": pod_owner,
         "hou": hou,
         "is_mapped": True,
-        "store_total_installs": total_installs,
+        # store
+        "store_first_time_installs": first_time,
+        "store_redownloads": redownloads,
+        "store_total_installs": total_store,
         "store_organic_installs": organic,
-        "total_paid_installs": float(paid_installs),
-        "total_ua_spend_usd": spend,
-        "total_iap_gross_usd": round(iap_net * 1.3, 2),
-        "total_iap_net_usd": iap_net,
+        "gp_uninstalls": gp_uninstalls,
+        "apple_restores": apple_restores,
+        # paid UA installs
+        "fb_paid_installs": fb_installs,
+        "gads_paid_installs": float(gads_installs),
+        "mint_adv_paid_installs": mint_installs,
+        "total_paid_installs": float(total_paid),
+        # UA spend + engagement
+        "fb_spend_usd": fb_spend,
+        "fb_impressions": fb_impr,
+        "fb_clicks": fb_clicks,
+        "fb_purchases": fb_purchases,
+        "fb_purchase_value": fb_purchase_value,
+        "gads_spend_usd": gads_spend,
+        "gads_impressions": gads_impr,
+        "gads_clicks": gads_clicks,
+        "gads_conversions": gads_conversions,
+        "gads_conversions_value": gads_conversions_value,
+        "mint_adv_spend_usd": mint_spend,
+        "mint_adv_impressions": mint_impr,
+        "mint_adv_clicks": mint_clicks,
+        "total_ua_spend_usd": round(fb_spend + gads_spend + mint_spend, 2),
+        # ad revenue
+        "admob_revenue_usd": admob_rev,
+        "admob_impressions": admob_impr,
+        "applovin_revenue_usd": applovin_rev,
+        "applovin_impressions": applovin_impr,
         "total_ad_revenue_usd": ad,
-        "admob_revenue_usd": round(ad * 0.6, 2),
-        "applovin_revenue_usd": round(ad * 0.4, 2),
+        # IAP (per platform) + totals
+        "gp_iap_gross_usd": gross if android else 0,
+        "gp_iap_refunds_usd": refunds if android else 0,
+        "gp_google_fee_usd": fees if android else 0,
+        "gp_iap_net_usd": net if android else 0,
+        "apple_iap_gross_usd": 0 if android else gross,
+        "apple_iap_refunds_usd": 0 if android else refunds,
+        "apple_fee_usd": 0 if android else fees,
+        "apple_iap_net_usd": 0 if android else net,
+        "apple_iap_purchases": 0 if android else fb_purchases,
+        "total_iap_gross_usd": gross,
+        "total_iap_net_usd": net,
+        # headline
         "total_revenue_usd": revenue,
-        "profit_usd": round(revenue - spend, 2),
+        "profit_usd": round(revenue - round(fb_spend + gads_spend + mint_spend, 2), 2),
     }
 
 
