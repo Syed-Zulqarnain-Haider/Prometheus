@@ -1,10 +1,12 @@
-import { PageHeader } from "@/components/layout/page-header";
+import { Suspense } from "react";
+
+import { UaClient } from "@/components/ua/ua-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function UaPage() {
   return (
-    <PageHeader
-      title="UA / Marketing"
-      description="Spend, CPI, and CTR by network. Charts arrive in a later step."
-    />
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <UaClient />
+    </Suspense>
   );
 }
