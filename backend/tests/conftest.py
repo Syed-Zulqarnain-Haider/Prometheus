@@ -7,6 +7,7 @@ database (schema + seed data), a fake Redis cache, and a fake token verifier
 """
 
 import os
+import uuid as uuid_module
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
@@ -24,7 +25,7 @@ TEST_DATABASE_URL = os.environ.setdefault(
 import pytest_asyncio  # noqa: E402
 from app.models import Base  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import insert, text  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
     async_sessionmaker,
@@ -191,6 +192,191 @@ async def db_sessionmaker() -> AsyncGenerator[async_sessionmaker[Any], None]:
     engine = create_async_engine(TEST_DATABASE_URL)
     await _build_schema(engine)
     yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
+
+
+REDIS_TEST_URL = os.environ.setdefault("REDIS_TEST_URL", "redis://127.0.0.1:6390/0")
+
+METRICS_ROLES = ["admin", "executive", "pod_owner", "marketing", "finance", "viewer"]
+_METRICS_NS = uuid_module.UUID("00000000-0000-0000-0000-0000000000bb")
+METRICS_TOKENS: dict[str, dict[str, Any]] = {
+    f"valid-{role}": {"uid": f"{role}-uid"} for role in METRICS_ROLES
+}
+METRICS_TOKENS["valid-pod_owner_scoped"] = {"uid": "pod_owner_scoped-uid"}
+
+
+def _metrics_uid(name: str) -> str:
+    return str(uuid_module.uuid5(_METRICS_NS, name))
+
+
+@dataclass
+class MetricsEnv:
+    client: AsyncClient
+    sessionmaker: async_sessionmaker[Any]
+    redis: Any
+
+
+async def _seed_metrics_fact(session: Any) -> None:
+    from datetime import date
+
+    from app.core.fact_table import FACT_TABLE
+
+    rows: list[dict[str, Any]] = [
+        # appA / POD_A: two days → totals rev=1000, spend=250, paid=100, installs=100
+        {
+            "date": date(2026, 6, 1),
+            "canonical_key": "appA",
+            "pod": "POD_A",
+            "publisher": "PubA",
+            "store_total_installs": 40,
+            "total_revenue_usd": 600,
+            "total_ua_spend_usd": 100,
+            "total_ad_revenue_usd": 50,
+            "total_paid_installs": 40,
+        },
+        {
+            "date": date(2026, 6, 2),
+            "canonical_key": "appA",
+            "pod": "POD_A",
+            "publisher": "PubA",
+            "store_total_installs": 60,
+            "total_revenue_usd": 400,
+            "total_ua_spend_usd": 150,
+            "total_ad_revenue_usd": 50,
+            "total_paid_installs": 60,
+        },
+        # appB / POD_B
+        {
+            "date": date(2026, 6, 1),
+            "canonical_key": "appB",
+            "pod": "POD_B",
+            "publisher": "PubB",
+            "store_total_installs": 7,
+            "total_revenue_usd": 70,
+            "total_ua_spend_usd": 10,
+            "total_ad_revenue_usd": 5,
+            "total_paid_installs": 5,
+        },
+        # appZ / POD_A: zero-denominator case (revenue, no spend/installs)
+        {
+            "date": date(2026, 6, 1),
+            "canonical_key": "appZ",
+            "pod": "POD_A",
+            "publisher": "PubA",
+            "store_total_installs": 0,
+            "total_revenue_usd": 10,
+            "total_ua_spend_usd": 0,
+            "total_ad_revenue_usd": 0,
+            "total_paid_installs": 0,
+        },
+    ]
+    for r in rows:
+        base = {
+            "platform": "ios",
+            "app_name": str(r["canonical_key"]).upper(),
+            "pod_owner": "PO",
+            "hou": "HOU_A",
+        }
+        await session.execute(insert(FACT_TABLE).values(**{**base, **r}))
+
+
+@pytest_asyncio.fixture
+async def metrics_env() -> AsyncGenerator[MetricsEnv, None]:
+    from datetime import UTC, datetime
+
+    import redis.asyncio as aioredis
+    from app.core.database import get_db, get_sessionmaker
+    from app.core.fact_table import fact_metadata
+    from app.core.redis import get_redis
+    from app.core.security import get_token_verifier
+    from app.main import app
+    from app.models import DimApp, SyncRun
+
+    engine = create_async_engine(TEST_DATABASE_URL)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(fact_metadata.drop_all)
+        await conn.run_sync(fact_metadata.create_all)
+    async with engine.begin() as conn:
+        for stmt in (SEED_ROLES, SEED_PERMS, SEED_CAPS):
+            await conn.execute(text(stmt))
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        users = [(role, _metrics_uid(role), f"{role}-uid", "all", None) for role in METRICS_ROLES]
+        users.append(
+            ("pod_owner", _metrics_uid("pod_owner_scoped"), "pod_owner_scoped-uid", "pod", "POD_A")
+        )
+        for role, uid, fb, scope_type, scope_value in users:
+            await session.execute(
+                text(
+                    "INSERT INTO users (id, firebase_uid, email, is_active) "
+                    "VALUES (:id, :fb, :email, true)"
+                ),
+                {"id": uid, "fb": fb, "email": f"{fb}@terafort.org"},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO user_roles (user_id, role_id) SELECT :id, id FROM roles WHERE name=:role"
+                ),
+                {"id": uid, "role": role},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO user_scopes (user_id, scope_type, scope_value) "
+                    "VALUES (:id, :st, :sv)"
+                ),
+                {"id": uid, "st": scope_type, "sv": scope_value},
+            )
+        await _seed_metrics_fact(session)
+        for ck, pod, pub in [
+            ("appA", "POD_A", "PubA"),
+            ("appB", "POD_B", "PubB"),
+            ("appZ", "POD_A", "PubA"),
+        ]:
+            await session.execute(
+                insert(DimApp).values(
+                    canonical_key=ck,
+                    app_name=ck.upper(),
+                    publisher=pub,
+                    pod=pod,
+                    pod_owner="PO",
+                    hou="HOU_A",
+                    is_mapped=True,
+                )
+            )
+        await session.execute(
+            insert(SyncRun).values(
+                status="success",
+                bq_built_at=datetime(2026, 6, 2, 6, 0, tzinfo=UTC),
+                finished_at=datetime(2026, 6, 2, 6, 5, tzinfo=UTC),
+                rows_loaded=100,
+            )
+        )
+        await session.commit()
+
+    redis_client = aioredis.from_url(REDIS_TEST_URL, decode_responses=True)
+    await redis_client.flushdb()
+
+    async def _override_get_db() -> AsyncGenerator[Any, None]:
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_sessionmaker] = lambda: session_factory
+    app.dependency_overrides[get_redis] = lambda: redis_client
+    app.dependency_overrides[get_token_verifier] = lambda: FakeVerifier(METRICS_TOKENS)
+    previous_sessionmaker = app.state.sessionmaker
+    app.state.sessionmaker = session_factory
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield MetricsEnv(client=client, sessionmaker=session_factory, redis=redis_client)
+
+    app.dependency_overrides.clear()
+    app.state.sessionmaker = previous_sessionmaker
+    await redis_client.aclose()
     await engine.dispose()
 
 
