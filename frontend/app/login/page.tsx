@@ -35,7 +35,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+    <main className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
         <div className="mb-6 space-y-1 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Prometheus</h1>
