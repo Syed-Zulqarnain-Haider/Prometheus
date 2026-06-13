@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { previousWindow } from "@/lib/compare";
 import { type Filters, filtersToApiQuery } from "@/lib/filters";
 import type {
   AppDetail,
@@ -70,6 +71,26 @@ export function useTimeseries(filters: Filters, metrics: string[], bucket: Bucke
     queryFn: () =>
       apiFetch<TimeseriesResponse>(`/api/v1/metrics/timeseries${buildQuery(params)}`),
     enabled: Boolean(user) && metrics.length > 0,
+    staleTime: AGG_STALE,
+  });
+}
+
+/** Previous-period timeseries (date-shifted window), only fetched in Compare mode.
+ *  Used for the dashed "ghost" overlays. */
+export function usePreviousTimeseries(
+  filters: Filters,
+  metrics: string[],
+  bucket: Bucket,
+) {
+  const { user } = useAuth();
+  const prev = previousWindow(filters.dateFrom, filters.dateTo);
+  const shifted = { ...filters, dateFrom: prev.from, dateTo: prev.to, compare: false };
+  const params = { ...filtersToApiQuery(shifted), metrics, bucket };
+  return useQuery({
+    queryKey: ["timeseries-prev", params],
+    queryFn: () =>
+      apiFetch<TimeseriesResponse>(`/api/v1/metrics/timeseries${buildQuery(params)}`),
+    enabled: Boolean(user) && metrics.length > 0 && filters.compare,
     staleTime: AGG_STALE,
   });
 }

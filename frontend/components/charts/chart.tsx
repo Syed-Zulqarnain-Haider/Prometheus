@@ -2,7 +2,7 @@
 
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { type EChartsOption, echarts } from "@/lib/echarts";
@@ -31,23 +31,6 @@ export interface EChartsClickParams {
   seriesName?: string;
 }
 
-function ChartFrame({
-  height,
-  children,
-}: {
-  height: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="flex w-full items-center justify-center text-sm text-muted-foreground"
-      style={{ height }}
-    >
-      {children}
-    </div>
-  );
-}
-
 export function Chart({
   option,
   loading = false,
@@ -58,44 +41,66 @@ export function Chart({
   errorMessage = "Failed to load chart",
   onEvents,
 }: ChartProps) {
-  // Register/refresh the theme whenever the dark/light mode changes.
   const { resolvedTheme } = useTheme();
   const [themeVersion, setThemeVersion] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReactEChartsCore>(null);
 
+  // Re-register the theme whenever the dark/light mode changes.
   useEffect(() => {
     echarts.registerTheme(ECHARTS_THEME_NAME, buildEChartsTheme(readChartTokens()));
     setThemeVersion((v) => v + 1);
   }, [resolvedTheme]);
 
+  // Keep the chart sized to its container — ECharts only auto-handles WINDOW
+  // resizes, so a chart that inits inside a not-yet-laid-out grid/flex cell can
+  // render blank until its container later gets a width. A ResizeObserver fixes
+  // that (and dynamic layout changes) for every chart.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      chartRef.current?.getEchartsInstance()?.resize();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  let body: React.ReactNode;
   if (error) {
-    return (
-      <ChartFrame height={height}>
+    body = (
+      <div className="flex h-full w-full items-center justify-center text-sm">
         <span className="text-[color:var(--color-negative)]">{errorMessage}</span>
-      </ChartFrame>
-    );
-  }
-  if (loading) {
-    return (
-      <div style={{ height }}>
-        <Skeleton className="h-full w-full" />
       </div>
     );
-  }
-  if (isEmpty) {
-    return <ChartFrame height={height}>{emptyMessage}</ChartFrame>;
+  } else if (loading) {
+    body = <Skeleton className="h-full w-full" />;
+  } else if (isEmpty) {
+    body = (
+      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+        {emptyMessage}
+      </div>
+    );
+  } else {
+    body = (
+      <ReactEChartsCore
+        ref={chartRef}
+        key={themeVersion}
+        echarts={echarts}
+        option={option}
+        theme={ECHARTS_THEME_NAME}
+        notMerge
+        lazyUpdate
+        style={{ height: "100%", width: "100%" }}
+        opts={{ renderer: "canvas" }}
+        onEvents={onEvents}
+      />
+    );
   }
 
   return (
-    <ReactEChartsCore
-      key={themeVersion}
-      echarts={echarts}
-      option={option}
-      theme={ECHARTS_THEME_NAME}
-      notMerge
-      lazyUpdate
-      style={{ height }}
-      opts={{ renderer: "canvas" }}
-      onEvents={onEvents}
-    />
+    <div ref={containerRef} style={{ height, width: "100%" }}>
+      {body}
+    </div>
   );
 }
