@@ -40,7 +40,17 @@ export function PublisherTable({ filters }: { filters: Filters }) {
                   </td>
                 </tr>
               ))}
-            {!breakdown.isLoading && rows.length === 0 && (
+            {!breakdown.isLoading && breakdown.isError && (
+              <tr>
+                <td
+                  className="px-4 py-6 text-center text-[color:var(--color-negative)]"
+                  colSpan={4}
+                >
+                  Couldn&apos;t load this table — please retry.
+                </td>
+              </tr>
+            )}
+            {!breakdown.isLoading && !breakdown.isError && rows.length === 0 && (
               <tr>
                 <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
                   No data for the selected filters

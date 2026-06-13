@@ -38,7 +38,17 @@ export function TopAppsTable({ filters }: { filters: Filters }) {
                   </td>
                 </tr>
               ))}
-            {!table.isLoading && rows.length === 0 && (
+            {!table.isLoading && table.isError && (
+              <tr>
+                <td
+                  className="px-4 py-6 text-center text-[color:var(--color-negative)]"
+                  colSpan={4}
+                >
+                  Couldn&apos;t load this table — please retry.
+                </td>
+              </tr>
+            )}
+            {!table.isLoading && !table.isError && rows.length === 0 && (
               <tr>
                 <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
                   No data for the selected filters
