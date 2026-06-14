@@ -144,6 +144,11 @@ pip install ".[dev]"
 cp .env.example .env
 ```
 
+> **After pulling new code, re‑run `pip install ".[dev]"`.** New runtime
+> dependencies (e.g. `openpyxl` for XLSX export, added in Step 6) only land in an
+> existing venv when you reinstall — otherwise that feature 500s with
+> `ModuleNotFoundError` even though the dependency is declared.
+
 Open `backend/.env` in Notepad and set these three lines (use your §3 values):
 
 ```

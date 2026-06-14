@@ -13,6 +13,9 @@ dependencies = [
     "pydantic-settings>=2.3",
     "redis>=5.0",
     "firebase-admin>=6.5",
+    # Runtime dependency (NOT optional): the XLSX export writer in
+    # services/reports_service.build_xlsx imports openpyxl. Keep it here so
+    # production images and fresh installs (`pip install .`) always include it.
     "openpyxl>=3.1",
 ]
 
