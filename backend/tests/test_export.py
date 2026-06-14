@@ -54,6 +54,22 @@ async def test_xlsx_export(metrics_env: MetricsEnv) -> None:
     # XLSX files are zip archives — they start with the PK magic bytes.
     assert resp.content[:2] == b"PK"
 
+    # Round-trip through openpyxl (the writer's own dependency) to prove the file
+    # is a real workbook, not just bytes that happen to start with PK. This also
+    # fails loudly if openpyxl is ever missing from the install (Finding #14).
+    import io
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(resp.content))
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    header = rows[0]
+    assert "store_total_installs" in header
+    assert "total_revenue_usd" in header
+    # Seeded data has appA among the grouped rows.
+    assert any("appA" in [str(cell) for cell in row] for row in rows[1:])
+
 
 async def test_gsheet_not_enabled(metrics_env: MetricsEnv) -> None:
     resp = await metrics_env.client.post(
