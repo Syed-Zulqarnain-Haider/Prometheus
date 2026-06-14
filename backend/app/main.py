@@ -7,6 +7,7 @@ later build steps.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -26,13 +27,25 @@ from app.api.v1 import reports as reports_routes
 from app.api.v1 import views as views_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.security_headers import build_security_headers_middleware
+
+logger = logging.getLogger("app.main")
 
 settings = get_settings()
+_is_production = settings.env.lower() in ("production", "prod")
+
+# Fail loudly (in logs) on a misconfigured prod deploy rather than silently
+# serving with no allowed origins — every browser request would then break.
+if _is_production and not settings.cors_origin_list:
+    logger.error("CORS_ORIGINS is empty in production — the frontend will be blocked.")
 
 app = FastAPI(title=settings.project_name)
 
 # Session factory used by the audit middleware (overridable in tests).
 app.state.sessionmaker = AsyncSessionLocal
+
+# Security headers on every response (HSTS only in production, where TLS exists).
+app.middleware("http")(build_security_headers_middleware(enable_hsts=_is_production))
 
 # Audit api_query for data routes (added before CORS so it wraps the response).
 app.middleware("http")(audit_query_middleware)
