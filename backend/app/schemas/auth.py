@@ -14,6 +14,14 @@ class ScopeOut(BaseModel):
     scope_value: str | None = None
 
 
+class DirectoryEntry(BaseModel):
+    """A minimal directory record used to pick report-share recipients."""
+
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None = None
+
+
 class UserContext(BaseModel):
     """The resolved identity + RBAC for the authenticated caller.
 

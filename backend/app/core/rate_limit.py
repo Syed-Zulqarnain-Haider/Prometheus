@@ -2,7 +2,8 @@
 
 A sorted set per user holds one entry per request, scored by timestamp. On each
 request we drop entries older than the window, count what remains, and reject with
-429 + Retry-After if the limit is reached. Default: 120 requests / 60s (general).
+429 + Retry-After if the limit is reached. Defaults: 300 requests / 60s (general),
+10 / 60s (export).
 """
 
 from __future__ import annotations
@@ -17,21 +18,16 @@ from redis.asyncio import Redis
 from app.api.deps import CurrentUser
 from app.core.redis import get_redis
 
-RATE_LIMIT = 120
+RATE_LIMIT = 300
+EXPORT_RATE_LIMIT = 10
 WINDOW_SECONDS = 60
 
 
-async def enforce_rate_limit(
-    context: CurrentUser,
-    redis: Annotated[Redis, Depends(get_redis)],
-) -> None:
-    """Reject the request with 429 if the caller exceeded their request budget."""
-    key = f"rl:{context.user_id}"
+async def _enforce(redis: Redis, key: str, limit: int) -> None:
     now = time.time()
-
     await redis.zremrangebyscore(key, 0, now - WINDOW_SECONDS)
     count = await redis.zcard(key)
-    if count >= RATE_LIMIT:
+    if count >= limit:
         oldest = await redis.zrange(key, 0, 0, withscores=True)
         retry_after = WINDOW_SECONDS
         if oldest:
@@ -42,6 +38,21 @@ async def enforce_rate_limit(
             "Rate limit exceeded",
             headers={"Retry-After": str(retry_after)},
         )
-
     await redis.zadd(key, {f"{now:.6f}-{uuid.uuid4().hex}": now})
     await redis.expire(key, WINDOW_SECONDS)
+
+
+async def enforce_rate_limit(
+    context: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> None:
+    """Reject the request with 429 if the caller exceeded their general budget."""
+    await _enforce(redis, f"rl:{context.user_id}", RATE_LIMIT)
+
+
+async def enforce_export_rate_limit(
+    context: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> None:
+    """Tighter limit for the export endpoint (10/min)."""
+    await _enforce(redis, f"rl:export:{context.user_id}", EXPORT_RATE_LIMIT)

@@ -59,7 +59,7 @@ class SavedReport(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     filters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    columns: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    columns: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     group_by: Mapped[str] = mapped_column(Text, nullable=False)
     sort: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(

@@ -1,10 +1,14 @@
+import { ReportsClient } from "@/components/reports/reports-client";
 import { PageHeader } from "@/components/layout/page-header";
 
 export default function ReportsPage() {
   return (
-    <PageHeader
-      title="Reports"
-      description="Saved reports, builder, and sharing. Arrives in a later step."
-    />
+    <div>
+      <PageHeader
+        title="Reports"
+        description="Build, save, share, and export reports — always scoped to your access."
+      />
+      <ReportsClient />
+    </div>
   );
 }

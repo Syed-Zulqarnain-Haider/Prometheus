@@ -64,7 +64,7 @@ performance data. ~50 internal users at launch. Data source: BigQuery. Serving: 
   all admin actions — with ip, user_agent, and filter detail JSONB.
 - Exports re-run server-side through the caller's RBAC and are always audit-logged.
   Formats: CSV, XLSX (openpyxl), Google Sheets (Sheets API via user OAuth). NO PDF in v1.
-- Rate limiting: per-user sliding window in Redis (120/min general, 10/min export) + edge.
+- Rate limiting: per-user sliding window in Redis (300/min general, 10/min export) + edge.
 - Error responses: `{"error": {"code": "...", "message": "..."}}` — never stack traces or SQL.
 - CORS: exact frontend origin only (env-configured; .vercel.app during dev).
 

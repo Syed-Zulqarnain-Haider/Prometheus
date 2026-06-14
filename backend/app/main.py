@@ -18,8 +18,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.middleware import audit_query_middleware
 from app.api.v1 import apps as apps_routes
 from app.api.v1 import auth as auth_routes
+from app.api.v1 import export as export_routes
 from app.api.v1 import meta as meta_routes
 from app.api.v1 import metrics as metrics_routes
+from app.api.v1 import reports as reports_routes
+from app.api.v1 import views as views_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 
@@ -103,3 +106,6 @@ app.include_router(auth_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(metrics_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(apps_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(meta_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(views_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(reports_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(export_routes.router, prefix=settings.api_v1_prefix)

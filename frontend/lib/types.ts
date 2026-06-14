@@ -77,3 +77,53 @@ export interface UserContext {
   capabilities: string[];
   scopes: { scope_type: string; scope_value: string | null }[];
 }
+
+/** /auth/directory entry — a share-recipient candidate. */
+export interface DirectoryEntry {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+}
+
+export type ReportGroupBy = "app" | "pod" | "publisher" | "platform" | "hou" | "date";
+export type ExportFormat = "csv" | "xlsx" | "gsheet";
+export type ShareStatus = "pending" | "approved" | "rejected" | "revoked";
+
+export interface SavedView {
+  id: string;
+  name: string;
+  page: string;
+  filters: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedReport {
+  id: string;
+  name: string;
+  description: string | null;
+  filters: Record<string, unknown>;
+  columns: string[];
+  group_by: string;
+  sort: Record<string, unknown> | null;
+  owner_id: string;
+  is_owner: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportRunResult {
+  group_by: string;
+  columns: string[];
+  rows: Record<string, MetricValue>[];
+}
+
+export interface ShareOut {
+  id: string;
+  report_id: string;
+  report_name: string | null;
+  shared_by: string;
+  shared_with: string;
+  status: ShareStatus;
+  created_at: string;
+}

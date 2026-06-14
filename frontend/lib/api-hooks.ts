@@ -1,6 +1,11 @@
 "use client";
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { ApiError, apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -11,10 +16,16 @@ import type {
   AppsResponse,
   BreakdownResponse,
   Bucket,
+  DirectoryEntry,
   Freshness,
+  ReportRunResult,
+  SavedReport,
+  SavedView,
+  ShareOut,
   SummaryResponse,
   TableResponse,
   TimeseriesResponse,
+  UserContext,
 } from "@/lib/types";
 
 const AGG_STALE = 60 * 1000;
@@ -138,5 +149,154 @@ export function useTable(filters: Filters, sort: string, limit = 10) {
       apiFetch<TableResponse>(`/api/v1/metrics/table${buildQuery(params)}`),
     enabled: Boolean(user),
     staleTime: AGG_STALE,
+  });
+}
+
+// ── Identity (RBAC context + share directory) ────────────────────────────────
+export function useMe() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["me"],
+    queryFn: () => apiFetch<UserContext>("/api/v1/auth/me"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDirectory() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["directory"],
+    queryFn: () => apiFetch<DirectoryEntry[]>("/api/v1/auth/directory"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ── Saved views ──────────────────────────────────────────────────────────────
+export interface SavedViewInput {
+  name: string;
+  page: string;
+  filters: Record<string, unknown>;
+}
+
+export function useSavedViews() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["saved-views"],
+    queryFn: () => apiFetch<SavedView[]>("/api/v1/views"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useCreateView() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SavedViewInput) =>
+      apiFetch<SavedView>("/api/v1/views", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["saved-views"] }),
+  });
+}
+
+export function useDeleteView() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/v1/views/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["saved-views"] }),
+  });
+}
+
+// ── Saved reports ─────────────────────────────────────────────────────────────
+export interface SavedReportInput {
+  name: string;
+  description?: string | null;
+  filters: Record<string, unknown>;
+  columns: string[];
+  group_by: string;
+}
+
+export function useSavedReports() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["saved-reports"],
+    queryFn: () => apiFetch<SavedReport[]>("/api/v1/reports"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useSharedReports() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["shared-reports"],
+    queryFn: () => apiFetch<SavedReport[]>("/api/v1/reports/shared-with-me"),
+    enabled: Boolean(user),
+  });
+}
+
+export function usePendingShares(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["pending-shares"],
+    queryFn: () => apiFetch<ShareOut[]>("/api/v1/reports/shares/pending"),
+    enabled: Boolean(user) && enabled,
+  });
+}
+
+export function useCreateReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SavedReportInput) =>
+      apiFetch<SavedReport>("/api/v1/reports", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["saved-reports"] }),
+  });
+}
+
+export function useDeleteReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/v1/reports/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["saved-reports"] }),
+  });
+}
+
+export function useRunReport() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ReportRunResult>(`/api/v1/reports/${id}/run`, { method: "POST" }),
+  });
+}
+
+// ── Sharing lifecycle ─────────────────────────────────────────────────────────
+export function useShareReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reportId, sharedWith }: { reportId: string; sharedWith: string }) =>
+      apiFetch<ShareOut>(`/api/v1/reports/${reportId}/share`, {
+        method: "POST",
+        body: JSON.stringify({ shared_with: sharedWith }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-shares"] }),
+  });
+}
+
+export function useDecideShare(decision: "approve" | "reject") {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shareId: string) =>
+      apiFetch<ShareOut>(`/api/v1/reports/shares/${shareId}/${decision}`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-shares"] });
+      queryClient.invalidateQueries({ queryKey: ["shared-reports"] });
+    },
   });
 }

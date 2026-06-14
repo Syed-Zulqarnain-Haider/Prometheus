@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "redis>=5.0",
     "firebase-admin>=6.5",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,10 @@ disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = ["firebase_admin.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
