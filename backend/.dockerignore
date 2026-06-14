@@ -1,0 +1,16 @@
+# Keep the image small and free of local cruft / secrets.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+scripts/
+.env
+.env.*
+!.env.example
+dump.rdb
+README.md.orig
