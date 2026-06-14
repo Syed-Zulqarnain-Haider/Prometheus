@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { DateRangePicker } from "@/components/filters/date-range-picker";
 import { MultiSelect, type Option } from "@/components/filters/multi-select";
+import { SavedViewsMenu } from "@/components/reports/saved-views-menu";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -97,6 +98,9 @@ export function FilterBar() {
         onChange={(appsSelected) => setFilters({ ...filters, apps: appsSelected })}
         disabled={isLoading}
       />
+      <div className="ml-auto">
+        <SavedViewsMenu />
+      </div>
     </div>
   );
 }

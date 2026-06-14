@@ -54,6 +54,49 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
+/** POST a JSON body and trigger a browser download of the binary response.
+ *  Used for exports — the file is built server-side under the caller's RBAC. */
+export async function apiDownload(
+  path: string,
+  body: unknown,
+  filename: string,
+): Promise<void> {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(await authHeader()),
+  };
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let code = "http_error";
+    let message = response.statusText || "Export failed";
+    try {
+      const errorBody = (await response.json()) as Partial<ApiErrorBody>;
+      if (errorBody.error) {
+        code = errorBody.error.code;
+        message = errorBody.error.message;
+      }
+    } catch {
+      // Non-JSON error body — keep the status text.
+    }
+    throw new ApiError(message, code, response.status);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Build a query string, expanding string arrays into repeated params. */
 export function buildQuery(params: Record<string, string | number | boolean | string[] | null | undefined>): string {
   const search = new URLSearchParams();
