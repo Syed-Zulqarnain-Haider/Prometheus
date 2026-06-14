@@ -15,6 +15,7 @@ from app.models.identity import Role, User, UserRole
 from app.models.operations import AuditLog, SyncRun
 from app.models.rbac import RoleCapability, RoleMetricPermission, UserScope
 from app.models.reports import ReportShare, SavedReport, SavedView
+from app.models.targets import RevenueTarget
 
 __all__ = [
     "Base",
@@ -28,6 +29,7 @@ __all__ = [
     "SavedView",
     "SavedReport",
     "ReportShare",
+    "RevenueTarget",
     "AuditLog",
     "SyncRun",
 ]

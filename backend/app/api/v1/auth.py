@@ -49,6 +49,4 @@ async def directory(context: CurrentUser, db: DbSession) -> list[DirectoryEntry]
         .scalars()
         .all()
     )
-    return [
-        DirectoryEntry(user_id=u.id, email=u.email, display_name=u.display_name) for u in rows
-    ]
+    return [DirectoryEntry(user_id=u.id, email=u.email, display_name=u.display_name) for u in rows]

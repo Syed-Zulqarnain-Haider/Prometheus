@@ -127,3 +127,99 @@ export interface ShareOut {
   status: ShareStatus;
   created_at: string;
 }
+
+// ── Admin ──────────────────────────────────────────────────────────────────
+export type ScopeType = "all" | "hou" | "pod" | "publisher" | "app";
+export type MetricGroup =
+  | "store_installs"
+  | "ua_spend"
+  | "ad_revenue"
+  | "iap_revenue"
+  | "attribution"
+  | "profitability";
+export type Capability = "export" | "share_report" | "admin_panel";
+
+export interface Scope {
+  scope_type: ScopeType;
+  scope_value: string | null;
+}
+
+export interface AdminUser {
+  id: string;
+  firebase_uid: string;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
+  roles: string[];
+  scopes: Scope[];
+  created_at: string;
+}
+
+export interface RoleConfig {
+  id: number;
+  name: string;
+  metric_groups: string[];
+  capabilities: string[];
+}
+
+export interface RevenueTarget {
+  id: string;
+  period_type: "year" | "month";
+  period_year: number;
+  period_month: number | null;
+  target_usd: number;
+  updated_at: string;
+}
+
+export interface TargetsResponse {
+  year: number;
+  annual: RevenueTarget | null;
+  monthly: RevenueTarget[];
+}
+
+export interface AuditEntry {
+  id: number;
+  user_id: string | null;
+  user_email: string | null;
+  action: string;
+  resource: string | null;
+  detail: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface AuditPage {
+  entries: AuditEntry[];
+  next_offset: number | null;
+}
+
+export interface SyncRunOut {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  rows_loaded: number | null;
+  rows_previous: number | null;
+  bq_built_at: string | null;
+  error_detail: string | null;
+}
+
+export interface UnmappedApp {
+  canonical_key: string;
+  app_name: string | null;
+  publisher: string | null;
+  platform_keys: string | null;
+}
+
+export interface DataHealth {
+  bq_built_at: string | null;
+  last_status: string | null;
+  last_run_finished_at: string | null;
+  rows_loaded: number | null;
+  is_stale: boolean;
+  warnings: string[];
+  recent_runs: SyncRunOut[];
+  unmapped_count: number;
+  unmapped_apps: UnmappedApp[];
+}
