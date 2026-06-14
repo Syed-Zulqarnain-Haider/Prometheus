@@ -12,18 +12,24 @@ import { useAuth } from "@/lib/auth-context";
 import { previousWindow } from "@/lib/compare";
 import { type Filters, filtersToApiQuery } from "@/lib/filters";
 import type {
+  AdminUser,
   AppDetail,
   AppsResponse,
+  AuditPage,
   BreakdownResponse,
   Bucket,
+  DataHealth,
   DirectoryEntry,
   Freshness,
   ReportRunResult,
+  RevenueTarget,
+  RoleConfig,
   SavedReport,
   SavedView,
   ShareOut,
   SummaryResponse,
   TableResponse,
+  TargetsResponse,
   TimeseriesResponse,
   UserContext,
 } from "@/lib/types";
@@ -298,5 +304,166 @@ export function useDecideShare(decision: "approve" | "reject") {
       queryClient.invalidateQueries({ queryKey: ["pending-shares"] });
       queryClient.invalidateQueries({ queryKey: ["shared-reports"] });
     },
+  });
+}
+
+// ── Admin: users ──────────────────────────────────────────────────────────────
+export interface ScopeInput {
+  scope_type: string;
+  scope_value: string | null;
+}
+
+export interface UserCreateInput {
+  firebase_uid: string;
+  email: string;
+  display_name?: string | null;
+  roles: string[];
+  scopes: ScopeInput[];
+}
+
+export interface UserUpdateInput {
+  display_name?: string | null;
+  is_active?: boolean;
+  roles?: string[];
+  scopes?: ScopeInput[];
+}
+
+export function useAdminUsers() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => apiFetch<AdminUser[]>("/api/v1/admin/users"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useCreateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UserCreateInput) =>
+      apiFetch<AdminUser>("/api/v1/admin/users", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+}
+
+export function useUpdateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UserUpdateInput }) =>
+      apiFetch<AdminUser>(`/api/v1/admin/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+}
+
+// ── Admin: roles ──────────────────────────────────────────────────────────────
+export function useAdminRoles() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["admin-roles"],
+    queryFn: () => apiFetch<RoleConfig[]>("/api/v1/admin/roles"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useUpdateRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      metricGroups,
+      capabilities,
+    }: {
+      id: number;
+      metricGroups: string[];
+      capabilities: string[];
+    }) =>
+      apiFetch<RoleConfig>(`/api/v1/admin/roles/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ metric_groups: metricGroups, capabilities }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-roles"] }),
+  });
+}
+
+// ── Admin: revenue targets ──────────────────────────────────────────────────
+export function useTargets(year: number) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["targets", year],
+    queryFn: () => apiFetch<TargetsResponse>(`/api/v1/meta/targets?year=${year}`),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export interface TargetInput {
+  period_type: "year" | "month";
+  period_year: number;
+  period_month?: number | null;
+  target_usd: number;
+}
+
+export function useSetTarget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: TargetInput) =>
+      apiFetch<RevenueTarget>("/api/v1/admin/targets", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["targets", variables.period_year] });
+    },
+  });
+}
+
+// ── Admin: audit + data health ──────────────────────────────────────────────
+export interface AuditFilters {
+  action?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function useAudit(filters: AuditFilters) {
+  const { user } = useAuth();
+  const params = {
+    action: filters.action,
+    date_from: filters.date_from,
+    date_to: filters.date_to,
+    limit: filters.limit ?? 50,
+    offset: filters.offset ?? 0,
+  };
+  return useQuery({
+    queryKey: ["audit", params],
+    queryFn: () => apiFetch<AuditPage>(`/api/v1/admin/audit${buildQuery(params)}`),
+    enabled: Boolean(user),
+  });
+}
+
+export function useAuditActions() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["audit-actions"],
+    queryFn: () => apiFetch<string[]>("/api/v1/admin/audit/actions"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDataHealth() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["data-health"],
+    queryFn: () => apiFetch<DataHealth>("/api/v1/admin/data-health"),
+    enabled: Boolean(user),
+    staleTime: 60 * 1000,
   });
 }

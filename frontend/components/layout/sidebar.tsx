@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useMe } from "@/lib/api-hooks";
 import { NAV_ITEMS } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: me } = useMe();
+  const isAdmin = me?.capabilities.includes("admin_panel") ?? false;
+  const items = NAV_ITEMS.filter((item) => !item.requiresAdmin || isAdmin);
 
   return (
     <aside className="hidden w-60 shrink-0 border-r bg-card md:block">
@@ -15,7 +19,7 @@ export function Sidebar() {
         Prometheus
       </div>
       <nav className="space-y-1 p-2">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link

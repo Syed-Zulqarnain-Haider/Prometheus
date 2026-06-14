@@ -56,3 +56,14 @@ export function formatMultiplier(
   if (isNil(value)) return EMPTY;
   return `${value.toFixed(digits)}×`;
 }
+
+/** Localized date-time, e.g. "Jun 14, 2026, 09:40". */
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return EMPTY;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}

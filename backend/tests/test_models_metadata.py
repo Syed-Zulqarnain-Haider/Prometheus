@@ -1,4 +1,4 @@
-"""Verify the ORM metadata faithfully reflects ``sql/postgres/001_init.sql``."""
+"""Verify the ORM metadata faithfully reflects the Postgres schema (001 + 003)."""
 
 from app.models import Base
 
@@ -13,12 +13,13 @@ EXPECTED_TABLES = {
     "saved_views",
     "saved_reports",
     "report_shares",
+    "revenue_targets",
     "audit_log",
     "sync_runs",
 }
 
 
-def test_all_001_tables_registered():
+def test_all_schema_tables_registered():
     assert set(Base.metadata.tables) == EXPECTED_TABLES
 
 
