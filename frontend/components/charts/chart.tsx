@@ -60,7 +60,10 @@ export function Chart({
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
-      chartRef.current?.getEchartsInstance()?.resize();
+      // Guard against a disposed/stale instance: while react-grid-layout drags or
+      // resizes a chart, ResizeObserver can fire after the chart is torn down.
+      const instance = chartRef.current?.getEchartsInstance();
+      if (instance && !instance.isDisposed()) instance.resize();
     });
     observer.observe(el);
     return () => observer.disconnect();
