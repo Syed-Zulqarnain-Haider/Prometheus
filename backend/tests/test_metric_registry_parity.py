@@ -45,6 +45,6 @@ def test_group_enum_matches_sync() -> None:
     assert backend_groups == sync_groups
 
 
-def test_registry_has_78_columns() -> None:
-    # 77 view columns + _built_at system column.
-    assert len(BACKEND_REGISTRY) == 78
+def test_registry_has_79_columns() -> None:
+    # 78 view columns (incl. tech_cost_usd) + _built_at system column.
+    assert len(BACKEND_REGISTRY) == 79

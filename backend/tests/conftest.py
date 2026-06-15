@@ -222,7 +222,8 @@ async def _seed_metrics_fact(session: Any) -> None:
     from app.core.fact_table import FACT_TABLE
 
     rows: list[dict[str, Any]] = [
-        # appA / POD_A: two days → totals rev=1000, spend=250, paid=100, installs=100
+        # appA / POD_A: two days → totals rev=1000, spend=250, paid=100, installs=100,
+        # iap_gross=800, ad=100, tech_cost=30 → net_revenue=750, gross_profit=620.
         {
             "date": date(2026, 6, 1),
             "canonical_key": "appA",
@@ -232,6 +233,8 @@ async def _seed_metrics_fact(session: Any) -> None:
             "total_revenue_usd": 600,
             "total_ua_spend_usd": 100,
             "total_ad_revenue_usd": 50,
+            "total_iap_gross_usd": 500,
+            "tech_cost_usd": 20,
             "total_paid_installs": 40,
         },
         {
@@ -243,6 +246,8 @@ async def _seed_metrics_fact(session: Any) -> None:
             "total_revenue_usd": 400,
             "total_ua_spend_usd": 150,
             "total_ad_revenue_usd": 50,
+            "total_iap_gross_usd": 300,
+            "tech_cost_usd": 10,
             "total_paid_installs": 60,
         },
         # appB / POD_B

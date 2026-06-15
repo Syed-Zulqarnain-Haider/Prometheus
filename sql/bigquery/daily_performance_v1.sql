@@ -39,6 +39,12 @@ SELECT
   -- headline
   total_revenue_usd,
 
+  -- Infra / tech cost per app-day (feeds Gross Profit on the Overview).
+  -- PLACEHOLDER 0 until the data team adds tech_cost_usd to the source table;
+  -- when it lands, replace this line with:  COALESCE(tech_cost_usd, 0) AS tech_cost_usd
+  -- The sync also tolerates this column's absence (defaults to 0) — see sync_job.py.
+  CAST(0 AS FLOAT64) AS tech_cost_usd,
+
   -- Adjust (data flows; NO dashboard features in v1 per requirements)
   adjust_conversions, adjust_attribution, adjust_installs,
   adjust_paid_installs, adjust_organic_installs, adjust_reattributions,
