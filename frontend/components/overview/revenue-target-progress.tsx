@@ -147,7 +147,11 @@ export function RevenueTargetProgress({
         <CardTitle>{resolvedTitle}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
+        {/* Container-responsive (flex-wrap), NOT viewport-gated: the metrics panel
+            sits to the right of the ring whenever the CELL is wide enough, and wraps
+            cleanly below it when narrow — so a narrow react-grid cell never clips or
+            hides it (matches the reference: ring left, three rows right). */}
+        <div className="flex flex-wrap items-center gap-6">
           <div className="relative h-[180px] w-[180px] shrink-0">
             <Chart option={ringOption} height={180} loading={isLoading} error={isError} />
             {!isLoading && !isError && (
@@ -173,7 +177,7 @@ export function RevenueTargetProgress({
             )}
           </div>
 
-          <div className="w-full flex-1 space-y-3">
+          <div className="min-w-[220px] flex-1 space-y-3">
             {isLoading ? (
               <>
                 <Skeleton className="h-6 w-full" />
