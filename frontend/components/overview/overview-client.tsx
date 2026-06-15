@@ -32,7 +32,8 @@ export function OverviewClient() {
   // edit grid render the very same elements, just in a different container.
   const items: Record<OverviewItemId, React.ReactNode> = {
     kpis: <KpiRow filters={filters} />,
-    "revenue-target": <RevenueTargetProgress />,
+    "revenue-target": <RevenueTargetProgress period="year" />,
+    "revenue-target-month": <RevenueTargetProgress period="month" />,
     "donut-year": <RevenueProgress period="year" />,
     trend: <MonthlyTrend filters={filters} />,
     "donut-month": <RevenueProgress period="month" />,
@@ -81,6 +82,7 @@ export function OverviewClient() {
         <div className="space-y-6">
           {items.kpis}
           {items["revenue-target"]}
+          {items["revenue-target-month"]}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
             {items["donut-year"]}
             <div className="lg:col-span-2">{items.trend}</div>
