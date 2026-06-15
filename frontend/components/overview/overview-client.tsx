@@ -75,14 +75,21 @@ export function OverviewClient() {
         // Edit mode: the draggable/resizable grid (default positions = the view below).
         <DashboardGrid items={items} layouts={layouts} onLayoutsChange={setLayouts} />
       ) : (
-        // View mode: the original Overview layout, unchanged — identical to before.
+        // View mode: the default arrangement (mirrors the edit-grid default layout).
         <div className="space-y-6">
           {items.kpis}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Top row, three across: yearly donut | monthly trend | monthly donut.
+              Stacks vertically below lg. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {items["donut-year"]}
+            {items.trend}
             {items["donut-month"]}
           </div>
-          {items.trend}
+          {/* Directly below: the two tables. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {items.publisher}
+            {items["top-apps"]}
+          </div>
           {items.ratios}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items["rev-vs-spend"]}
@@ -91,10 +98,6 @@ export function OverviewClient() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items.platform}
             {items.pod}
-          </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {items.publisher}
-            {items["top-apps"]}
           </div>
         </div>
       )}
