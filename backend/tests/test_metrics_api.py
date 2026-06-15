@@ -67,13 +67,21 @@ async def test_summary_net_revenue_and_gross_profit(metrics_env: MetricsEnv) -> 
     # net_revenue = 1000 - 250 = 750; gross_profit = (800+100) - 250 - 30 = 620.
     response = await metrics_env.client.get(
         "/api/v1/metrics/summary",
-        params={**RANGE, "apps": "appA"},
+        params={**RANGE, "apps": "appA", "compare": "true"},
         headers=_auth("admin"),
     )
-    current = response.json()["current"]
+    body = response.json()
+    current = body["current"]
+    # tech_cost_usd is summed and visible (non-zero), net/gross profit are derived.
     assert current["tech_cost_usd"] == 30.0
+    assert current["tech_cost_usd"] > 0
     assert current["net_revenue_usd"] == 750.0
     assert current["gross_profit_usd"] == 620.0
+    # The derived KPIs must also appear in the previous period (compare on).
+    assert body["previous"] is not None
+    assert "net_revenue_usd" in body["previous"]
+    assert "gross_profit_usd" in body["previous"]
+    assert "tech_cost_usd" in body["previous"]
 
 
 async def test_summary_derived_kpis_respect_rbac(metrics_env: MetricsEnv) -> None:
