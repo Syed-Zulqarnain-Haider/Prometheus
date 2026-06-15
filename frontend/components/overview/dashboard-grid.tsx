@@ -55,7 +55,12 @@ export function DashboardGrid({
           className="h-full overflow-auto rounded-lg ring-1 ring-primary/40 ring-offset-2 ring-offset-background"
           style={{ cursor: "move" }}
         >
-          {items[id]}
+          {/* Disable interactivity on the widget itself while editing: pointer events
+              fall through to the draggable grid item, so ECharts never receives
+              mouse/hover/tooltip events on a chart that react-grid-layout is moving
+              or resizing (which threw "Cannot read 'getRawIndex'"). Charts stay fully
+              interactive in view mode, which renders outside this grid. */}
+          <div className="pointer-events-none h-full select-none">{items[id]}</div>
         </div>
       ))}
     </ResponsiveGridLayout>
