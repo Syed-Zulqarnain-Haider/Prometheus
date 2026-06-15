@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { Chart } from "@/components/charts/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useSummary } from "@/lib/api-hooks";
+import { useSummary, useTargets } from "@/lib/api-hooks";
 import { token } from "@/lib/chart-helpers";
 import type { EChartsOption } from "@/lib/echarts";
 import { defaultFilters, type Filters } from "@/lib/filters";
@@ -42,8 +42,9 @@ const PERIOD_CONFIG: Record<ProgressPeriod, PeriodConfig> = {
   },
   month: {
     revenueLabel: "MTD Revenue",
-    // PLACEHOLDER — 8,333,333 (≈ $100M / 12) is NOT a confirmed monthly target.
-    // Supply the real monthly target via the `target` prop or wire it to data.
+    // FALLBACK only — 8,333,333 (≈ $100M / 12) is used when no admin-set monthly
+    // target exists for the current month. The live monthly target is wired in
+    // MonthlyRevenueTargetProgress (from revenue_targets via /meta/targets).
     defaultTarget: 8_333_333,
     rangeStart: startOfMonth,
     // Last day of the CURRENT month, computed at render so it rolls forward monthly.
@@ -64,6 +65,8 @@ interface RevenueTargetProgressProps {
   /** Revenue override. When omitted, live period-to-date revenue (RBAC-scoped) is used.
    *  Documented placeholder for a static card: 0. */
   revenue?: number;
+  /** Optional muted note under the figures (e.g. surfacing a fallback target). */
+  targetNote?: string;
 }
 
 /** Range from the period start to today, org-wide within the caller's RBAC scope
@@ -98,6 +101,7 @@ export function RevenueTargetProgress({
   targetDate,
   title,
   revenue,
+  targetNote,
 }: RevenueTargetProgressProps) {
   const cfg = PERIOD_CONFIG[period];
   const now = useMemo(() => new Date(), []);
@@ -204,6 +208,9 @@ export function RevenueTargetProgress({
                 <Figure label="Target Date" value={resolvedTargetDate} />
               </>
             )}
+            {targetNote && !isLoading && (
+              <p className="text-[11px] text-muted-foreground">{targetNote}</p>
+            )}
             {rbacDenied && (
               <p className="text-[11px] text-muted-foreground">
                 Revenue is outside your access.
@@ -218,5 +225,30 @@ export function RevenueTargetProgress({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Monthly instance wired to the real admin-set monthly target from `revenue_targets`
+ *  (via `useTargets` → `/api/v1/meta/targets`), the same source the existing
+ *  RevenueProgress donut reads. If no target row exists for the current month, it
+ *  falls back to the component's default and surfaces that with a note — it never
+ *  crashes. The yearly instance is untouched. */
+export function MonthlyRevenueTargetProgress() {
+  const now = useMemo(() => new Date(), []);
+  const { data, isSuccess } = useTargets(now.getFullYear());
+
+  const adminMonthlyTarget = data?.monthly.find(
+    (m) => m.period_month === now.getMonth() + 1,
+  )?.target_usd;
+  // Only surface the fallback once the targets query has resolved (avoid a flash).
+  const usingFallback = isSuccess && adminMonthlyTarget === undefined;
+
+  return (
+    <RevenueTargetProgress
+      period="month"
+      // undefined => the component uses its own monthly fallback target.
+      target={adminMonthlyTarget}
+      targetNote={usingFallback ? "Default target — set this month's target in Admin." : undefined}
+    />
   );
 }
