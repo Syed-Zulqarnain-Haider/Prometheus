@@ -3,11 +3,9 @@ import type { Layout, Layouts } from "react-grid-layout";
 /** Widget ids, in default visual order. Each maps to a wrapped Overview widget. */
 export const OVERVIEW_ITEM_IDS = [
   "kpis",
-  "revenue-target",
-  "revenue-target-month",
   "donut-year",
-  "trend",
   "donut-month",
+  "trend",
   "ratios",
   "rev-vs-spend",
   "composition",
@@ -25,30 +23,27 @@ export const GRID_MARGIN: [number, number] = [16, 16];
 
 // The default desktop arrangement:
 //   row 1: KPI row (full width)
-//   row 2: yearly progress ring (full width)
-//   row 3: monthly progress ring (full width)
-//   row 4: yearly progress donut | monthly progress donut  (ring + 3 rows each)
-//   row 5: monthly trend (full width)
-//   row 6: ROAS/CPI ratio cards (full width)
-//   row 7: revenue-vs-spend | revenue composition
-//   row 8: platform donut | pod donut
-//   row 9: publisher table | top-apps table
+//   row 2: Yearly Progress to Target | Monthly Progress to Target  (ring + 3 rows;
+//          yearly on the left, monthly on the far right)
+//   row 3: monthly trend (full width)
+//   row 4: ROAS/CPI ratio cards (full width)
+//   row 5: revenue-vs-spend | revenue composition
+//   row 6: platform donut | pod donut
+//   row 7: publisher table | top-apps table
 // Heights (h × rowHeight + margins) are tuned to each widget's natural height. The
 // progress donuts are half-width (w6) so their ring + 3-row panel fits side by side.
 const LG_LAYOUT: Layout[] = [
   { i: "kpis", x: 0, y: 0, w: 12, h: 5, minW: 6, minH: 4 },
-  { i: "revenue-target", x: 0, y: 5, w: 12, h: 10, minW: 4, minH: 8 },
-  { i: "revenue-target-month", x: 0, y: 15, w: 12, h: 10, minW: 4, minH: 8 },
-  { i: "donut-year", x: 0, y: 25, w: 6, h: 11, minW: 4, minH: 8 },
-  { i: "donut-month", x: 6, y: 25, w: 6, h: 11, minW: 4, minH: 8 },
-  { i: "trend", x: 0, y: 36, w: 12, h: 13, minW: 3, minH: 9 },
-  { i: "ratios", x: 0, y: 49, w: 12, h: 5, minW: 6, minH: 4 },
-  { i: "rev-vs-spend", x: 0, y: 54, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "composition", x: 6, y: 54, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "platform", x: 0, y: 68, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "pod", x: 6, y: 68, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "publisher", x: 0, y: 81, w: 6, h: 16, minW: 3, minH: 9 },
-  { i: "top-apps", x: 6, y: 81, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "donut-year", x: 0, y: 5, w: 6, h: 11, minW: 4, minH: 8 },
+  { i: "donut-month", x: 6, y: 5, w: 6, h: 11, minW: 4, minH: 8 },
+  { i: "trend", x: 0, y: 16, w: 12, h: 13, minW: 3, minH: 9 },
+  { i: "ratios", x: 0, y: 29, w: 12, h: 5, minW: 6, minH: 4 },
+  { i: "rev-vs-spend", x: 0, y: 34, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "composition", x: 6, y: 34, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "platform", x: 0, y: 48, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "pod", x: 6, y: 48, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "publisher", x: 0, y: 61, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "top-apps", x: 6, y: 61, w: 6, h: 16, minW: 3, minH: 9 },
 ];
 
 /** A single-column stack (mobile/tablet) preserving the default order. */
