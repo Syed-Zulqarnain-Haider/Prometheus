@@ -3,6 +3,7 @@ import type { Layout, Layouts } from "react-grid-layout";
 /** Widget ids, in default visual order. Each maps to a wrapped Overview widget. */
 export const OVERVIEW_ITEM_IDS = [
   "kpis",
+  "revenue-target",
   "donut-year",
   "trend",
   "donut-month",
@@ -31,16 +32,17 @@ export const GRID_MARGIN: [number, number] = [16, 16];
 // Heights (h × rowHeight + margins) are tuned to each widget's natural height.
 const LG_LAYOUT: Layout[] = [
   { i: "kpis", x: 0, y: 0, w: 12, h: 5, minW: 6, minH: 4 },
-  { i: "donut-year", x: 0, y: 5, w: 3, h: 13, minW: 2, minH: 9 },
-  { i: "trend", x: 3, y: 5, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "donut-month", x: 9, y: 5, w: 3, h: 13, minW: 2, minH: 9 },
-  { i: "ratios", x: 0, y: 18, w: 12, h: 5, minW: 6, minH: 4 },
-  { i: "rev-vs-spend", x: 0, y: 23, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "composition", x: 6, y: 23, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "platform", x: 0, y: 37, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "pod", x: 6, y: 37, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "publisher", x: 0, y: 50, w: 6, h: 16, minW: 3, minH: 9 },
-  { i: "top-apps", x: 6, y: 50, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "revenue-target", x: 0, y: 5, w: 12, h: 10, minW: 4, minH: 8 },
+  { i: "donut-year", x: 0, y: 15, w: 3, h: 13, minW: 2, minH: 9 },
+  { i: "trend", x: 3, y: 15, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "donut-month", x: 9, y: 15, w: 3, h: 13, minW: 2, minH: 9 },
+  { i: "ratios", x: 0, y: 28, w: 12, h: 5, minW: 6, minH: 4 },
+  { i: "rev-vs-spend", x: 0, y: 33, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "composition", x: 6, y: 33, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "platform", x: 0, y: 47, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "pod", x: 6, y: 47, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "publisher", x: 0, y: 60, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "top-apps", x: 6, y: 60, w: 6, h: 16, minW: 3, minH: 9 },
 ];
 
 /** A single-column stack (mobile/tablet) preserving the default order. */
