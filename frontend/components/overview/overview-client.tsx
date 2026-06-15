@@ -86,11 +86,11 @@ export function OverviewClient() {
           {items.kpis}
           {items["revenue-target"]}
           {items["revenue-target-month"]}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items["donut-year"]}
-            <div className="lg:col-span-2">{items.trend}</div>
             {items["donut-month"]}
           </div>
+          {items.trend}
           {items.ratios}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items["rev-vs-spend"]}
