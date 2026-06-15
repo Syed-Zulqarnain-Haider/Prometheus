@@ -78,6 +78,7 @@ CREATE TABLE fact_daily_performance (
   adjust_organic_installs BIGINT,
   adjust_reattributions BIGINT,
   total_revenue_usd NUMERIC(18,4),
+  tech_cost_usd NUMERIC(18,4),
   profit_usd NUMERIC(18,4),
   roas NUMERIC(18,4),
   ad_roas NUMERIC(18,4),

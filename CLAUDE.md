@@ -29,7 +29,7 @@ performance data. ~50 internal users at launch. Data source: BigQuery. Serving: 
 ## The contract rules (NEVER violate)
 1. The app reads ONLY the BigQuery view `daily_performance_v1`, never the underlying table
    `terafort.Final_Staging_tables.unified_daily_performance`.
-2. `backend/app/core/metric_registry.py` is the SINGLE SOURCE OF TRUTH for all 78 fact
+2. `backend/app/core/metric_registry.py` is the SINGLE SOURCE OF TRUTH for all 79 fact
    columns and their metric groups. Pydantic models, RBAC column filters, sync validation,
    and DDL are GENERATED from it. To add a column: add a registry entry + Alembic migration.
    Never hand-write column lists anywhere else.

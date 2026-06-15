@@ -87,6 +87,10 @@ def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, 
 
     revenue = round(net + ad, 2)
 
+    # Infra / tech cost: a few % of gross revenue (IAP gross + ad), so it visibly
+    # reduces Gross Profit (= gross_revenue − UA spend − tech_cost) on the Overview.
+    tech_cost = round((gross + ad) * random.uniform(0.03, 0.07), 2)
+
     return {
         "date": day,
         "platform": platform,
@@ -146,6 +150,7 @@ def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, 
         "total_iap_net_usd": net,
         # headline
         "total_revenue_usd": revenue,
+        "tech_cost_usd": tech_cost,
         "profit_usd": round(revenue - round(fb_spend + gads_spend + mint_spend, 2), 2),
     }
 

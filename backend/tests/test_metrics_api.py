@@ -62,6 +62,31 @@ async def test_summary_ratio_recomputed_from_totals(metrics_env: MetricsEnv) -> 
     assert current["cpi"] == 2.5
 
 
+async def test_summary_net_revenue_and_gross_profit(metrics_env: MetricsEnv) -> None:
+    # appA: rev=1000, spend=250, iap_gross=800, ad=100, tech_cost=30.
+    # net_revenue = 1000 - 250 = 750; gross_profit = (800+100) - 250 - 30 = 620.
+    response = await metrics_env.client.get(
+        "/api/v1/metrics/summary",
+        params={**RANGE, "apps": "appA"},
+        headers=_auth("admin"),
+    )
+    current = response.json()["current"]
+    assert current["tech_cost_usd"] == 30.0
+    assert current["net_revenue_usd"] == 750.0
+    assert current["gross_profit_usd"] == 620.0
+
+
+async def test_summary_derived_kpis_respect_rbac(metrics_env: MetricsEnv) -> None:
+    # Viewer (store_installs only) gets neither the components nor the derived KPIs.
+    response = await metrics_env.client.get(
+        "/api/v1/metrics/summary", params=RANGE, headers=_auth("viewer")
+    )
+    current = response.json()["current"]
+    assert "tech_cost_usd" not in current
+    assert "net_revenue_usd" not in current
+    assert "gross_profit_usd" not in current
+
+
 async def test_summary_zero_denominator_is_null(metrics_env: MetricsEnv) -> None:
     response = await metrics_env.client.get(
         "/api/v1/metrics/summary",

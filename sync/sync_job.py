@@ -34,7 +34,7 @@ import psycopg
 from google.cloud import bigquery
 
 from metric_registry import (
-    COLUMN_NAMES, INDEX_BASE_NAMES, expected_bq_schema,
+    COLUMN_NAMES, INDEX_BASE_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
     generate_fact_ddl, generate_indexes,
 )
 
@@ -71,7 +71,10 @@ def alert(message: str) -> None:
 
 
 # ── Step 2: schema validation ────────────────────────────────────────────────
-def validate_schema(bq: bigquery.Client, view: str) -> list[str]:
+def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]]:
+    """Return (problems, present_columns). An empty problems list means the load
+    may proceed; ``present_columns`` lets the loader default optional-but-absent
+    columns (e.g. tech_cost_usd) to 0 rather than failing."""
     project, dataset, name = view.split(".")
     q = f"""
       SELECT column_name, data_type
@@ -86,6 +89,11 @@ def validate_schema(bq: bigquery.Client, view: str) -> list[str]:
     problems: list[str] = []
     for col, typ in expected.items():
         if col not in actual:
+            if col in OPTIONAL_SOURCE_COLUMNS:
+                # The view hasn't shipped this column yet — load it as 0, don't halt.
+                log.warning("optional source column '%s' absent from view; "
+                            "defaulting to 0", col)
+                continue
             problems.append(f"missing column: {col}")
         elif actual[col] != typ:
             problems.append(f"type changed: {col} expected {typ} got {actual[col]}")
@@ -95,18 +103,27 @@ def validate_schema(bq: bigquery.Client, view: str) -> list[str]:
             # changes don't break us — they just need a registry entry to be used.
             log.warning("View has unregistered column '%s' (ignored until added "
                         "to metric_registry)", col)
-    return problems
+    return problems, set(actual)
 
 
 # ── Step 3: load into staging ────────────────────────────────────────────────
-def load_staging(bq: bigquery.Client, pg: psycopg.Connection, view: str) -> int:
+def load_staging(
+    bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str]
+) -> int:
     cols_sql = ", ".join(COLUMN_NAMES)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
         cur.execute(generate_fact_ddl(STAGING))
     pg.commit()
 
-    rows_iter = bq.query(f"SELECT {cols_sql} FROM `{view}`").result(
+    # Select every registry column from the view; for optional columns the view
+    # doesn't expose yet (e.g. tech_cost_usd) substitute a literal 0 so the column
+    # order/shape still matches the staging table.
+    select_terms = [
+        col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
+        for col in COLUMN_NAMES
+    ]
+    rows_iter = bq.query(f"SELECT {', '.join(select_terms)} FROM `{view}`").result(
         page_size=BATCH_ROWS)
 
     total = 0
@@ -247,13 +264,13 @@ def main() -> int:
         pg.commit()
 
     try:
-        problems = validate_schema(bq, view)
+        problems, present = validate_schema(bq, view)
         if problems:
             msg = "schema mismatch — serving yesterday's data. " + "; ".join(problems)
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
-        rows = load_staging(bq, pg, view)
+        rows = load_staging(bq, pg, view, present)
         log.info("staging loaded: %d rows", rows)
 
         problems = integrity_checks(bq, pg, view, rows, rows_previous)

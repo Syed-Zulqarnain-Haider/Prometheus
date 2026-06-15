@@ -120,6 +120,7 @@ REGISTRY: list[Col] = [
 
     # ── profitability / headline ────────────────────────────────────────────
     Col("total_revenue_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("tech_cost_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("profit_usd",        "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("roas",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),

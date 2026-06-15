@@ -60,3 +60,44 @@ def compute_period_ratios(totals: Mapping[str, Any]) -> dict[str, float | None]:
             value = float(numerator or 0) * r.scale / float(denominator)
             ratios[r.name] = round(value, r.ndigits)
     return ratios
+
+
+@dataclass(frozen=True)
+class DiffDef:
+    name: str
+    add: tuple[str, ...]
+    sub: tuple[str, ...]
+    ndigits: int
+
+
+# Headline difference KPIs, summed component-by-component then combined (so they
+# stay period-correct). Like the ratios, each is emitted only when EVERY component
+# is present in the RBAC-filtered totals — so they inherit metric-group permissions.
+PERIOD_DIFFERENCES: list[DiffDef] = [
+    # Net Revenue = total revenue − UA spend.
+    DiffDef("net_revenue_usd", ("total_revenue_usd",), ("total_ua_spend_usd",), 4),
+    # Gross Profit = (IAP gross + ad revenue) − UA spend − tech cost.
+    DiffDef(
+        "gross_profit_usd",
+        ("total_iap_gross_usd", "total_ad_revenue_usd"),
+        ("total_ua_spend_usd", "tech_cost_usd"),
+        4,
+    ),
+]
+
+
+def compute_period_differences(totals: Mapping[str, Any]) -> dict[str, float]:
+    """Combine summed components into headline difference KPIs (net rev, gross profit).
+
+    Emitted only when every component is permitted/present, so RBAC is preserved.
+    """
+    out: dict[str, float] = {}
+    for d in PERIOD_DIFFERENCES:
+        components = d.add + d.sub
+        if any(c not in totals for c in components):
+            continue
+        value = sum(float(totals[c] or 0) for c in d.add) - sum(
+            float(totals[c] or 0) for c in d.sub
+        )
+        out[d.name] = round(value, d.ndigits)
+    return out

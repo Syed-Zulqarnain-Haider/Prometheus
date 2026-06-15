@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.metrics import Bucket, GroupBy, MetricFilters, SortDirection
-from app.services.period_ratios import compute_period_ratios
+from app.services.period_ratios import compute_period_differences, compute_period_ratios
 from app.services.query_builder import QueryBuilder
 
 _PREVIOUS_SUFFIX = "__previous"
@@ -63,6 +63,7 @@ async def run_summary(
         "current": {
             **{k: _to_jsonable(v) for k, v in current_raw.items()},
             **compute_period_ratios(current_raw),
+            **compute_period_differences(current_raw),
         },
         "previous": None,
     }
@@ -70,6 +71,7 @@ async def run_summary(
         result["previous"] = {
             **{k: _to_jsonable(v) for k, v in previous_raw.items()},
             **compute_period_ratios(previous_raw),
+            **compute_period_differences(previous_raw),
         }
     return result
 

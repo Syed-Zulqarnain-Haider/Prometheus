@@ -22,11 +22,12 @@ export function OverviewClient() {
 
       <KpiRow filters={filters} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <RevenueProgress />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        <RevenueProgress period="year" />
         <div className="lg:col-span-2">
           <MonthlyTrend filters={filters} />
         </div>
+        <RevenueProgress period="month" />
       </div>
 
       <RatioCards filters={filters} />

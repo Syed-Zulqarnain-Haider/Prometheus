@@ -122,6 +122,7 @@ REGISTRY: list[Col] = [
 
     # ── profitability / headline ────────────────────────────────────────────
     Col("total_revenue_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("tech_cost_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("profit_usd",        "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("roas",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
@@ -132,6 +133,12 @@ REGISTRY: list[Col] = [
 # fmt: on
 
 COLUMN_NAMES: list[str] = [c.name for c in REGISTRY]
+
+# Columns the registry knows about but the BigQuery view may not expose yet. When
+# absent from the view, the sync defaults them to 0 instead of halting with a
+# schema_mismatch. (tech_cost_usd: the data team will add the real field; until
+# then we treat it as 0 so Gross Profit degrades gracefully rather than breaking.)
+OPTIONAL_SOURCE_COLUMNS: set[str] = {"tech_cost_usd"}
 
 
 def expected_bq_schema() -> dict[str, str]:
