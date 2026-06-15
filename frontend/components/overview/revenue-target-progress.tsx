@@ -22,6 +22,11 @@ interface PeriodConfig {
   defaultTitle: (target: number) => string;
 }
 
+// The $100M goal's deadline year. The yearly target date is fixed to this year's
+// end (NOT the browser's current year), so it never shows the wrong year. Bump this
+// (or override via the `targetDate` prop) when the goal's horizon changes.
+const YEARLY_TARGET_YEAR = 2026;
+
 // Per-period config. The REVENUE figure is wired live (the RBAC-scoped summary API).
 // Targets have no confirmed live source here, so they are config (see notes below).
 const PERIOD_CONFIG: Record<ProgressPeriod, PeriodConfig> = {
@@ -30,7 +35,9 @@ const PERIOD_CONFIG: Record<ProgressPeriod, PeriodConfig> = {
     // Fixed $100M strategic goal (no live source). Override via the `target` prop.
     defaultTarget: 100_000_000,
     rangeStart: startOfYear,
-    defaultTargetDate: (now) => format(endOfYear(now), "MMM d, yyyy"),
+    // Fixed deadline: Dec 31 of the goal's target year (e.g. "Dec 31, 2026") — not a
+    // rolling year-end. Overridable via the `targetDate` prop.
+    defaultTargetDate: () => format(endOfYear(new Date(YEARLY_TARGET_YEAR, 0, 1)), "MMM d, yyyy"),
     defaultTitle: (target) => `Revenue Progress to ${formatUSD(target, { compact: true })} Target`,
   },
   month: {
