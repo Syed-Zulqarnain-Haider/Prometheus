@@ -45,8 +45,12 @@ export function RevenueProgress({ period }: { period: Period }) {
 
   const targetSet = target !== null && target > 0;
   const pct = targetSet ? actual / (target as number) : 0;
+  // Over-target: fill the whole ring (cap at 100%, no overflow) and switch to the
+  // celebratory positive accent; the center label still shows the TRUE pct.
+  const exceeded = targetSet && actual >= (target as number);
   const achieved = targetSet ? Math.min(actual, target as number) : 0;
   const remaining = targetSet ? Math.max((target as number) - actual, 0) : 1;
+  const ringColor = exceeded ? token("--color-positive") : token("--chart-grad-from");
 
   const option: EChartsOption = {
     series: [
@@ -58,7 +62,7 @@ export function RevenueProgress({ period }: { period: Period }) {
         label: { show: false },
         data: targetSet
           ? [
-              { value: achieved, itemStyle: { color: token("--chart-grad-from") } },
+              { value: achieved, itemStyle: { color: ringColor } },
               { value: remaining, itemStyle: { color: token("--color-bg-elevated") } },
             ]
           : [{ value: 1, itemStyle: { color: token("--color-bg-elevated") } }],
@@ -73,7 +77,20 @@ export function RevenueProgress({ period }: { period: Period }) {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           {targetSet ? (
             <div className="flex flex-col items-center text-center">
-              <span className="text-2xl font-semibold tabular-nums">{formatPercent(pct)}</span>
+              <span
+                className="text-2xl font-semibold tabular-nums"
+                style={exceeded ? { color: "var(--color-positive)" } : undefined}
+              >
+                {formatPercent(pct)}
+              </span>
+              {exceeded && (
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ color: "var(--color-positive)" }}
+                >
+                  Target exceeded
+                </span>
+              )}
               <span className="mt-1 text-[11px] leading-snug text-muted-foreground">
                 {formatUSD(actual, { compact: true })} of {formatUSD(target, { compact: true })}
               </span>

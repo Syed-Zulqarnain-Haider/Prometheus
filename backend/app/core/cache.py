@@ -19,6 +19,12 @@ from app.schemas.auth import ScopeOut
 AGG_PREFIX = "agg:"
 AGG_TTL_SECONDS = 12 * 60 * 60  # 12h
 
+# Bump whenever the SHAPE of a cached aggregate response changes, so a deploy can
+# never serve a stale-shaped payload from before the change (e.g. a summary cached
+# before net_revenue_usd / gross_profit_usd / tech_cost_usd were added). The version
+# is part of the cache key, so old entries are simply never read again.
+SCHEMA_VERSION = "2"
+
 
 def scope_token(scopes: Sequence[ScopeOut]) -> str:
     """Stable string identifying a caller's effective row scope."""
@@ -30,7 +36,7 @@ def scope_token(scopes: Sequence[ScopeOut]) -> str:
 
 def aggregate_cache_key(route: str, scope: str, params: dict[str, Any]) -> str:
     payload = json.dumps(
-        {"route": route, "scope": scope, "params": params},
+        {"v": SCHEMA_VERSION, "route": route, "scope": scope, "params": params},
         sort_keys=True,
         separators=(",", ":"),
         default=str,
