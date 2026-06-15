@@ -12,10 +12,6 @@ import { PublisherTable } from "@/components/overview/publisher-table";
 import { RatioCards } from "@/components/overview/ratio-cards";
 import { RevenueComposition } from "@/components/overview/revenue-composition";
 import { RevenueProgress } from "@/components/overview/revenue-progress";
-import {
-  MonthlyRevenueTargetProgress,
-  RevenueTargetProgress,
-} from "@/components/overview/revenue-target-progress";
 import { RevenueVsSpend } from "@/components/overview/revenue-vs-spend";
 import { PlatformSplit, PodSplit } from "@/components/overview/splits";
 import { TopAppsTable } from "@/components/overview/top-apps-table";
@@ -35,8 +31,6 @@ export function OverviewClient() {
   // edit grid render the very same elements, just in a different container.
   const items: Record<OverviewItemId, React.ReactNode> = {
     kpis: <KpiRow filters={filters} />,
-    "revenue-target": <RevenueTargetProgress period="year" />,
-    "revenue-target-month": <MonthlyRevenueTargetProgress />,
     "donut-year": <RevenueProgress period="year" />,
     trend: <MonthlyTrend filters={filters} />,
     "donut-month": <RevenueProgress period="month" />,
@@ -84,8 +78,6 @@ export function OverviewClient() {
         // View mode: the original Overview layout, unchanged — identical to before.
         <div className="space-y-6">
           {items.kpis}
-          {items["revenue-target"]}
-          {items["revenue-target-month"]}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items["donut-year"]}
             {items["donut-month"]}
