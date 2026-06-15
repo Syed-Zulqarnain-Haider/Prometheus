@@ -23,29 +23,32 @@ export const GRID_COLS = 12;
 export const GRID_ROW_HEIGHT = 10;
 export const GRID_MARGIN: [number, number] = [16, 16];
 
-// The default desktop arrangement — reproduces the original Overview layout:
+// The default desktop arrangement:
 //   row 1: KPI row (full width)
-//   row 2: yearly donut | monthly trend (2×) | monthly donut
-//   row 3: ROAS/CPI ratio cards (full width)
-//   row 4: revenue-vs-spend | revenue composition
-//   row 5: platform donut | pod donut
-//   row 6: publisher table | top-apps table
-// Heights (h × rowHeight + margins) are tuned to each widget's natural height.
+//   row 2: yearly progress ring (full width)
+//   row 3: monthly progress ring (full width)
+//   row 4: yearly progress donut | monthly progress donut  (ring + 3 rows each)
+//   row 5: monthly trend (full width)
+//   row 6: ROAS/CPI ratio cards (full width)
+//   row 7: revenue-vs-spend | revenue composition
+//   row 8: platform donut | pod donut
+//   row 9: publisher table | top-apps table
+// Heights (h × rowHeight + margins) are tuned to each widget's natural height. The
+// progress donuts are half-width (w6) so their ring + 3-row panel fits side by side.
 const LG_LAYOUT: Layout[] = [
   { i: "kpis", x: 0, y: 0, w: 12, h: 5, minW: 6, minH: 4 },
-  // Yearly progress (unchanged), then the monthly progress ring on its own row.
   { i: "revenue-target", x: 0, y: 5, w: 12, h: 10, minW: 4, minH: 8 },
   { i: "revenue-target-month", x: 0, y: 15, w: 12, h: 10, minW: 4, minH: 8 },
-  { i: "donut-year", x: 0, y: 25, w: 3, h: 13, minW: 2, minH: 9 },
-  { i: "trend", x: 3, y: 25, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "donut-month", x: 9, y: 25, w: 3, h: 13, minW: 2, minH: 9 },
-  { i: "ratios", x: 0, y: 38, w: 12, h: 5, minW: 6, minH: 4 },
-  { i: "rev-vs-spend", x: 0, y: 43, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "composition", x: 6, y: 43, w: 6, h: 14, minW: 3, minH: 9 },
-  { i: "platform", x: 0, y: 57, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "pod", x: 6, y: 57, w: 6, h: 13, minW: 3, minH: 9 },
-  { i: "publisher", x: 0, y: 70, w: 6, h: 16, minW: 3, minH: 9 },
-  { i: "top-apps", x: 6, y: 70, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "donut-year", x: 0, y: 25, w: 6, h: 11, minW: 4, minH: 8 },
+  { i: "donut-month", x: 6, y: 25, w: 6, h: 11, minW: 4, minH: 8 },
+  { i: "trend", x: 0, y: 36, w: 12, h: 13, minW: 3, minH: 9 },
+  { i: "ratios", x: 0, y: 49, w: 12, h: 5, minW: 6, minH: 4 },
+  { i: "rev-vs-spend", x: 0, y: 54, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "composition", x: 6, y: 54, w: 6, h: 14, minW: 3, minH: 9 },
+  { i: "platform", x: 0, y: 68, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "pod", x: 6, y: 68, w: 6, h: 13, minW: 3, minH: 9 },
+  { i: "publisher", x: 0, y: 81, w: 6, h: 16, minW: 3, minH: 9 },
+  { i: "top-apps", x: 6, y: 81, w: 6, h: 16, minW: 3, minH: 9 },
 ];
 
 /** A single-column stack (mobile/tablet) preserving the default order. */
