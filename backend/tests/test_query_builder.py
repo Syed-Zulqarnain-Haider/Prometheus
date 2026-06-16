@@ -204,6 +204,57 @@ async def test_table_keyset_pagination(fact_session: Any) -> None:
     assert [r["canonical_key"] for r in page2] == ["c", "d"]
 
 
+async def test_table_collapses_platforms_into_one_game_row(fact_session: Any) -> None:
+    """Android + iOS rows for one game (shared canonical_key) collapse to a SINGLE
+    row with summed measures — so derived ratios are computed from the totals
+    (ROAS = Σrevenue ÷ Σspend), never averaged across the per-platform rows."""
+    # Android: revenue 300 on spend 100 (ROAS 3.0). iOS: revenue 100 on spend 300
+    # (ROAS ≈ 0.33). Chosen so Σrev/Σspend differs from the mean of the two ratios.
+    await _insert_fact(
+        fact_session,
+        canonical_key="game1",
+        app_name="Game One",
+        platform="android",
+        android_package="com.x.game1",
+        store_total_installs=70,
+        total_revenue_usd=300,
+        total_ua_spend_usd=100,
+    )
+    await _insert_fact(
+        fact_session,
+        canonical_key="game1",
+        app_name="Game One",
+        platform="ios",
+        apple_id=999,
+        store_total_installs=30,
+        total_revenue_usd=100,
+        total_ua_spend_usd=300,
+    )
+    await fact_session.commit()
+
+    qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("all", None)]))
+    params = MetricFilters(date_from=date(2026, 1, 1), date_to=date(2026, 1, 31))
+    rows = (await fact_session.execute(qb.table(params, sort="total_revenue_usd"))).mappings().all()
+
+    assert len(rows) == 1  # both platforms collapse into ONE game row
+    row = rows[0]
+    assert row["canonical_key"] == "game1"
+    # Additive measures are summed across platforms.
+    assert float(row["total_revenue_usd"]) == 400  # 300 + 100
+    assert float(row["total_ua_spend_usd"]) == 400  # 100 + 300
+    assert int(row["store_total_installs"]) == 100  # 70 + 30
+    # Both platform identifiers surface on the single row (store-link icons need both).
+    assert int(row["apple_id"]) == 999
+    assert row["android_package"] == "com.x.game1"
+
+    # ROAS from summed totals = 400/400 = 1.0 — NOT the mean of per-platform ROAS
+    # ((3.0 + 0.333…)/2 ≈ 1.67). The collapse must aggregate first, divide second.
+    roas_from_sums = float(row["total_revenue_usd"]) / float(row["total_ua_spend_usd"])
+    avg_of_ratios = (300 / 100 + 100 / 300) / 2
+    assert roas_from_sums == 1.0
+    assert roas_from_sums != pytest.approx(avg_of_ratios)
+
+
 async def test_table_rejects_non_whitelisted_sort(fact_session: Any) -> None:
     qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("all", None)]))
     params = MetricFilters(date_from=date(2026, 1, 1), date_to=date(2026, 1, 31))

@@ -20,14 +20,41 @@ from app.core.fact_table import FACT_TABLE, fact_metadata
 from app.models import DimApp, SyncRun
 from sqlalchemy import delete, insert, text
 
-# canonical_key, name, publisher, pod, pod_owner, hou, platform
-SAMPLE_APPS = [
-    ("com.acme.nimbus", "Nimbus", "AcmeGames", "POD_ALPHA", "R. Okafor", "HOU_GAMES", "android"),
-    ("apple.nimbus", "Nimbus", "AcmeGames", "POD_ALPHA", "R. Okafor", "HOU_GAMES", "ios"),
-    ("com.acme.lumen", "Lumen", "AcmeGames", "POD_ALPHA", "R. Okafor", "HOU_GAMES", "android"),
-    ("com.vega.pulse", "Pulse", "VegaHealth", "POD_BETA", "M. Haider", "HOU_HEALTH", "android"),
-    ("apple.pulse", "Pulse", "VegaHealth", "POD_BETA", "M. Haider", "HOU_HEALTH", "ios"),
-    ("com.vega.coin", "CoinKeeper", "VegaHealth", "POD_BETA", "M. Haider", "HOU_FINANCE", "ios"),
+# Per CLAUDE.md the canonical_key LINKS a game's platforms: a multi-platform game
+# shares ONE canonical_key across its Android + iOS rows (iOS rows carry apple_id,
+# Android rows android_package). That makes the table/breakdown endpoints — which
+# group by canonical_key and SUM additive measures — collapse each game into a
+# single row spanning its platforms (Nimbus and Pulse below ship on both).
+#
+#   game:      (canonical_key, name, publisher, pod, pod_owner, hou)
+#   platforms: list of (platform, apple_id, android_package)
+_Game = tuple[str, str, str, str, str, str]
+_Platform = tuple[str, int | None, str | None]
+GAMES: list[tuple[_Game, list[_Platform]]] = [
+    (
+        ("com.acme.nimbus", "Nimbus", "AcmeGames", "POD_ALPHA", "R. Okafor", "HOU_GAMES"),
+        [("android", None, "com.acme.nimbus"), ("ios", 1_500_000_001, None)],
+    ),
+    (
+        ("com.acme.lumen", "Lumen", "AcmeGames", "POD_ALPHA", "R. Okafor", "HOU_GAMES"),
+        [("android", None, "com.acme.lumen")],
+    ),
+    (
+        ("com.vega.pulse", "Pulse", "VegaHealth", "POD_BETA", "M. Haider", "HOU_HEALTH"),
+        [("android", None, "com.vega.pulse"), ("ios", 1_500_000_002, None)],
+    ),
+    (
+        ("com.vega.coin", "CoinKeeper", "VegaHealth", "POD_BETA", "M. Haider", "HOU_FINANCE"),
+        [("ios", 1_500_000_003, None)],
+    ),
+]
+
+# Flattened to one entry per (game, platform) for the daily fact rows:
+#   (canonical_key, name, publisher, pod, pod_owner, hou, platform, apple_id, android_package)
+SAMPLE_APPS: list[tuple[str, str, str, str, str, str, str, int | None, str | None]] = [
+    (*game, platform, apple_id, android_package)
+    for game, platforms in GAMES
+    for platform, apple_id, android_package in platforms
 ]
 
 DAYS = 60
@@ -39,8 +66,11 @@ def _impr_clicks(installs: int) -> tuple[int, int]:
     return impressions, clicks
 
 
-def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, object]:
-    key, name, publisher, pod, pod_owner, hou, platform = app
+def _row(
+    day: date,
+    app: tuple[str, str, str, str, str, str, str, int | None, str | None],
+) -> dict[str, object]:
+    key, name, publisher, pod, pod_owner, hou, platform, apple_id, android_package = app
     base = random.uniform(0.6, 1.4)
     android = platform == "android"
 
@@ -96,6 +126,8 @@ def _row(day: date, app: tuple[str, str, str, str, str, str, str]) -> dict[str, 
         "platform": platform,
         "canonical_key": key,
         "app_key": key,
+        "apple_id": apple_id,
+        "android_package": android_package,
         "app_name": name,
         "publisher": publisher,
         "developer": publisher,
@@ -166,7 +198,12 @@ async def main() -> None:
         await session.execute(delete(DimApp))
         await session.execute(delete(SyncRun))
 
-        for key, name, publisher, pod, pod_owner, hou, _platform in SAMPLE_APPS:
+        # One dim_app row per game (canonical_key is the PK), carrying BOTH platform
+        # identifiers so a multi-platform game maps to its Android and iOS stores —
+        # mirroring the linked-key model in production.
+        for (key, name, publisher, pod, pod_owner, hou), platforms in GAMES:
+            apple_id = next((a for _p, a, _pkg in platforms if a is not None), None)
+            android_package = next((pkg for _p, _a, pkg in platforms if pkg is not None), None)
             await session.execute(
                 insert(DimApp).values(
                     canonical_key=key,
@@ -176,6 +213,8 @@ async def main() -> None:
                     pod_owner=pod_owner,
                     hou=hou,
                     is_mapped=True,
+                    apple_id=apple_id,
+                    android_package=android_package,
                 )
             )
 
