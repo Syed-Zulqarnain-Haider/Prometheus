@@ -5,6 +5,8 @@ RBAC changes, role configuration, revenue targets (incl. the public /meta/target
 read), the audit viewer, and the data-health view.
 """
 
+from typing import Any
+
 import pytest
 
 from tests.conftest import MetricsEnv, _metrics_uid
@@ -15,11 +17,98 @@ def _auth(role: str) -> dict[str, str]:
 
 
 # ── Capability gate ───────────────────────────────────────────────────────────
-@pytest.mark.parametrize("role", ["viewer", "finance", "pod_owner"])
+@pytest.mark.parametrize("role", ["viewer", "finance", "pod_owner", "executive"])
 async def test_admin_routes_require_admin_capability(metrics_env: MetricsEnv, role: str) -> None:
     for path in ["/api/v1/admin/users", "/api/v1/admin/roles", "/api/v1/admin/data-health"]:
         resp = await metrics_env.client.get(path, headers=_auth(role))
         assert resp.status_code == 403, f"{role} reached {path}"
+
+
+# ── Executive = broad READ-ONLY viewer ────────────────────────────────────────
+RANGE = {"date_from": "2026-06-01", "date_to": "2026-06-02"}
+
+# Every read surface an executive (scope "all") must reach: GET path + query params.
+EXECUTIVE_CAN_READ: list[tuple[str, dict[str, Any]]] = [
+    ("/api/v1/metrics/summary", RANGE),
+    ("/api/v1/metrics/timeseries", {**RANGE, "metrics": "total_revenue_usd"}),
+    ("/api/v1/metrics/breakdown", {**RANGE, "group_by": "app", "metrics": "total_revenue_usd"}),
+    ("/api/v1/metrics/table", {**RANGE, "sort": "total_revenue_usd"}),
+    ("/api/v1/apps", {}),
+    ("/api/v1/meta/freshness", {}),
+    ("/api/v1/meta/targets", {"year": 2026}),
+]
+
+# Every write/admin surface that must be forbidden. The admin router and the
+# share approve/reject routes gate on the admin_panel capability BEFORE any body
+# or query validation, so dummy bodies/ids still yield 403 (not 404/422). The
+# body (3rd field) is only sent for write methods; for get/delete it's ignored.
+_DUMMY_ID = "00000000-0000-0000-0000-000000000000"
+EXECUTIVE_FORBIDDEN: list[tuple[str, str, dict[str, Any]]] = [
+    ("get", "/api/v1/admin/users", {}),  # manage users (list)
+    ("post", "/api/v1/admin/users", {"email": "x@terafort.org", "roles": ["viewer"]}),
+    ("patch", f"/api/v1/admin/users/{_DUMMY_ID}", {"is_active": False}),
+    ("get", "/api/v1/admin/roles", {}),  # change settings (read config)
+    ("put", f"/api/v1/admin/roles/{_DUMMY_ID}", {"metric_groups": [], "capabilities": []}),
+    ("get", "/api/v1/admin/targets", {}),
+    ("put", "/api/v1/admin/targets", {"period": "year", "target_usd": 1}),  # set targets
+    ("delete", f"/api/v1/admin/targets/{_DUMMY_ID}", {}),  # remove targets
+    ("get", "/api/v1/admin/audit", {}),
+    ("get", "/api/v1/admin/data-health", {}),
+    ("post", f"/api/v1/reports/shares/{_DUMMY_ID}/approve", {}),  # approve shares
+    ("post", f"/api/v1/reports/shares/{_DUMMY_ID}/reject", {}),  # reject shares
+]
+
+
+async def test_executive_can_read_every_page(metrics_env: MetricsEnv) -> None:
+    """An executive with scope 'all' has full read visibility across every page."""
+    for path, params in EXECUTIVE_CAN_READ:
+        resp = await metrics_env.client.get(path, params=params, headers=_auth("executive"))
+        assert resp.status_code == 200, f"executive blocked from {path}: {resp.status_code}"
+
+
+async def test_executive_sees_all_metric_groups(metrics_env: MetricsEnv) -> None:
+    """Full metric visibility: store, spend, ad/iap revenue, profitability AND the
+    attribution group (the latter is what separates full-visibility roles from
+    marketing/finance). Nothing is filtered out for an executive."""
+    resp = await metrics_env.client.get(
+        "/api/v1/metrics/summary", params=RANGE, headers=_auth("executive")
+    )
+    assert resp.status_code == 200
+    current = resp.json()["current"]
+    for key in (
+        "store_total_installs",
+        "total_ua_spend_usd",
+        "total_ad_revenue_usd",
+        "total_iap_net_usd",
+        "profit_usd",
+        "adjust_installs",
+    ):
+        assert key in current, f"executive missing metric group column {key}"
+
+
+async def test_executive_scope_all_sees_every_pod(metrics_env: MetricsEnv) -> None:
+    """Scope 'all' = no row filtering: the executive sees both pods' data, unlike a
+    pod-scoped user. Proves full data visibility, not just full column visibility."""
+    resp = await metrics_env.client.get(
+        "/api/v1/metrics/breakdown",
+        params={**RANGE, "group_by": "pod", "metrics": "total_revenue_usd"},
+        headers=_auth("executive"),
+    )
+    assert resp.status_code == 200
+    pods = {row["pod"] for row in resp.json()["rows"]}
+    assert {"POD_A", "POD_B"} <= pods
+
+
+async def test_executive_cannot_write_or_admin(metrics_env: MetricsEnv) -> None:
+    """No write/admin power: manage users, set targets, approve shares, change
+    settings — every one returns 403 (missing admin_panel capability)."""
+    for method, path, body in EXECUTIVE_FORBIDDEN:
+        call = getattr(metrics_env.client, method)
+        kwargs: dict[str, Any] = {"headers": _auth("executive")}
+        if method in ("post", "put", "patch"):
+            kwargs["json"] = body
+        resp = await call(path, **kwargs)
+        assert resp.status_code == 403, f"executive reached {method.upper()} {path}"
 
 
 async def test_admin_can_list_users(metrics_env: MetricsEnv) -> None:
