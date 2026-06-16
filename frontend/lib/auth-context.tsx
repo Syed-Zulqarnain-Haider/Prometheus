@@ -4,7 +4,6 @@ import {
   GoogleAuthProvider,
   type User,
   onAuthStateChanged,
-  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
 } from "firebase/auth";
@@ -15,7 +14,6 @@ import { getFirebaseAuth } from "@/lib/firebase";
 interface AuthState {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -39,10 +37,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
-      signIn: async (email, password) => {
-        await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
-      },
-      // Google sign-in only AUTHENTICATES via Firebase. Authorization is unchanged:
+      // Google is the only UI sign-in path. It only AUTHENTICATES via Firebase;
+      // the email/password provider still exists server-side (Firebase) but is not
+      // offered in the UI. Authorization is unchanged:
       // every backend route still requires a provisioned user (matched by Firebase
       // UID) — an unprovisioned Google account gets no data and no role.
       signInWithGoogle: async () => {
