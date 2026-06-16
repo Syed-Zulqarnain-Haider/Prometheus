@@ -85,11 +85,9 @@ export function OverviewClient() {
             {items.trend}
             {items["donut-month"]}
           </div>
-          {/* Directly below: the two tables. */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {items.publisher}
-            {items["top-apps"]}
-          </div>
+          {/* Directly below: the two full-width tables (~10 columns each). */}
+          {items.publisher}
+          {items["top-apps"]}
           {items.ratios}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items["rev-vs-spend"]}
