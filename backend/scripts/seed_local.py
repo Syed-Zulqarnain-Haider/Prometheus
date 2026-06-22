@@ -6,6 +6,11 @@ populating store, per-network UA (spend/impressions/clicks/engagement), ad-netwo
 and IAP-breakdown columns so every dashboard page demos with sample data — refreshes
 ``dim_app``, and records a successful ``sync_runs`` row. Idempotent / re-runnable.
 
+Re-seeding ONLY refreshes sample data. It never deletes, deactivates, or otherwise
+touches provisioned ``users`` / ``user_roles`` / ``user_scopes`` — and as a safety
+net it re-asserts ``is_active=true`` for any existing admin so a re-seed can never
+lock the admin out (roles and scopes are left exactly as they are).
+
     PYTHONPATH=. python scripts/seed_local.py
 """
 
@@ -235,8 +240,38 @@ async def main() -> None:
                 bq_built_at=now,
             )
         )
+
+        # Safety net: re-seeding sample data must never lock the admin out. We only
+        # touched fact/dim/sync tables above (never users), but here we explicitly
+        # re-assert is_active=true for every admin — preserving their role and scope
+        # (we update ONLY the is_active flag, and only ever set it true). No-op when
+        # there are no users yet (fresh DB). All SQL below is static (no user input).
+        reactivated = await session.scalar(
+            text(
+                "SELECT count(*) FROM users u WHERE u.is_active = false AND EXISTS ("
+                "  SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id"
+                "  WHERE ur.user_id = u.id AND r.name = 'admin')"
+            )
+        )
+        await session.execute(
+            text(
+                "UPDATE users SET is_active = true WHERE id IN ("
+                "  SELECT ur.user_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id"
+                "  WHERE r.name = 'admin')"
+            )
+        )
+        active_admins = await session.scalar(
+            text(
+                "SELECT count(*) FROM users u WHERE u.is_active = true AND EXISTS ("
+                "  SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id"
+                "  WHERE ur.user_id = u.id AND r.name = 'admin')"
+            )
+        )
+
         await session.commit()
         print(f"Seeded {rows} fact rows across {len(SAMPLE_APPS)} apps and {DAYS} days.")
+        note = f" (re-activated {reactivated})" if reactivated else ""
+        print(f"Preserved {active_admins} active admin user(s){note}; users untouched otherwise.")
 
     await engine.dispose()
 
