@@ -17,8 +17,9 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession, RedisClient, require_capability
+from app.core.config import get_settings
 from app.core.http import client_ip
-from app.core.rate_limit import enforce_rate_limit
+from app.core.rate_limit import enforce_rate_limit, enforce_sync_rate_limit
 from app.models import User
 from app.schemas.admin import (
     AuditPage,
@@ -32,7 +33,8 @@ from app.schemas.admin import (
     UserSummary,
     UserUpdate,
 )
-from app.services import admin_service
+from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
+from app.services import admin_service, settings_service, system_service
 from app.services.audit import AuditDep
 from app.services.auth import user_context_cache_key
 
@@ -267,3 +269,66 @@ async def get_audit_actions(db: DbSession) -> list[str]:
 @router.get("/data-health", response_model=DataHealth)
 async def get_data_health(db: DbSession) -> DataHealth:
     return await admin_service.data_health(db)
+
+
+# ── System: connection health ───────────────────────────────────────────────────
+@router.get("/system/health", response_model=SystemHealth)
+async def get_system_health(db: DbSession, redis: RedisClient) -> SystemHealth:
+    """Live Postgres/Redis/BigQuery status — up/down + latency only, NO credentials."""
+    return await system_service.check_connections(db, redis, get_settings())
+
+
+# ── System: operational settings ────────────────────────────────────────────────
+@router.get("/settings", response_model=list[SettingOut])
+async def get_settings_list(db: DbSession) -> list[SettingOut]:
+    return await settings_service.list_settings(db)
+
+
+@router.put("/settings/{key}", response_model=SettingOut)
+async def update_setting(
+    key: str,
+    body: SettingUpdate,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> SettingOut:
+    try:
+        setting = await settings_service.set_value(db, key, body.value, context.user_id)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_update_setting",
+        resource=key,
+        detail={"value": body.value},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return setting
+
+
+# ── System: on-demand sync trigger (admin-only, audited, tightly rate-limited) ──
+@router.post(
+    "/system/sync",
+    response_model=SyncTriggerResult,
+    dependencies=[Depends(enforce_sync_rate_limit)],
+)
+async def run_sync_now(
+    request: Request,
+    context: CurrentUser,
+    audit: AuditDep,
+) -> SyncTriggerResult:
+    """Trigger the data sync on demand. Returns an honest 'not configured' result when
+    no real data source is wired (never a faked success)."""
+    result = await system_service.run_sync_now(get_settings())
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_run_sync",
+        detail={"triggered": result.triggered, "configured": result.configured},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return result

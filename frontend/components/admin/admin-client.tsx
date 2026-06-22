@@ -4,17 +4,19 @@ import { useState } from "react";
 
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { RolesPanel } from "@/components/admin/roles-panel";
+import { SystemPanel } from "@/components/admin/system-panel";
 import { TargetsPanel } from "@/components/admin/targets-panel";
 import { UsersPanel } from "@/components/admin/users-panel";
 import { useMe } from "@/lib/api-hooks";
 
-type Tab = "users" | "roles" | "targets" | "audit";
+type Tab = "users" | "roles" | "targets" | "audit" | "system";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "users", label: "Users" },
   { value: "roles", label: "Roles & permissions" },
   { value: "targets", label: "Revenue targets" },
   { value: "audit", label: "Audit log" },
+  { value: "system", label: "System" },
 ];
 
 export function AdminClient() {
@@ -55,6 +57,7 @@ export function AdminClient() {
       {tab === "roles" && <RolesPanel />}
       {tab === "targets" && <TargetsPanel />}
       {tab === "audit" && <AuditPanel />}
+      {tab === "system" && <SystemPanel />}
     </div>
   );
 }

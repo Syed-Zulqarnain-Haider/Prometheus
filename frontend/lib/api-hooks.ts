@@ -509,3 +509,89 @@ export function useDataHealth() {
     staleTime: 60 * 1000,
   });
 }
+
+// ── Admin: System tab (connection health, settings, sync) ───────────────────
+export interface ConnectionStatus {
+  name: string;
+  status: "up" | "down" | "not_configured";
+  latency_ms: number | null;
+  detail: string | null;
+}
+export interface SystemHealth {
+  postgres: ConnectionStatus;
+  redis: ConnectionStatus;
+  bigquery: ConnectionStatus;
+}
+export interface AppSetting {
+  key: string;
+  type: string;
+  value: number | boolean;
+  default: number | boolean;
+  label: string;
+  description: string;
+  minimum: number | null;
+  maximum: number | null;
+  updated_at: string | null;
+}
+export interface SyncTriggerResult {
+  triggered: boolean;
+  configured: boolean;
+  message: string;
+}
+export interface ClientSettings {
+  data_freshness_threshold_hours: number;
+  show_demo_widgets: boolean;
+}
+
+export function useSystemHealth() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["system-health"],
+    queryFn: () => apiFetch<SystemHealth>("/api/v1/admin/system/health"),
+    enabled: Boolean(user),
+    refetchInterval: 30 * 1000, // live-ish status
+  });
+}
+
+export function useAppSettings() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["app-settings"],
+    queryFn: () => apiFetch<AppSetting[]>("/api/v1/admin/settings"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useUpdateSetting() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, value }: { key: string; value: number | boolean }) =>
+      apiFetch<AppSetting>(`/api/v1/admin/settings/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["client-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["data-health"] });
+    },
+  });
+}
+
+export function useRunSync() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", { method: "POST" }),
+  });
+}
+
+/** Operational settings any authenticated user may read (e.g. demo-widget toggle). */
+export function useClientSettings() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["client-settings"],
+    queryFn: () => apiFetch<ClientSettings>("/api/v1/meta/settings"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}

@@ -16,6 +16,7 @@ from app.models.layouts import DashboardLayout
 from app.models.operations import AuditLog, SyncRun
 from app.models.rbac import RoleCapability, RoleMetricPermission, UserScope
 from app.models.reports import ReportShare, SavedReport, SavedView
+from app.models.settings import AppSetting
 from app.models.targets import RevenueTarget
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "RoleCapability",
     "UserScope",
     "DashboardLayout",
+    "AppSetting",
     "SavedView",
     "SavedReport",
     "ReportShare",
