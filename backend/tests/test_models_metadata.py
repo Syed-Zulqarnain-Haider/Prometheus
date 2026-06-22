@@ -10,6 +10,7 @@ EXPECTED_TABLES = {
     "role_metric_permissions",
     "role_capabilities",
     "user_scopes",
+    "dashboard_layouts",
     "saved_views",
     "saved_reports",
     "report_shares",

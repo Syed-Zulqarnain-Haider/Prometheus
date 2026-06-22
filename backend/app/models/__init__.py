@@ -12,6 +12,7 @@ from __future__ import annotations
 from app.models.base import Base
 from app.models.dim import DimApp
 from app.models.identity import Role, User, UserRole
+from app.models.layouts import DashboardLayout
 from app.models.operations import AuditLog, SyncRun
 from app.models.rbac import RoleCapability, RoleMetricPermission, UserScope
 from app.models.reports import ReportShare, SavedReport, SavedView
@@ -26,6 +27,7 @@ __all__ = [
     "RoleMetricPermission",
     "RoleCapability",
     "UserScope",
+    "DashboardLayout",
     "SavedView",
     "SavedReport",
     "ReportShare",

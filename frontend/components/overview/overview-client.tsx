@@ -1,7 +1,7 @@
 "use client";
 
-import { LayoutGrid, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { Check, LayoutGrid, RotateCcw, X } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Layouts } from "react-grid-layout";
 
 import { DashboardGrid } from "@/components/overview/dashboard-grid";
@@ -17,20 +17,43 @@ import { PlatformSplit, PodSplit } from "@/components/overview/splits";
 import { TopAppsTable } from "@/components/overview/top-apps-table";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { defaultLayouts, type OverviewItemId } from "@/lib/overview-layout";
+import {
+  useDashboardLayout,
+  useResetDashboardLayout,
+  useSaveDashboardLayout,
+} from "@/lib/api-hooks";
+import { defaultLayouts, normalizeLayouts, type OverviewItemId } from "@/lib/overview-layout";
 import { useFilters } from "@/lib/use-filters";
+
+const PAGE = "overview";
 
 export function OverviewClient() {
   const { filters } = useFilters();
   const [editMode, setEditMode] = useState(false);
-  // Layout lives in state only — no persistence in Phase 1 (resets on refresh).
-  const [layouts, setLayouts] = useState<Layouts>(() => defaultLayouts());
 
-  // The EXISTING widgets, wrapped untouched — each keeps its own data fetching,
-  // filter reactivity, loading/empty/error states and RBAC. View mode and the
-  // edit grid render the very same elements, just in a different container.
-  const items: Record<OverviewItemId, React.ReactNode> = {
-    kpis: <KpiRow filters={filters} />,
+  const layoutQuery = useDashboardLayout(PAGE);
+  const saveLayout = useSaveDashboardLayout(PAGE);
+  const resetLayout = useResetDashboardLayout(PAGE);
+
+  // This user's saved layout (reconciled with the current widget set), or the default
+  // when nothing is saved. Applied to BOTH view and edit mode so it persists after
+  // exiting the editor and after re-login.
+  const savedLayouts = useMemo<Layouts>(() => {
+    const saved = layoutQuery.data?.layout;
+    return saved ? normalizeLayouts(saved) : defaultLayouts();
+  }, [layoutQuery.data]);
+
+  // Working copy: edited in place while customizing; reseeded when the saved layout
+  // changes (initial load, after save, after reset).
+  const [layouts, setLayouts] = useState<Layouts>(savedLayouts);
+  useEffect(() => {
+    setLayouts(savedLayouts);
+  }, [savedLayouts]);
+
+  // The EXISTING widgets, wrapped untouched — each keeps its own data fetching, filter
+  // reactivity, loading/empty/error states and RBAC. The KPI row is a FIXED full-width
+  // header (below) and is intentionally NOT part of the draggable grid.
+  const items: Record<OverviewItemId, ReactNode> = {
     "donut-year": <RevenueProgress period="year" />,
     trend: <MonthlyTrend filters={filters} />,
     "donut-month": <RevenueProgress period="month" />,
@@ -43,62 +66,79 @@ export function OverviewClient() {
     "top-apps": <TopAppsTable filters={filters} />,
   };
 
+  function handleSave() {
+    saveLayout.mutate(layouts);
+    setEditMode(false);
+  }
+
+  function handleCancel() {
+    setLayouts(savedLayouts); // discard unsaved drags
+    setEditMode(false);
+  }
+
+  function handleReset() {
+    resetLayout.mutate(); // clears the saved layout server-side
+    setLayouts(defaultLayouts()); // restore the default arrangement immediately
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader title="Executive Overview" />
         <div className="flex items-center gap-2">
-          {editMode && (
+          {editMode ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleReset}
+                disabled={resetLayout.isPending}
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset to default
+              </Button>
+              <Button variant="ghost" size="sm" className="gap-2" onClick={handleCancel}>
+                <X className="h-4 w-4" />
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-2"
+                onClick={handleSave}
+                disabled={saveLayout.isPending}
+              >
+                <Check className="h-4 w-4" />
+                {saveLayout.isPending ? "Saving…" : "Save"}
+              </Button>
+            </>
+          ) : (
             <Button
               variant="outline"
               size="sm"
               className="gap-2"
-              onClick={() => setLayouts(defaultLayouts())}
+              onClick={() => setEditMode(true)}
             >
-              <RotateCcw className="h-4 w-4" />
-              Reset to default
+              <LayoutGrid className="h-4 w-4" />
+              Customize layout
             </Button>
           )}
-          <Button
-            variant={editMode ? "default" : "outline"}
-            size="sm"
-            className="gap-2"
-            onClick={() => setEditMode((on) => !on)}
-          >
-            <LayoutGrid className="h-4 w-4" />
-            {editMode ? "Done" : "Customize layout"}
-          </Button>
         </div>
       </div>
 
-      {editMode ? (
-        // Edit mode: the draggable/resizable grid (default positions = the view below).
-        <DashboardGrid items={items} layouts={layouts} onLayoutsChange={setLayouts} />
-      ) : (
-        // View mode: the default arrangement (mirrors the edit-grid default layout).
-        <div className="space-y-6">
-          {items.kpis}
-          {/* Top row, three across: yearly donut | monthly trend | monthly donut.
-              Stacks vertically below lg. */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {items["donut-year"]}
-            {items.trend}
-            {items["donut-month"]}
-          </div>
-          {/* Directly below: the two full-width tables (~10 columns each). */}
-          {items.publisher}
-          {items["top-apps"]}
-          {items.ratios}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {items["rev-vs-spend"]}
-            {items.composition}
-          </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {items.platform}
-            {items.pod}
-          </div>
-        </div>
-      )}
+      {/* Fixed full-width KPI header — never draggable, never clipped. */}
+      <KpiRow filters={filters} />
+
+      {/* Everything below the KPIs is the draggable/resizable grid. In view mode it is
+          static but still laid out by the saved positions, so the arrangement persists
+          outside the editor. Stacks to a single column below the lg breakpoint. */}
+      <DashboardGrid
+        items={items}
+        layouts={layouts}
+        editable={editMode}
+        onLayoutsChange={setLayouts}
+      />
 
       <DemoSection />
     </div>
