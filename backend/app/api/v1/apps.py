@@ -47,7 +47,9 @@ def _app_payload(app: DimApp) -> dict[str, Any]:
 @router.get("/apps")
 async def list_apps(context: CurrentUser, db: DbSession, redis: RedisClient) -> dict[str, Any]:
     scope = build_scope_filter(context.scopes, columns=_DIM_SCOPE_COLUMNS)
-    key = aggregate_cache_key("apps.list", scope_token(context.scopes), {})
+    # The apps list is dimension-only (no metric columns), so it varies by scope but
+    # NOT by metric permissions — perms left empty so same-scope callers share it.
+    key = aggregate_cache_key("apps.list", scope_token(context.scopes), "", {})
 
     async def produce() -> dict[str, Any]:
         stmt = (

@@ -217,6 +217,51 @@ async def test_aggregate_result_is_cached(metrics_env: MetricsEnv) -> None:
     assert keys, "expected an agg:* cache entry after a summary request"
 
 
+async def test_cache_does_not_leak_across_roles_with_same_scope(metrics_env: MetricsEnv) -> None:
+    """Two roles share a row-scope ('all') but NOT metric permissions. The cache key
+    varies by permitted groups, so a viewer never reads the admin's richer payload."""
+    # Admin (all groups, scope all) populates the summary cache for this range.
+    admin = await metrics_env.client.get(
+        "/api/v1/metrics/summary", params=RANGE, headers=_auth("admin")
+    )
+    assert admin.status_code == 200
+    assert "total_revenue_usd" in admin.json()["current"]
+
+    # Viewer (store_installs only, ALSO scope all) must get its OWN filtered payload,
+    # not the admin's cached one — no forbidden metric leaks through a shared entry.
+    viewer = await metrics_env.client.get(
+        "/api/v1/metrics/summary", params=RANGE, headers=_auth("viewer")
+    )
+    assert viewer.status_code == 200
+    cols = viewer.json()["current"]
+    assert "store_total_installs" in cols
+    assert "total_revenue_usd" not in cols
+    assert "roas" not in cols
+
+
+async def test_warm_overview_cache_makes_default_summary_a_hit(metrics_env: MetricsEnv) -> None:
+    """The warm-up pre-populates the default Overview so the first real visit is a hit."""
+    from app.services.cache_warm import _default_filters, warm_overview_cache
+
+    assert not [k async for k in metrics_env.redis.scan_iter(match="agg:*")]  # cold
+    warmed = await warm_overview_cache(metrics_env.sessionmaker, metrics_env.redis)
+    assert warmed >= 1
+    before = {k async for k in metrics_env.redis.scan_iter(match="agg:*")}
+    assert before, "warm-up should have populated agg:* entries"
+
+    # An admin (all groups + scope all, matching the warm profile) requesting the
+    # DEFAULT range hits the warmed entry — no new cache key is created.
+    f = _default_filters()
+    resp = await metrics_env.client.get(
+        "/api/v1/metrics/summary",
+        params={"date_from": f.date_from.isoformat(), "date_to": f.date_to.isoformat()},
+        headers=_auth("admin"),
+    )
+    assert resp.status_code == 200
+    after = {k async for k in metrics_env.redis.scan_iter(match="agg:*")}
+    assert after == before, "default summary should have been served from warm cache"
+
+
 async def test_api_query_is_audited(metrics_env: MetricsEnv) -> None:
     await metrics_env.client.get("/api/v1/metrics/summary", params=RANGE, headers=_auth("admin"))
     async with metrics_env.sessionmaker() as session:
