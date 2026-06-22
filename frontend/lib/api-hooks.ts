@@ -6,6 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type { Layouts as GridLayouts } from "react-grid-layout";
 
 import { ApiError, apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -213,6 +214,47 @@ export function useDeleteView() {
     mutationFn: (id: string) =>
       apiFetch<void>(`/api/v1/views/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["saved-views"] }),
+  });
+}
+
+// ── Dashboard layouts (per-user drag-and-drop persistence) ──────────────────────
+export interface DashboardLayoutOut {
+  page: string;
+  layout: GridLayouts | null;
+  updated_at: string | null;
+}
+
+/** Load THIS user's saved layout for a page (layout=null → use the default). */
+export function useDashboardLayout(page: string) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["dashboard-layout", page],
+    queryFn: () => apiFetch<DashboardLayoutOut>(`/api/v1/dashboard-layouts/${page}`),
+    enabled: Boolean(user),
+    staleTime: Infinity, // user-private; refreshed explicitly on save/reset
+  });
+}
+
+export function useSaveDashboardLayout(page: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (layout: GridLayouts) =>
+      apiFetch<DashboardLayoutOut>(`/api/v1/dashboard-layouts/${page}`, {
+        method: "PUT",
+        body: JSON.stringify({ layout }),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["dashboard-layout", page], data),
+  });
+}
+
+export function useResetDashboardLayout(page: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<DashboardLayoutOut>(`/api/v1/dashboard-layouts/${page}/reset`, {
+        method: "POST",
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["dashboard-layout", page], data),
   });
 }
 
