@@ -164,18 +164,39 @@ def generate_fact_ddl(table_name: str) -> str:
 );"""
 
 
+# Columns covered by the date-leading covering index (idx_fact_cover) so the hot,
+# uncached Overview aggregates (summary / timeseries / breakdown / table) run as
+# INDEX-ONLY scans instead of scattered heap reads. Under production-like (uncorrelated)
+# physical order a 30-day window touches ~almost every heap page; the covering index
+# turns that into a contiguous index-only slice (~16x fewer buffer reads, results
+# unchanged). The set is the group/table dimensions + the Overview's headline additive
+# measures, curated to stay well under Postgres's 32-column-per-index limit (a single
+# index cannot cover all ~50 additive measures).
+COVER_INDEX_COLUMNS = [
+    # dimensions used for scope filters, GROUP BY, and the table endpoint's max()
+    "canonical_key", "platform", "apple_id", "android_package", "app_name",
+    "publisher", "pod", "pod_owner", "hou",
+    # headline additive measures (KPIs, donuts, trend, splits, revenue tables)
+    "store_total_installs", "store_organic_installs", "total_paid_installs",
+    "total_revenue_usd", "total_ua_spend_usd", "total_ad_revenue_usd",
+    "total_iap_gross_usd", "total_iap_net_usd", "tech_cost_usd", "profit_usd",
+]
+
+
 def generate_indexes(table_name: str, suffix: str = "") -> list[str]:
     """Index DDL. `suffix` lets the staging table use non-conflicting names;
     they are renamed to canonical names after the atomic swap."""
+    cover = f"(date) INCLUDE ({', '.join(COVER_INDEX_COLUMNS)})"
     specs = [
         ("idx_fact_date",      "(date)"),
         ("idx_fact_canonical", "(canonical_key, date)"),
         ("idx_fact_pod",       "(pod, date)"),
         ("idx_fact_hou",       "(hou, date)"),
         ("idx_fact_publisher", "(publisher, date)"),
+        ("idx_fact_cover",     cover),
     ]
     return [f"CREATE INDEX {n}{suffix} ON {table_name} {cols};" for n, cols in specs]
 
 
 INDEX_BASE_NAMES = ["idx_fact_date", "idx_fact_canonical", "idx_fact_pod",
-                    "idx_fact_hou", "idx_fact_publisher"]
+                    "idx_fact_hou", "idx_fact_publisher", "idx_fact_cover"]

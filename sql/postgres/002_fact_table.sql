@@ -94,6 +94,18 @@ CREATE INDEX idx_fact_canonical ON fact_daily_performance (canonical_key, date);
 CREATE INDEX idx_fact_pod ON fact_daily_performance (pod, date);
 CREATE INDEX idx_fact_hou ON fact_daily_performance (hou, date);
 CREATE INDEX idx_fact_publisher ON fact_daily_performance (publisher, date);
+-- Date-leading COVERING index: makes the hot, uncached Overview aggregates
+-- (summary / timeseries / breakdown / table) run as INDEX-ONLY scans instead of
+-- scattered heap reads (~16x fewer buffer reads under production-like physical order;
+-- results unchanged). Covers the group/table dimensions + headline additive measures
+-- (curated to stay under Postgres's 32-column index limit). Mirrors
+-- sync/metric_registry.generate_indexes (COVER_INDEX_COLUMNS).
+CREATE INDEX idx_fact_cover ON fact_daily_performance (date) INCLUDE (
+  canonical_key, platform, apple_id, android_package, app_name, publisher,
+  pod, pod_owner, hou, store_total_installs, store_organic_installs,
+  total_paid_installs, total_revenue_usd, total_ua_spend_usd, total_ad_revenue_usd,
+  total_iap_gross_usd, total_iap_net_usd, tech_cost_usd, profit_usd
+);
 
 GRANT SELECT ON fact_daily_performance TO api_service;
 GRANT SELECT, INSERT, UPDATE, DELETE ON fact_daily_performance TO sync_service;
