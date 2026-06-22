@@ -11,6 +11,7 @@ EXPECTED_TABLES = {
     "role_capabilities",
     "user_scopes",
     "dashboard_layouts",
+    "app_settings",
     "saved_views",
     "saved_reports",
     "report_shares",

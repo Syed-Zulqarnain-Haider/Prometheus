@@ -20,6 +20,7 @@ from app.core.redis import get_redis
 
 RATE_LIMIT = 300
 EXPORT_RATE_LIMIT = 10
+SYNC_RATE_LIMIT = 3
 WINDOW_SECONDS = 60
 
 
@@ -56,3 +57,11 @@ async def enforce_export_rate_limit(
 ) -> None:
     """Tighter limit for the export endpoint (10/min)."""
     await _enforce(redis, f"rl:export:{context.user_id}", EXPORT_RATE_LIMIT)
+
+
+async def enforce_sync_rate_limit(
+    context: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> None:
+    """Very tight limit for the on-demand sync trigger (3/min) to prevent abuse."""
+    await _enforce(redis, f"rl:sync:{context.user_id}", SYNC_RATE_LIMIT)

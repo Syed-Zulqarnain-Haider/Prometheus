@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str = "redis://localhost:6379/0"
 
+    # Data-source / sync wiring (operational, env-only — NEVER stored in the DB or
+    # shown in the UI). Their PRESENCE drives the System tab's BigQuery status and the
+    # "Run sync now" trigger; absence (local/seed) means "not configured".
+    bigquery_project: str | None = None
+    sync_trigger_url: str | None = None  # e.g. the deployed Cloud Run Job execution URL
+    sync_trigger_token: str | None = None  # bearer for the trigger URL (secret; env only)
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

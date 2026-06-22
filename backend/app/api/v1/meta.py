@@ -11,7 +11,8 @@ from app.api.deps import CurrentUser, DbSession
 from app.core.rate_limit import enforce_rate_limit
 from app.models import SyncRun
 from app.schemas.admin import TargetsResponse
-from app.services import admin_service
+from app.schemas.system import ClientSettings
+from app.services import admin_service, settings_service
 
 router = APIRouter(prefix="/meta", tags=["meta"], dependencies=[Depends(enforce_rate_limit)])
 
@@ -45,6 +46,13 @@ async def freshness(context: CurrentUser, db: DbSession) -> dict[str, Any]:
         else None,
         "rows_loaded": last_success.rows_loaded if last_success else None,
     }
+
+
+@router.get("/settings", response_model=ClientSettings)
+async def client_settings(context: CurrentUser, db: DbSession) -> ClientSettings:
+    """Operational settings the UI reacts to (e.g. demo-widget toggle, freshness
+    threshold). Non-secret; readable by any authenticated user."""
+    return await settings_service.client_settings(db)
 
 
 @router.get("/targets", response_model=TargetsResponse)

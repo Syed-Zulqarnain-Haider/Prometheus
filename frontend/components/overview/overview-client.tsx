@@ -18,6 +18,7 @@ import { TopAppsTable } from "@/components/overview/top-apps-table";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import {
+  useClientSettings,
   useDashboardLayout,
   useResetDashboardLayout,
   useSaveDashboardLayout,
@@ -34,6 +35,9 @@ export function OverviewClient() {
   const layoutQuery = useDashboardLayout(PAGE);
   const saveLayout = useSaveDashboardLayout(PAGE);
   const resetLayout = useResetDashboardLayout(PAGE);
+  const clientSettings = useClientSettings();
+  // Demo widgets are gated by the admin-editable show_demo_widgets setting (default on).
+  const showDemo = clientSettings.data?.show_demo_widgets ?? true;
 
   // This user's saved layout (reconciled with the current widget set), or the default
   // when nothing is saved. Applied to BOTH view and edit mode so it persists after
@@ -140,7 +144,7 @@ export function OverviewClient() {
         onLayoutsChange={setLayouts}
       />
 
-      <DemoSection />
+      {showDemo && <DemoSection />}
     </div>
   );
 }

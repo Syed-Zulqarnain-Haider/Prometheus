@@ -36,9 +36,7 @@ from app.schemas.admin import (
     UserSummary,
 )
 from app.schemas.auth import ScopeOut
-
-# Data is considered stale if the last successful build is older than this.
-STALE_AFTER = timedelta(days=2)
+from app.services import settings_service
 
 
 async def _user_summary(db: AsyncSession, user: User) -> UserSummary:
@@ -380,12 +378,17 @@ async def data_health(db: AsyncSession) -> DataHealth:
     warnings: list[str] = []
     is_stale = False
     built_at = last_success.bq_built_at if last_success else None
+    # Staleness is driven by the admin-editable data_freshness_threshold_hours setting.
+    threshold_hours = int(await settings_service.get_value(db, "data_freshness_threshold_hours"))
+    stale_after = timedelta(hours=threshold_hours)
     if built_at is not None:
         age = datetime.now(UTC) - built_at
-        if age > STALE_AFTER:
+        if age > stale_after:
             is_stale = True
+            hours_old = int(age.total_seconds() // 3600)
             warnings.append(
-                f"Data is {age.days} day(s) old — last successful build {built_at.date()}."
+                f"Data is {hours_old}h old (threshold {threshold_hours}h) — "
+                f"last successful build {built_at.date()}."
             )
     else:
         warnings.append("No successful sync has ever completed.")
