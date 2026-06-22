@@ -7,7 +7,10 @@ later build steps.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -27,19 +30,59 @@ from app.api.v1 import reports as reports_routes
 from app.api.v1 import views as views_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.redis import redis_client
 from app.core.security_headers import build_security_headers_middleware
+from app.services.cache_warm import warm_overview_cache
 
 logger = logging.getLogger("app.main")
 
 settings = get_settings()
 _is_production = settings.env.lower() in ("production", "prod")
+_is_test = settings.env.lower() in ("test", "testing")
 
 # Fail loudly (in logs) on a misconfigured prod deploy rather than silently
 # serving with no allowed origins — every browser request would then break.
 if _is_production and not settings.cors_origin_list:
     logger.error("CORS_ORIGINS is empty in production — the frontend will be blocked.")
 
-app = FastAPI(title=settings.project_name)
+
+def _check_pooled_db_endpoint() -> None:
+    """Nudge toward Neon's POOLED endpoint for lower per-request connect latency.
+
+    Neon's pooled host carries a ``-pooler`` segment. A direct (non-pooled) host
+    pays a fresh connection handshake per request — costly against a free-tier DB
+    that also cold-starts. We only warn (never fail): the URL is env/secret-provided.
+    """
+    url = settings.database_url
+    if "neon.tech" in url and "-pooler" not in url:
+        logger.warning(
+            "DATABASE_URL points at a Neon host without '-pooler' — use the POOLED "
+            "endpoint (host contains '-pooler') for lower per-request connection latency."
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup: nudge DB config and warm the aggregate cache in the background.
+
+    Warm-up is fire-and-forget so it never delays readiness, and idempotent so a
+    cold instance (or a run right after the daily cache bust) repopulates the
+    default Overview without blocking the first real request. Skipped under tests.
+    """
+    _check_pooled_db_endpoint()
+    if not _is_test:
+
+        async def _warm() -> None:
+            try:
+                await warm_overview_cache(app.state.sessionmaker, redis_client)
+            except Exception:  # noqa: BLE001 — warm-up is best-effort, never fatal
+                logger.exception("aggregate cache warm-up failed")
+
+        app.state.warm_task = asyncio.create_task(_warm())
+    yield
+
+
+app = FastAPI(title=settings.project_name, lifespan=lifespan)
 
 # Session factory used by the audit middleware (overridable in tests).
 app.state.sessionmaker = AsyncSessionLocal

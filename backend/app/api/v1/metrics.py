@@ -1,8 +1,10 @@
 """Metrics routes: summary, timeseries, breakdown, table.
 
-All are GET, authenticated, rate-limited, and cached (agg:* / 12h). RBAC column
-filtering is inherent — the query builder only aggregates the caller's permitted
-measures, and period ratios only appear when their components are permitted.
+All are GET, authenticated, rate-limited, and cached (agg:*, TTL aligned to the daily
+rebuild). RBAC column filtering is inherent — the query builder only aggregates the
+caller's permitted measures, and period ratios only appear when their components are
+permitted; the cache key also varies by scope + permitted groups so payloads are never
+shared across permission profiles.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 
 from app.api.deps import CurrentUser, DbSession, RedisClient
-from app.core.cache import aggregate_cache_key, cached_json, scope_token
+from app.core.cache import aggregate_cache_key, cached_json, perms_token, scope_token
 from app.core.rate_limit import enforce_rate_limit
 from app.schemas.metrics import Bucket, GroupBy, MetricFilters, Platform, SortDirection
 from app.services import metrics_service
@@ -61,7 +63,12 @@ async def summary(
     filters: Filters, context: CurrentUser, db: DbSession, redis: RedisClient
 ) -> dict[str, Any]:
     qb = QueryBuilder(context)
-    key = aggregate_cache_key("metrics.summary", scope_token(context.scopes), _params(filters))
+    key = aggregate_cache_key(
+        "metrics.summary",
+        scope_token(context.scopes),
+        perms_token(context.metric_groups),
+        _params(filters),
+    )
 
     async def produce() -> dict[str, Any]:
         return await metrics_service.run_summary(db, qb, filters)
@@ -83,6 +90,7 @@ async def timeseries(
     key = aggregate_cache_key(
         "metrics.timeseries",
         scope_token(context.scopes),
+        perms_token(context.metric_groups),
         _params(filters, metrics=sorted(metrics), bucket=bucket),
     )
 
@@ -110,6 +118,7 @@ async def breakdown(
     key = aggregate_cache_key(
         "metrics.breakdown",
         scope_token(context.scopes),
+        perms_token(context.metric_groups),
         _params(filters, group_by=group_by, metrics=sorted(metrics), limit=limit),
     )
 
@@ -143,6 +152,7 @@ async def table(
     key = aggregate_cache_key(
         "metrics.table",
         scope_token(context.scopes),
+        perms_token(context.metric_groups),
         _params(filters, sort=sort, direction=direction, limit=limit, cursor=cursor),
     )
 
