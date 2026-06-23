@@ -10,13 +10,18 @@ dependencies = [
     "asyncpg>=0.29",
     "alembic>=1.13",
     "pydantic>=2.7",
-    "pydantic-settings>=2.3",
+    "pydantic-settings>=2.14.2",
     "redis>=5.0",
     "firebase-admin>=6.5",
     # Runtime dependency (NOT optional): the XLSX export writer in
     # services/reports_service.build_xlsx imports openpyxl. Keep it here so
     # production images and fresh installs (`pip install .`) always include it.
     "openpyxl>=3.1",
+    # Security floors for transitive deps (patch-level CVE fixes, non-breaking):
+    #   starlette (via fastapi)        — CVE-2026-54283
+    #   msgpack   (via firebase-admin) — GHSA-6v7p-g79w-8964
+    "starlette>=1.3.1",
+    "msgpack>=1.2.1",
 ]
 
 [project.optional-dependencies]
