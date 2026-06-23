@@ -3,10 +3,11 @@
 # Python (backend, sync) + Node (frontend) + environment/secrets
 # ─────────────────────────────────────────────────────────────
 
-# ── Secrets & environment (NEVER commit — .env.example is the ONLY exception) ──
+# ── Secrets & environment (NEVER commit — only *.example templates are allowed) ──
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 *-key.json

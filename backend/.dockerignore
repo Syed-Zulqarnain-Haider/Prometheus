@@ -8,7 +8,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 tests/
-scripts/
+# NOTE: scripts/ (create_admin.py) and sync/ are intentionally INCLUDED in the image
+# so admin provisioning and the daily sync can run via the same container.
 .env
 .env.*
 !.env.example

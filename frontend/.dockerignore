@@ -1,0 +1,9 @@
+# Keep the build context lean and free of local cruft / secrets.
+node_modules
+.next
+.git
+npm-debug.log*
+# Local env files are never needed in the image (public config is passed as build ARGs).
+.env
+.env.*
+!.env.example

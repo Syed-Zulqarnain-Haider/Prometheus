@@ -47,6 +47,10 @@ include = ["app*"]
 target-version = "py312"
 line-length = 100
 src = ["app", "tests"]
+# `sync/` is VENDORED byte-identical from the repo-root sync/ for the deployment image
+# (see tests/test_sync_vendor_parity.py). It must not be reformatted here — the
+# canonical copy is linted/owned at the repo root, so exclude the vendored copy.
+extend-exclude = ["sync"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "W", "C4", "SIM"]
