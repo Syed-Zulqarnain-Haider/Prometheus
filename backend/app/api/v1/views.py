@@ -5,13 +5,15 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit
 from app.models import SavedView
 from app.schemas.reports import SavedViewCreate, SavedViewOut
+from app.services.audit import AuditDep
 
 router = APIRouter(prefix="/views", tags=["views"], dependencies=[Depends(enforce_rate_limit)])
 
@@ -44,17 +46,32 @@ async def list_views(context: CurrentUser, db: DbSession) -> list[SavedViewOut]:
 
 
 @router.post("", response_model=SavedViewOut, status_code=status.HTTP_201_CREATED)
-async def create_view(body: SavedViewCreate, context: CurrentUser, db: DbSession) -> SavedViewOut:
+async def create_view(
+    body: SavedViewCreate, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> SavedViewOut:
     view = SavedView(user_id=context.user_id, name=body.name, page=body.page, filters=body.filters)
     db.add(view)
     await db.commit()
     await db.refresh(view)
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_view_create",
+        resource=str(view.id),
+        detail={"name": view.name, "page": view.page},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return _out(view)
 
 
 @router.put("/{view_id}", response_model=SavedViewOut)
 async def update_view(
-    view_id: uuid.UUID, body: SavedViewCreate, context: CurrentUser, db: DbSession
+    view_id: uuid.UUID,
+    body: SavedViewCreate,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
 ) -> SavedViewOut:
     view = await db.scalar(
         select(SavedView).where(SavedView.id == view_id, SavedView.user_id == context.user_id)
@@ -67,11 +84,21 @@ async def update_view(
     view.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(view)
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_view_update",
+        resource=str(view_id),
+        detail={"name": view.name, "page": view.page},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return _out(view)
 
 
 @router.delete("/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_view(view_id: uuid.UUID, context: CurrentUser, db: DbSession) -> Response:
+async def delete_view(
+    view_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> Response:
     view = await db.scalar(
         select(SavedView).where(SavedView.id == view_id, SavedView.user_id == context.user_id)
     )
@@ -79,4 +106,11 @@ async def delete_view(view_id: uuid.UUID, context: CurrentUser, db: DbSession) -
         raise HTTPException(status.HTTP_404_NOT_FOUND, "View not found")
     await db.delete(view)
     await db.commit()
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_view_delete",
+        resource=str(view_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

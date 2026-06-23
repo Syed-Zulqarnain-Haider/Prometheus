@@ -46,9 +46,11 @@ def get_filters(
             apps=apps or [],
         )
     except ValidationError as exc:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "date_from must be on or before date_to"
-        ) from exc
+        # Surface the specific guard that failed (date order, range span, or filter
+        # count) rather than a fixed message. Validator messages are user-safe.
+        first = exc.errors()[0].get("msg", "invalid filter parameters")
+        message = str(first).removeprefix("Value error, ")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, message) from exc
 
 
 Filters = Annotated[MetricFilters, Depends(get_filters)]

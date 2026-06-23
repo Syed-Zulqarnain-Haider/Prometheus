@@ -76,6 +76,37 @@ async def test_saved_views_are_per_user(metrics_env: MetricsEnv) -> None:
     assert (await client.get("/api/v1/views", headers=_auth("admin"))).json() == []
 
 
+# ── RT-M3: saved-view / saved-report CRUD is audited ─────────────────────────
+async def test_saved_view_crud_is_audited(metrics_env: MetricsEnv) -> None:
+    client = metrics_env.client
+    created = await client.post(
+        "/api/v1/views",
+        json={"name": "V", "page": "overview", "filters": RANGE},
+        headers=_auth("admin"),
+    )
+    vid = created.json()["id"]
+    await client.put(
+        f"/api/v1/views/{vid}",
+        json={"name": "V2", "page": "overview", "filters": RANGE},
+        headers=_auth("admin"),
+    )
+    await client.delete(f"/api/v1/views/{vid}", headers=_auth("admin"))
+    actions = set(await _audit_actions(metrics_env))
+    assert {"saved_view_create", "saved_view_update", "saved_view_delete"} <= actions
+
+
+async def test_saved_report_crud_is_audited(metrics_env: MetricsEnv) -> None:
+    client = metrics_env.client
+    created = await client.post("/api/v1/reports", json=_report_body(), headers=_auth("admin"))
+    rid = created.json()["id"]
+    await client.put(
+        f"/api/v1/reports/{rid}", json=_report_body(name="updated"), headers=_auth("admin")
+    )
+    await client.delete(f"/api/v1/reports/{rid}", headers=_auth("admin"))
+    actions = set(await _audit_actions(metrics_env))
+    assert {"saved_report_create", "saved_report_update", "saved_report_delete"} <= actions
+
+
 # ── Saved reports: CRUD + write-time column RBAC ─────────────────────────────
 async def test_report_rejects_forbidden_column_on_write(metrics_env: MetricsEnv) -> None:
     # Viewer may only aggregate store_installs; total_revenue_usd is forbidden.
