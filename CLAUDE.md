@@ -3,6 +3,11 @@
 This file is the permanent project memory. Read it fully before any task.
 Decisions here are FINAL unless the owner explicitly changes them in the session.
 
+> Engineer/onboarding overview, repo structure, local setup, and troubleshooting live in
+> [`README.md`](./README.md). This file holds the locked decisions and conventions; keep the
+> two consistent (both must reflect the current code — Neon Postgres + Upstash Redis, the
+> 79-column registry incl. `tech_cost_usd`, etc.).
+
 ## What we are building
 An enterprise analytics dashboard (replacing a Looker Studio dashboard) for mobile-app
 performance data. ~50 internal users at launch. Data source: BigQuery. Serving: PostgreSQL.
@@ -19,8 +24,9 @@ performance data. ~50 internal users at launch. Data source: BigQuery. Serving: 
   mitigations are TLS-required connections, least-privilege DB roles, and rotated secrets.
   Migrating back to Cloud SQL (private IP) later remains possible — the app code is
   connection-string agnostic, so only env/secrets and networking change.
-- **Cache**: Redis as a lightweight container running alongside the API (not Memorystore),
-  key prefix `agg:*`, busted by the daily sync.
+- **Cache**: Redis on **Upstash** (serverless, TLS `rediss://`) — NOT Memorystore. Key
+  prefix `agg:*`, busted by the daily sync and TTL-aligned to the daily rebuild boundary.
+  (Locally, a Redis container via `docker compose`.)
 - **Auth**: Firebase Auth. JWT verified server-side (firebase-admin) on EVERY route.
 - **Data flow**: BigQuery view `terafort.api.daily_performance_v1` → daily sync job
   (Cloud Run Job, ~06:00 UTC) → `fact_daily_performance` in Postgres via staged load +
@@ -94,18 +100,25 @@ docs/  (the technical spec + this file's source decisions)
 Step 1 (DONE, in repo): sql/bigquery/daily_performance_v1.sql, sql/postgres/001+002,
 sync/metric_registry.py, sync/sync_job.py, Dockerfile. Reuse — do not rewrite.
 
-## Build order (work ONLY on the current step unless told otherwise)
+## Build order (all foundational steps COMPLETE; current focus = hardening/maturity)
 1. ✅ Data foundation: BQ view, Postgres DDL, sync job
-2. Auth + RBAC core: Firebase verify, UserContext dependency, scope resolver,
+2. ✅ Auth + RBAC core: Firebase verify, UserContext dependency, scope resolver,
    per-role response-model generation from the registry, audit middleware
-3. Metrics API: /metrics/summary, /timeseries, /breakdown, /table, /apps, /apps/{key},
+3. ✅ Metrics API: /metrics/summary, /timeseries, /breakdown, /table, /apps, /apps/{key},
    query-builder service (scope→WHERE injection), Redis caching, /meta/freshness
-4. Frontend shell: auth flow, layout, global URL-synced filter bar, ECharts theme
-5. Executive Overview page (first visible win), then Revenue, UA, Store, Apps Explorer,
-   App Detail
-6. Saved views + report builder + admin-approval sharing + exports
-7. Admin panel + audit viewer + Data Health page
-8. CI/CD hardening, rate limiting, Cloud Armor config, deploy docs
+4. ✅ Frontend shell: auth flow, layout, global URL-synced filter bar, ECharts theme
+5. ✅ Executive Overview (with per-user drag-and-drop layouts), Revenue, UA, Store,
+   Apps Explorer, App Detail
+6. ✅ Saved views + report builder + admin-approval sharing + exports
+7. ✅ Admin panel + audit viewer + Data Health + System tab (connection health,
+   operational settings, on-demand sync trigger)
+8. ✅ CI/CD, per-user rate limiting, deploy docs (Cloud Armor documented as optional edge)
+
+Beyond the plan (merged): permission-aware aggregate cache + daily-boundary TTL + warming,
+a date covering index for uncached queries, lazy-loaded ECharts, input caps + expanded
+auditing. Current focus is maturity/hardening; standing security/quality reviews (audit,
+red-team, cleanup, enterprise) inform it, and known open items include the Next.js
+dependency upgrade, frontend tests, and observability.
 
 ## Engineering conventions
 - Python: ruff + mypy --strict pass required. Pytest for every service & route;
