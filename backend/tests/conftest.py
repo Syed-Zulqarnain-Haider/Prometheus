@@ -100,16 +100,39 @@ SEED_STATEMENTS = (
 
 
 class FakeRedis:
-    """Minimal in-memory stand-in for redis.asyncio.Redis (get/set with TTL)."""
+    """Minimal in-memory stand-in for redis.asyncio.Redis: get/set plus the
+    sorted-set ops the per-user rate limiter uses (zadd/zcard/zrange/expire)."""
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
 
     async def get(self, key: str) -> str | None:
         return self.store.get(key)
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
+
+    async def zadd(self, key: str, mapping: dict[str, float]) -> None:
+        self.zsets.setdefault(key, {}).update(mapping)
+
+    async def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> None:
+        z = self.zsets.get(key)
+        if not z:
+            return
+        for member in [m for m, s in z.items() if min_score <= s <= max_score]:
+            del z[member]
+
+    async def zcard(self, key: str) -> int:
+        return len(self.zsets.get(key, {}))
+
+    async def zrange(self, key: str, start: int, stop: int, withscores: bool = False) -> list[Any]:
+        items = sorted(self.zsets.get(key, {}).items(), key=lambda kv: kv[1])
+        sliced = items[start:] if stop == -1 else items[start : stop + 1]
+        return [(m, s) for m, s in sliced] if withscores else [m for m, _ in sliced]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
 
 
 class FakeVerifier:
