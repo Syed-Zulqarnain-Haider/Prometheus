@@ -1,16 +1,18 @@
 "use client";
 
-import ReactEChartsCore from "echarts-for-react/lib/core";
-import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import type { ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { type EChartsOption, echarts } from "@/lib/echarts";
-import {
-  ECHARTS_THEME_NAME,
-  buildEChartsTheme,
-  readChartTokens,
-} from "@/lib/echarts-theme";
+import type { EChartsOption } from "@/lib/echarts";
+
+/** Minimal shape of an ECharts mouse-event param (e.g. a bar/segment click). */
+export interface EChartsClickParams {
+  name: string;
+  value: unknown;
+  dataIndex: number;
+  seriesName?: string;
+}
 
 interface ChartProps {
   option: EChartsOption;
@@ -23,13 +25,15 @@ interface ChartProps {
   onEvents?: Record<string, (params: EChartsClickParams) => void>;
 }
 
-/** Minimal shape of an ECharts mouse-event param (e.g. a bar/segment click). */
-export interface EChartsClickParams {
-  name: string;
-  value: unknown;
-  dataIndex: number;
-  seriesName?: string;
-}
+// Lazy-load the ECharts renderer: the heavy charting library (echarts core +
+// echarts-for-react + theme) lives entirely in chart-canvas and is code-split out
+// of the initial route bundle, fetched on demand. A skeleton fills the chart's
+// reserved height while the chunk loads. ssr:false — charts are client-only anyway,
+// so this changes only HOW the library loads, not any chart/data behaviour.
+const ChartCanvas = dynamic(
+  () => import("@/components/charts/chart-canvas").then((m) => m.ChartCanvas),
+  { ssr: false, loading: () => <Skeleton className="h-full w-full" /> },
+);
 
 export function Chart({
   option,
@@ -41,35 +45,7 @@ export function Chart({
   errorMessage = "Failed to load chart",
   onEvents,
 }: ChartProps) {
-  const { resolvedTheme } = useTheme();
-  const [themeVersion, setThemeVersion] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<ReactEChartsCore>(null);
-
-  // Re-register the theme whenever the dark/light mode changes.
-  useEffect(() => {
-    echarts.registerTheme(ECHARTS_THEME_NAME, buildEChartsTheme(readChartTokens()));
-    setThemeVersion((v) => v + 1);
-  }, [resolvedTheme]);
-
-  // Keep the chart sized to its container — ECharts only auto-handles WINDOW
-  // resizes, so a chart that inits inside a not-yet-laid-out grid/flex cell can
-  // render blank until its container later gets a width. A ResizeObserver fixes
-  // that (and dynamic layout changes) for every chart.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      // Guard against a disposed/stale instance: while react-grid-layout drags or
-      // resizes a chart, ResizeObserver can fire after the chart is torn down.
-      const instance = chartRef.current?.getEchartsInstance();
-      if (instance && !instance.isDisposed()) instance.resize();
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  let body: React.ReactNode;
+  let body: ReactNode;
   if (error) {
     body = (
       <div className="flex h-full w-full items-center justify-center text-sm">
@@ -85,24 +61,11 @@ export function Chart({
       </div>
     );
   } else {
-    body = (
-      <ReactEChartsCore
-        ref={chartRef}
-        key={themeVersion}
-        echarts={echarts}
-        option={option}
-        theme={ECHARTS_THEME_NAME}
-        notMerge
-        lazyUpdate
-        style={{ height: "100%", width: "100%" }}
-        opts={{ renderer: "canvas" }}
-        onEvents={onEvents}
-      />
-    );
+    body = <ChartCanvas option={option} onEvents={onEvents} />;
   }
 
   return (
-    <div ref={containerRef} style={{ height, width: "100%" }}>
+    <div style={{ height, width: "100%" }}>
       {body}
     </div>
   );
