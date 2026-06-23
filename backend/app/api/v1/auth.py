@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_capability
 from app.core.http import client_ip
+from app.core.rate_limit import enforce_rate_limit
 from app.models import User
 from app.schemas.auth import DirectoryEntry, UserContext
 from app.services.audit import AuditDep
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+# Per-user rate limiting applies to the auth routes too (parity with every other
+# router); each route resolves CurrentUser, so the limiter has the caller's id.
+router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(enforce_rate_limit)])
+
+# The share directory is only needed by users who can share reports; gating it on
+# the share_report capability stops lower-privilege roles (e.g. viewer) from
+# enumerating every user's email. Recipients still view shares through their OWN RBAC.
+ShareUser = Annotated[UserContext, Depends(require_capability("share_report"))]
 
 
 @router.post("/session", response_model=UserContext)
@@ -32,11 +42,12 @@ async def read_me(context: CurrentUser) -> UserContext:
 
 
 @router.get("/directory", response_model=list[DirectoryEntry])
-async def directory(context: CurrentUser, db: DbSession) -> list[DirectoryEntry]:
+async def directory(context: ShareUser, db: DbSession) -> list[DirectoryEntry]:
     """Active users (minus the caller) for picking report-share recipients.
 
-    A minimal name/email directory — no roles or scopes are exposed. Recipients
-    always view shared reports through their OWN RBAC, so this leaks nothing.
+    Restricted to roles holding ``share_report`` (others get 403) — a minimal
+    name/email directory, no roles or scopes exposed. Recipients always view
+    shared reports through their OWN RBAC, so this leaks nothing extra.
     """
     rows = (
         (
