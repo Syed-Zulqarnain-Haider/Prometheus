@@ -127,7 +127,11 @@ async def list_reports(context: CurrentUser, db: DbSession) -> list[SavedReportO
 
 @router.post("", response_model=SavedReportOut, status_code=status.HTTP_201_CREATED)
 async def create_report(
-    body: SavedReportCreate, context: CurrentUser, db: DbSession
+    body: SavedReportCreate,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
 ) -> SavedReportOut:
     qb = QueryBuilder(context)
     try:
@@ -148,6 +152,14 @@ async def create_report(
     db.add(report)
     await db.commit()
     await db.refresh(report)
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_report_create",
+        resource=str(report.id),
+        detail={"name": report.name, "group_by": report.group_by},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return _report_out(report, is_owner=True)
 
 
@@ -201,8 +213,10 @@ async def get_report(report_id: uuid.UUID, context: CurrentUser, db: DbSession) 
 async def update_report(
     report_id: uuid.UUID,
     body: SavedReportCreate,
+    request: Request,
     context: CurrentUser,
     db: DbSession,
+    audit: AuditDep,
 ) -> SavedReportOut:
     report = await db.scalar(
         select(SavedReport).where(
@@ -228,11 +242,21 @@ async def update_report(
     report.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(report)
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_report_update",
+        resource=str(report_id),
+        detail={"name": report.name, "group_by": report.group_by},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return _report_out(report, is_owner=True)
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(report_id: uuid.UUID, context: CurrentUser, db: DbSession) -> Response:
+async def delete_report(
+    report_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> Response:
     report = await db.scalar(
         select(SavedReport).where(
             and_(SavedReport.id == report_id, SavedReport.user_id == context.user_id)
@@ -242,6 +266,13 @@ async def delete_report(report_id: uuid.UUID, context: CurrentUser, db: DbSessio
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     await db.delete(report)
     await db.commit()
+    await audit.write(
+        user_id=context.user_id,
+        action="saved_report_delete",
+        resource=str(report_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

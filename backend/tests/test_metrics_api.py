@@ -211,6 +211,37 @@ async def test_invalid_date_range_returns_400(metrics_env: MetricsEnv) -> None:
     assert response.status_code == 400
 
 
+# ── RT-M1: query-amplification guards (max range span + filter-list cap) ─────
+async def test_oversized_date_range_rejected(metrics_env: MetricsEnv) -> None:
+    response = await metrics_env.client.get(
+        "/api/v1/metrics/summary",
+        params={"date_from": "2020-01-01", "date_to": "2025-12-31"},  # ~6 years
+        headers=_auth("admin"),
+    )
+    assert response.status_code == 400
+    assert "range too large" in response.json()["error"]["message"].lower()
+
+
+async def test_too_many_filter_values_rejected(metrics_env: MetricsEnv) -> None:
+    response = await metrics_env.client.get(
+        "/api/v1/metrics/summary",
+        params={**RANGE, "pods": ["POD_A"] * 101},  # over the 100-value cap
+        headers=_auth("admin"),
+    )
+    assert response.status_code == 400
+    assert "too many pods" in response.json()["error"]["message"].lower()
+
+
+async def test_wide_but_valid_range_still_works(metrics_env: MetricsEnv) -> None:
+    # A large-but-allowed window (well under the 400-day cap) must NOT be rejected.
+    response = await metrics_env.client.get(
+        "/api/v1/metrics/summary",
+        params={"date_from": "2026-01-01", "date_to": "2026-06-02"},  # ~153 days
+        headers=_auth("admin"),
+    )
+    assert response.status_code == 200
+
+
 async def test_aggregate_result_is_cached(metrics_env: MetricsEnv) -> None:
     await metrics_env.client.get("/api/v1/metrics/summary", params=RANGE, headers=_auth("admin"))
     keys = [k async for k in metrics_env.redis.scan_iter(match="agg:*")]
