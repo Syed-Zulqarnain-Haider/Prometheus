@@ -1,35 +1,51 @@
-# Production stack for a single Ubuntu VM.
-#
-# Uses MANAGED data services — Neon Postgres + Upstash Redis — so there are NO
-# postgres/redis containers here (unlike the dev docker-compose.yml). Both app
-# containers bind to 127.0.0.1 ONLY; the host nginx reverse-proxies them and is the
-# only thing exposed to the internet (see docs/DEPLOY-UBUNTU.md).
-#
-# Config comes from a local .env (gitignored) — see .env.production.example.
-# Secrets (the Firebase Admin key) live under ./secrets/ (gitignored), mounted
-# read-only. Never commit a real .env or secrets/.
-#
-#   docker compose -f docker-compose.prod.yml up -d --build
-
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${PG_HOST_PORT}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     env_file: .env
     environment:
-      # The Firebase Admin key is mounted (below), not baked into the image.
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/firebase-admin.json
     volumes:
       - ./secrets/firebase-admin.json:/secrets/firebase-admin.json:ro
     ports:
-      # host-loopback only -> uvicorn listens on 8080 inside the container
       - "127.0.0.1:8000:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
-      # PUBLIC Firebase web config + API URL, inlined into the client bundle at
-      # build time (NOT secrets). Interpolated by compose from the same .env.
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
         NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
@@ -41,3 +57,7 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+volumes:
+  pgdata:
+  redisdata:
