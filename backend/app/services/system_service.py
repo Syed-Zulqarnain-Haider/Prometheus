@@ -26,7 +26,9 @@ def _ms(start: float) -> float:
     return round((perf_counter() - start) * 1000, 1)
 
 
-async def _ping_postgres(db: AsyncSession) -> ConnectionStatus:
+async def ping_postgres(db: AsyncSession) -> ConnectionStatus:
+    """Lightweight Postgres liveness ping — up/down + latency only, never the DSN.
+    Reused by the Integration tab status."""
     start = perf_counter()
     try:
         await db.execute(text("SELECT 1"))
@@ -36,7 +38,9 @@ async def _ping_postgres(db: AsyncSession) -> ConnectionStatus:
         return ConnectionStatus(name="PostgreSQL", status="down")
 
 
-async def _ping_redis(redis: Redis) -> ConnectionStatus:
+async def ping_redis(redis: Redis) -> ConnectionStatus:
+    """Lightweight Redis liveness ping — up/down + latency only, never the URL.
+    Reused by the Integration tab status."""
     start = perf_counter()
     try:
         await redis.ping()
@@ -64,8 +68,8 @@ def _bigquery_status(settings: Settings) -> ConnectionStatus:
 
 async def check_connections(db: AsyncSession, redis: Redis, settings: Settings) -> SystemHealth:
     return SystemHealth(
-        postgres=await _ping_postgres(db),
-        redis=await _ping_redis(redis),
+        postgres=await ping_postgres(db),
+        redis=await ping_redis(redis),
         bigquery=_bigquery_status(settings),
     )
 

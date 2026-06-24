@@ -33,8 +33,9 @@ from app.schemas.admin import (
     UserSummary,
     UserUpdate,
 )
+from app.schemas.integration import BigQueryTestResult, IntegrationStatus
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
-from app.services import admin_service, settings_service, system_service
+from app.services import admin_service, integration_service, settings_service, system_service
 from app.services.audit import AuditDep
 from app.services.auth import user_context_cache_key
 
@@ -328,6 +329,43 @@ async def run_sync_now(
         user_id=context.user_id,
         action="admin_run_sync",
         detail={"triggered": result.triggered, "configured": result.configured},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return result
+
+
+# ── Integration: status (BigQuery key presence + Postgres/Redis + sync history) ─
+@router.get("/integration/status", response_model=IntegrationStatus)
+async def get_integration_status(db: DbSession, redis: RedisClient) -> IntegrationStatus:
+    """Integration tab status: is the BigQuery reader key mounted, are Postgres/Redis
+    healthy, and the recent sync history. Status/history only — NO credential, key
+    path, or connection string is ever returned."""
+    return await integration_service.integration_status(db, redis, get_settings())
+
+
+# ── Integration: read-only BigQuery 'Test Connection' (audited, rate-limited) ───
+@router.post(
+    "/integration/test-bigquery",
+    response_model=BigQueryTestResult,
+    dependencies=[Depends(enforce_sync_rate_limit)],
+)
+async def test_bigquery_connection(
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> BigQueryTestResult:
+    """Lightweight, READ-ONLY BigQuery reachability check. Loads the reader key from its
+    configured path (separate from Firebase creds) and dry-runs a query. Returns a
+    sanitized ok/fail message — never a credential or raw provider error."""
+    settings = get_settings()
+    project = str(await settings_service.get_value(db, "gcp_project"))
+    result = await integration_service.test_bigquery(settings, project)
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_test_bigquery",
+        detail={"ok": result.ok},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )

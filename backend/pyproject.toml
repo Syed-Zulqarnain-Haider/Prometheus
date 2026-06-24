@@ -78,6 +78,14 @@ ignore_missing_imports = true
 module = ["openpyxl.*"]
 ignore_missing_imports = true
 
+# The BigQuery client + google-auth are imported lazily for the read-only "Test
+# Connection" probe; the BigQuery lib ships only in the sync-enabled image, and these
+# libraries are untyped. Treat the whole google.* namespace as untyped/optional.
+[[tool.mypy.overrides]]
+module = ["google.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"

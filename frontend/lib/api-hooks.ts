@@ -29,6 +29,7 @@ import type {
   SavedView,
   ShareOut,
   SummaryResponse,
+  SyncRunOut,
   TableResponse,
   TargetsResponse,
   TimeseriesResponse,
@@ -525,10 +526,11 @@ export interface SystemHealth {
 export interface AppSetting {
   key: string;
   type: string;
-  value: number | boolean;
-  default: number | boolean;
+  value: number | boolean | string;
+  default: number | boolean | string;
   label: string;
   description: string;
+  group: string;
   minimum: number | null;
   maximum: number | null;
   updated_at: string | null;
@@ -565,7 +567,7 @@ export function useAppSettings() {
 export function useUpdateSetting() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ key, value }: { key: string; value: number | boolean }) =>
+    mutationFn: ({ key, value }: { key: string; value: number | boolean | string }) =>
       apiFetch<AppSetting>(`/api/v1/admin/settings/${encodeURIComponent(key)}`, {
         method: "PUT",
         body: JSON.stringify({ value }),
@@ -593,5 +595,37 @@ export function useClientSettings() {
     queryFn: () => apiFetch<ClientSettings>("/api/v1/meta/settings"),
     enabled: Boolean(user),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ── Admin: Integration tab (BigQuery → Postgres) ────────────────────────────
+export interface IntegrationStatus {
+  bigquery: ConnectionStatus;
+  postgres: ConnectionStatus;
+  redis: ConnectionStatus;
+  last_sync: SyncRunOut | null;
+  recent_syncs: SyncRunOut[];
+}
+export interface BigQueryTestResult {
+  ok: boolean;
+  message: string;
+}
+
+export function useIntegrationStatus() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["integration-status"],
+    queryFn: () => apiFetch<IntegrationStatus>("/api/v1/admin/integration/status"),
+    enabled: Boolean(user),
+    refetchInterval: 30 * 1000, // live-ish status
+  });
+}
+
+export function useTestBigQuery() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<BigQueryTestResult>("/api/v1/admin/integration/test-bigquery", {
+        method: "POST",
+      }),
   });
 }
