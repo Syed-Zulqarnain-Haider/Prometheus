@@ -35,7 +35,13 @@ from app.schemas.admin import (
 )
 from app.schemas.integration import BigQueryTestResult, IntegrationStatus
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
-from app.services import admin_service, integration_service, settings_service, system_service
+from app.services import (
+    admin_service,
+    integration_service,
+    settings_service,
+    sync_service,
+    system_service,
+)
 from app.services.audit import AuditDep
 from app.services.auth import user_context_cache_key
 
@@ -320,11 +326,20 @@ async def update_setting(
 async def run_sync_now(
     request: Request,
     context: CurrentUser,
+    db: DbSession,
     audit: AuditDep,
 ) -> SyncTriggerResult:
-    """Trigger the data sync on demand. Returns an honest 'not configured' result when
-    no real data source is wired (never a faked success)."""
-    result = await system_service.run_sync_now(get_settings())
+    """Trigger the data sync on demand (advisory-lock guarded; delegates to the configured
+    trigger URL or runs the vendored sync locally). Returns an honest 'not configured'
+    result when no execution path is wired — never a faked success."""
+    settings = get_settings()
+    gcp_project = str(await settings_service.get_value(db, "gcp_project"))
+    bq_view = str(await settings_service.get_value(db, "bq_view"))
+    # The lock/run uses its own short-lived session (the request session is closing); the
+    # app-state sessionmaker resolves to the test factory under dependency overrides.
+    result = await sync_service.run_sync(
+        request.app.state.sessionmaker, settings, gcp_project=gcp_project, bq_view=bq_view
+    )
     await audit.log_admin_action(
         user_id=context.user_id,
         action="admin_run_sync",
