@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
 
 /** The Google "G" mark (brand colors); inline so it themes cleanly on the card. */
@@ -31,14 +33,30 @@ function GoogleIcon() {
 }
 
 export default function LoginPage() {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user, loading, signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loading && user) router.replace("/overview");
   }, [loading, user, router]);
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await signIn(email, password);
+      router.replace("/overview");
+    } catch {
+      setError("Invalid email or password.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function onGoogle() {
     setSubmitting(true);
@@ -65,9 +83,49 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground">Sign in to the performance dashboard</p>
         </div>
 
-        <Button type="button" className="w-full gap-2" onClick={onGoogle} disabled={submitting}>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+
+        <div className="my-4 flex items-center gap-3" aria-hidden="true">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">or</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2"
+          onClick={onGoogle}
+          disabled={submitting}
+        >
           <GoogleIcon />
-          {submitting ? "Signing in…" : "Continue with Google"}
+          Continue with Google
         </Button>
 
         {error && (
