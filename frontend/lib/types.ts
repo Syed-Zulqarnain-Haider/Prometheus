@@ -150,6 +150,8 @@ export interface AdminUser {
   email: string;
   display_name: string | null;
   is_active: boolean;
+  access_expires_at: string | null; // null = permanent
+  is_expired: boolean;
   roles: string[];
   scopes: Scope[];
   created_at: string;

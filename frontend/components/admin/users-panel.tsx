@@ -13,8 +13,10 @@ import {
   useAdminRoles,
   useAdminUsers,
   useCreateUser,
+  useDeleteUser,
   useUpdateUser,
 } from "@/lib/api-hooks";
+import { formatDateTime } from "@/lib/format";
 import type { AdminUser, Scope } from "@/lib/types";
 
 function RolePicker({
@@ -38,10 +40,74 @@ function RolePicker({
   );
 }
 
+/** A user's access-expiry status badge (none for permanent). */
+function ExpiryBadge({ user }: { user: AdminUser }) {
+  if (user.is_expired) return <Badge variant="destructive">access expired</Badge>;
+  if (user.access_expires_at) {
+    return <Badge variant="outline">expires {formatDateTime(user.access_expires_at)}</Badge>;
+  }
+  return null;
+}
+
+/** Set / extend / clear a user's access expiry. */
+function ExpiryControl({ user }: { user: AdminUser }) {
+  const update = useUpdateUser();
+  const [days, setDays] = useState("");
+  const n = Number(days);
+  const valid = days.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= 3650;
+
+  return (
+    <div className="space-y-1">
+      <Label>Access expiry</Label>
+      <p className="text-xs text-muted-foreground">
+        {user.access_expires_at
+          ? `${user.is_expired ? "Expired" : "Expires"} ${formatDateTime(user.access_expires_at)}`
+          : "Permanent (no expiry)."}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="number"
+          min={1}
+          max={3650}
+          className="w-28"
+          placeholder="days"
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!valid || update.isPending}
+          onClick={() =>
+            update.mutate(
+              { id: user.id, body: { access_duration_days: n } },
+              { onSuccess: () => setDays("") },
+            )
+          }
+        >
+          Set / extend
+        </Button>
+        {user.access_expires_at && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={update.isPending}
+            onClick={() => update.mutate({ id: user.id, body: { access_expires_at: null } })}
+          >
+            Make permanent
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UserEditor({ user, roleNames }: { user: AdminUser; roleNames: string[] }) {
   const update = useUpdateUser();
+  const del = useDeleteUser();
   const [roles, setRoles] = useState<string[]>(user.roles);
   const [scopes, setScopes] = useState<Scope[]>(user.scopes);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   function toggleRole(role: string) {
     setRoles((current) =>
@@ -59,7 +125,8 @@ function UserEditor({ user, roleNames }: { user: AdminUser; roleNames: string[] 
         <Label>Row scopes</Label>
         <ScopeEditor scopes={scopes} onChange={setScopes} />
       </div>
-      <div className="flex items-center gap-2">
+      <ExpiryControl user={user} />
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           onClick={() => update.mutate({ id: user.id, body: { roles, scopes } })}
@@ -70,9 +137,7 @@ function UserEditor({ user, roleNames }: { user: AdminUser; roleNames: string[] 
         <Button
           size="sm"
           variant={user.is_active ? "destructive" : "secondary"}
-          onClick={() =>
-            update.mutate({ id: user.id, body: { is_active: !user.is_active } })
-          }
+          onClick={() => update.mutate({ id: user.id, body: { is_active: !user.is_active } })}
           disabled={update.isPending}
         >
           {user.is_active ? "Deactivate" : "Reactivate"}
@@ -80,6 +145,37 @@ function UserEditor({ user, roleNames }: { user: AdminUser; roleNames: string[] 
         {update.isError && (
           <span className="text-xs text-destructive">
             {update.error instanceof Error ? update.error.message : "Save failed."}
+          </span>
+        )}
+      </div>
+
+      {/* Hard delete — two-step confirm */}
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+        {!confirmDelete ? (
+          <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
+            Delete user
+          </Button>
+        ) : (
+          <>
+            <span className="text-sm font-medium text-destructive">
+              Permanently delete this user? This cannot be undone.
+            </span>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={del.isPending}
+              onClick={() => del.mutate(user.id)}
+            >
+              {del.isPending ? "Deleting…" : "Yes, delete"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+          </>
+        )}
+        {del.isError && (
+          <span className="text-xs text-destructive">
+            {del.error instanceof Error ? del.error.message : "Delete failed."}
           </span>
         )}
       </div>
@@ -95,6 +191,7 @@ function CreateUserForm({ roleNames }: { roleNames: string[] }) {
   const [displayName, setDisplayName] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
   const [scopes, setScopes] = useState<Scope[]>([{ scope_type: "all", scope_value: null }]);
+  const [expiryDays, setExpiryDays] = useState("");
 
   function reset() {
     setFirebaseUid("");
@@ -102,10 +199,12 @@ function CreateUserForm({ roleNames }: { roleNames: string[] }) {
     setDisplayName("");
     setRoles([]);
     setScopes([{ scope_type: "all", scope_value: null }]);
+    setExpiryDays("");
   }
 
   function submit() {
     if (!firebaseUid.trim() || !email.trim()) return;
+    const days = Number(expiryDays);
     create.mutate(
       {
         firebase_uid: firebaseUid.trim(),
@@ -113,6 +212,9 @@ function CreateUserForm({ roleNames }: { roleNames: string[] }) {
         display_name: displayName.trim() || null,
         roles,
         scopes,
+        ...(expiryDays.trim() && Number.isInteger(days) && days >= 1
+          ? { access_duration_days: days }
+          : {}),
       },
       {
         onSuccess: () => {
@@ -124,9 +226,7 @@ function CreateUserForm({ roleNames }: { roleNames: string[] }) {
   }
 
   if (!open) {
-    return (
-      <Button onClick={() => setOpen(true)}>New user</Button>
-    );
+    return <Button onClick={() => setOpen(true)}>New user</Button>;
   }
 
   return (
@@ -162,6 +262,19 @@ function CreateUserForm({ roleNames }: { roleNames: string[] }) {
         <div className="space-y-1">
           <Label>Row scopes</Label>
           <ScopeEditor scopes={scopes} onChange={setScopes} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="nu-expiry">Access expires in (days, optional)</Label>
+          <Input
+            id="nu-expiry"
+            type="number"
+            min={1}
+            max={3650}
+            className="w-40"
+            placeholder="permanent"
+            value={expiryDays}
+            onChange={(e) => setExpiryDays(e.target.value)}
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={submit} disabled={!firebaseUid.trim() || !email.trim() || create.isPending}>
@@ -201,10 +314,9 @@ export function UsersPanel() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">
-                      {user.display_name ?? user.email}
-                    </span>
+                    <span className="truncate font-medium">{user.display_name ?? user.email}</span>
                     {!user.is_active && <Badge variant="destructive">inactive</Badge>}
+                    <ExpiryBadge user={user} />
                   </div>
                   <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                   <div className="mt-1 flex flex-wrap gap-1">

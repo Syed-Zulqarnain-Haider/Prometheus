@@ -362,6 +362,8 @@ export interface UserCreateInput {
   display_name?: string | null;
   roles: string[];
   scopes: ScopeInput[];
+  access_expires_at?: string | null;
+  access_duration_days?: number;
 }
 
 export interface UserUpdateInput {
@@ -369,6 +371,8 @@ export interface UserUpdateInput {
   is_active?: boolean;
   roles?: string[];
   scopes?: ScopeInput[];
+  access_expires_at?: string | null;
+  access_duration_days?: number;
 }
 
 export function useAdminUsers() {
@@ -400,6 +404,15 @@ export function useUpdateUser() {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/v1/admin/users/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
   });
 }

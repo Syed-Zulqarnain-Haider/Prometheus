@@ -38,7 +38,9 @@ class RevenueTarget(Base):
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
     period_month: Mapped[int | None] = mapped_column(Integer)
     target_usd: Mapped[float] = mapped_column(Double, nullable=False)
-    set_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    set_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

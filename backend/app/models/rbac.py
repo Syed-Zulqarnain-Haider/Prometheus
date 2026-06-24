@@ -77,7 +77,9 @@ class UserScope(Base):
     )
     scope_type: Mapped[str] = mapped_column(Text, nullable=False)
     scope_value: Mapped[str | None] = mapped_column(Text)
-    granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
     granted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
