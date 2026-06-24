@@ -31,9 +31,17 @@ services:
     build: ./backend
     env_file: .env
     environment:
+      # Firebase Admin (token verification) and the BigQuery reader are SEPARATE
+      # service-account identities — never the same key. Both are mounted files under
+      # ./secrets (read-only); only their PATHS are set here. The BigQuery key is OPTIONAL:
+      # if ./secrets/bq-reader.json is absent the Integration tab simply reports "not
+      # configured" and the sync stays off — the dashboard still runs.
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/firebase-admin.json
+      BQ_CREDENTIALS_PATH: /secrets/bq-reader.json
     volumes:
-      - ./secrets/firebase-admin.json:/secrets/firebase-admin.json:ro
+      # Mount the whole secrets DIR (read-only) so the optional BQ key can be absent
+      # without breaking container startup (a per-file bind of a missing file would).
+      - ./secrets:/secrets:ro
     ports:
       - "127.0.0.1:8000:8080"
     depends_on:
