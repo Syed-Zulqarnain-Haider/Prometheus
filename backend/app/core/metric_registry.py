@@ -132,6 +132,18 @@ REGISTRY: list[Col] = [
 
 COLUMN_NAMES: list[str] = [c.name for c in REGISTRY]
 
+# Registry columns the BigQuery view may not expose yet — the sync defaults them to 0
+# instead of failing, and the Integration tab's schema diff flags them as optional (not a
+# blocking mismatch). Kept identical to sync/metric_registry.py (drift-guarded by
+# tests/test_metric_registry_parity.py).
+OPTIONAL_SOURCE_COLUMNS: set[str] = {"tech_cost_usd"}
+
+
+def expected_bq_schema() -> dict[str, str]:
+    """Registry column name -> expected BigQuery INFORMATION_SCHEMA data_type. Used by the
+    admin schema-diff to compare the live view against the registry (informational only)."""
+    return {c.name: c.bq_type for c in REGISTRY}
+
 
 def columns_for_groups(groups: set[Group]) -> list[str]:
     """Column names belonging to any of the given metric groups."""

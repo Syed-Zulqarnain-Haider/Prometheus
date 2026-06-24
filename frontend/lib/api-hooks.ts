@@ -636,3 +636,51 @@ export function useTestBigQuery() {
       }),
   });
 }
+
+export interface SchemaColumnDiff {
+  column: string;
+  expected: string;
+  actual: string;
+}
+export interface BigQueryColumn {
+  column: string;
+  data_type: string;
+}
+export interface SchemaDiff {
+  configured: boolean;
+  in_sync: boolean;
+  message: string | null;
+  missing_in_view: string[];
+  optional_absent: string[];
+  type_mismatches: SchemaColumnDiff[];
+  unregistered_in_view: BigQueryColumn[];
+}
+export interface ClearDataResult {
+  cleared: boolean;
+  rows_deleted: Record<string, number>;
+  total: number;
+}
+
+/** Read-only, on-demand schema diff (BigQuery view vs the metric registry). */
+export function useSchemaDiff() {
+  return useMutation({
+    mutationFn: () => apiFetch<SchemaDiff>("/api/v1/admin/integration/schema-diff"),
+  });
+}
+
+/** DESTRUCTIVE: wipe analytics/fact data. Requires the exact confirmation phrase. */
+export function useClearData() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmation: string) =>
+      apiFetch<ClearDataResult>("/api/v1/admin/integration/clear-data", {
+        method: "POST",
+        body: JSON.stringify({ confirmation }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integration-status"] });
+      queryClient.invalidateQueries({ queryKey: ["data-health"] });
+      queryClient.invalidateQueries({ queryKey: ["freshness"] });
+    },
+  });
+}

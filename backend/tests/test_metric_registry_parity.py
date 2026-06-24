@@ -45,6 +45,13 @@ def test_group_enum_matches_sync() -> None:
     assert backend_groups == sync_groups
 
 
+def test_optional_source_columns_match_sync() -> None:
+    from app.core.metric_registry import OPTIONAL_SOURCE_COLUMNS as BACKEND_OPTIONAL
+
+    sync = _load_sync_registry()
+    assert BACKEND_OPTIONAL == sync.OPTIONAL_SOURCE_COLUMNS
+
+
 def test_registry_has_79_columns() -> None:
     # 78 view columns (incl. tech_cost_usd) + _built_at system column.
     assert len(BACKEND_REGISTRY) == 79
