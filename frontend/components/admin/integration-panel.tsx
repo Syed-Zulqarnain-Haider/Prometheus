@@ -223,6 +223,15 @@ function SchemaDiffSection() {
             )}
           </CardContent>
         )}
+        {diff.isError && (
+          <CardContent className="pt-0 text-sm">
+            <p className="text-destructive">
+              {diff.error instanceof ApiError
+                ? diff.error.message
+                : "Schema check failed. Please try again."}
+            </p>
+          </CardContent>
+        )}
       </Card>
     </section>
   );
@@ -384,6 +393,15 @@ export function IntegrationPanel() {
               </p>
             </CardContent>
           )}
+          {testBq.isError && (
+            <CardContent className="pt-0">
+              <p className="text-sm text-destructive">
+                {testBq.error instanceof ApiError
+                  ? testBq.error.message
+                  : "Test connection failed. Please try again."}
+              </p>
+            </CardContent>
+          )}
         </Card>
       </section>
 
@@ -432,7 +450,10 @@ export function IntegrationPanel() {
             <Button
               className="gap-2"
               disabled={runSync.isPending}
-              onClick={() => runSync.mutate(undefined, { onSuccess: setSyncResult })}
+              onClick={() => {
+                setSyncResult(null); // drop any stale banner before a re-run
+                runSync.mutate(undefined, { onSuccess: (result) => setSyncResult(result) });
+              }}
             >
               {runSync.isPending ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
@@ -450,6 +471,15 @@ export function IntegrationPanel() {
                 }`}
               >
                 {syncResult.message}
+              </p>
+            </CardContent>
+          )}
+          {runSync.isError && (
+            <CardContent className="pt-0">
+              <p className="text-sm text-destructive">
+                {runSync.error instanceof ApiError
+                  ? runSync.error.message
+                  : "Sync trigger failed. Please try again."}
               </p>
             </CardContent>
           )}

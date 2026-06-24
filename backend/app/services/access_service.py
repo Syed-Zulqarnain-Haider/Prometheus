@@ -18,6 +18,10 @@ from app.schemas.admin import ScopeIn, UserSummary
 from app.services import admin_service
 
 
+class RequestAlreadyDecided(Exception):
+    """The access request has already been approved or rejected (no longer pending)."""
+
+
 def _out(req: AccessRequest) -> AccessRequestOut:
     return AccessRequestOut(
         id=req.id,
@@ -95,6 +99,8 @@ async def approve(
     req = await db.get(AccessRequest, request_id)
     if req is None:
         raise LookupError("access request not found")
+    if req.status != "pending":
+        raise RequestAlreadyDecided(f"request already {req.status}")
 
     existing = await db.scalar(select(User).where(User.firebase_uid == req.firebase_uid))
     if existing is None:
@@ -130,11 +136,15 @@ async def approve(
 
 
 async def reject(db: AsyncSession, request_id: uuid.UUID, actor_id: uuid.UUID) -> AccessRequestOut:
-    """Mark a request rejected (zero access; the identity may re-request by signing in
-    again). Raises LookupError if missing."""
+    """Mark a PENDING request rejected (zero access; the identity may re-request by signing
+    in again). Only pending requests can be decided — rejecting an already-approved request
+    would NOT revoke the live user, so it is refused; deactivate/delete the user instead.
+    Raises LookupError if missing, RequestAlreadyDecided if not pending."""
     req = await db.get(AccessRequest, request_id)
     if req is None:
         raise LookupError("access request not found")
+    if req.status != "pending":
+        raise RequestAlreadyDecided(f"request already {req.status}")
     req.status = "rejected"
     req.decided_by = actor_id
     req.decided_at = datetime.now(UTC)

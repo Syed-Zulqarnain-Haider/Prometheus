@@ -149,6 +149,33 @@ async def test_reject_keeps_zero_access_and_allows_rerequest(metrics_env: Metric
     assert len([r for r in pending if r["firebase_uid"] == _NEWCOMER_UID]) == 1
 
 
+async def test_cannot_decide_an_already_decided_request(metrics_env: MetricsEnv) -> None:
+    c = metrics_env.client
+    request_id = await _request_id(metrics_env)
+
+    ok = await c.post(
+        f"/api/v1/admin/access-requests/{request_id}/approve",
+        json={"roles": ["viewer"], "scopes": []},
+        headers=_auth("admin"),
+    )
+    assert ok.status_code == 200
+
+    # Re-approving OR rejecting the now-approved request is refused (409) — decisions are
+    # one-shot, so a stale queue item can't silently re-mutate or "revoke" a live user.
+    re_approve = await c.post(
+        f"/api/v1/admin/access-requests/{request_id}/approve",
+        json={"roles": ["viewer"], "scopes": []},
+        headers=_auth("admin"),
+    )
+    assert re_approve.status_code == 409
+    rejected = await c.post(
+        f"/api/v1/admin/access-requests/{request_id}/reject", headers=_auth("admin")
+    )
+    assert rejected.status_code == 409
+    # The provisioned user is unaffected (still active) — no inconsistent state.
+    assert (await c.get("/api/v1/auth/me", headers=_auth("newcomer"))).status_code == 200
+
+
 async def test_approve_and_reject_unknown_request_404(metrics_env: MetricsEnv) -> None:
     c = metrics_env.client
     approve = await c.post(

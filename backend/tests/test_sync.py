@@ -43,6 +43,16 @@ def test_is_due_respects_timezone() -> None:
     assert scheduled == datetime(2026, 6, 24, 10, 0, tzinfo=UTC)
 
 
+def test_is_due_handles_dst_transition_day() -> None:
+    # US spring-forward 2026-03-08: 02:00 EST -> 03:00 EDT. 06:00 that day is EDT (UTC-4)
+    # = 10:00 UTC. now = 06:00 UTC = 01:00 EST (before the jump). The buggy .replace() would
+    # reuse the EST offset and wrongly compute 11:00 UTC.
+    now = datetime(2026, 3, 8, 6, 0, tzinfo=UTC)
+    due, scheduled = sync_service.is_due(now, "06:00", "America/New_York")
+    assert scheduled == datetime(2026, 3, 8, 10, 0, tzinfo=UTC)
+    assert due is False  # 06:00 UTC is before the 10:00 UTC scheduled instant
+
+
 def test_is_due_bad_inputs_are_not_due() -> None:
     now = datetime(2026, 6, 24, 12, 0, tzinfo=UTC)
     assert sync_service.is_due(now, "06:00", "Not/AZone")[0] is False

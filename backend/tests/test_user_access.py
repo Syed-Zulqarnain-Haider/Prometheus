@@ -191,3 +191,28 @@ async def test_rejects_both_expiry_fields(metrics_env: MetricsEnv) -> None:
     )
     assert resp.status_code == 400
     assert "not both" in resp.json()["error"]["message"].lower()
+
+
+# ── A naive (no-offset) expiry must be coerced, not crash the last-admin guard ─
+async def test_naive_expiry_is_coerced_to_utc(metrics_env: MetricsEnv) -> None:
+    future_naive = (datetime.now(UTC) + timedelta(days=10)).replace(tzinfo=None).isoformat()
+    resp = await metrics_env.client.patch(
+        f"/api/v1/admin/users/{_uid('viewer')}",
+        json={"access_expires_at": future_naive},
+        headers=_auth("admin"),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["access_expires_at"] is not None
+    assert resp.json()["is_expired"] is False
+
+
+async def test_naive_past_expiry_on_last_admin_is_guarded_not_500(metrics_env: MetricsEnv) -> None:
+    # Naive past expiry on the sole admin must hit the last-admin guard (400), never a
+    # 500 from comparing naive vs aware datetimes.
+    past_naive = (datetime.now(UTC) - timedelta(days=1)).replace(tzinfo=None).isoformat()
+    resp = await metrics_env.client.patch(
+        f"/api/v1/admin/users/{_uid('admin')}",
+        json={"access_expires_at": past_naive},
+        headers=_auth("admin"),
+    )
+    assert resp.status_code == 400
