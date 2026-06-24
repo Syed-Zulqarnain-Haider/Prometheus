@@ -69,7 +69,7 @@ async def _one(session: Any, stmt: Any) -> Any:
 # ── scope is applied first; client filters can only narrow ───────────────────
 async def test_scope_filter_limits_rows(fact_session: Any) -> None:
     await _insert_fact(fact_session, pod="POD_A", store_total_installs=10)
-    await _insert_fact(fact_session, pod="POD_B", store_total_installs=99)
+    await _insert_fact(fact_session, canonical_key="appB", pod="POD_B", store_total_installs=99)
     await fact_session.commit()
 
     qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("pod", "POD_A")]))
@@ -80,7 +80,7 @@ async def test_scope_filter_limits_rows(fact_session: Any) -> None:
 
 async def test_client_filter_can_only_narrow(fact_session: Any) -> None:
     await _insert_fact(fact_session, pod="POD_A", store_total_installs=10)
-    await _insert_fact(fact_session, pod="POD_B", store_total_installs=99)
+    await _insert_fact(fact_session, canonical_key="appB", pod="POD_B", store_total_installs=99)
     await fact_session.commit()
 
     ctx = _context(groups=ALL_GROUPS, scopes=[("pod", "POD_A")])
@@ -99,7 +99,7 @@ async def test_client_filter_can_only_narrow(fact_session: Any) -> None:
 
 async def test_scope_all_sees_everything(fact_session: Any) -> None:
     await _insert_fact(fact_session, pod="POD_A", store_total_installs=10)
-    await _insert_fact(fact_session, pod="POD_B", store_total_installs=99)
+    await _insert_fact(fact_session, canonical_key="appB", pod="POD_B", store_total_installs=99)
     await fact_session.commit()
 
     qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("all", None)]))
@@ -128,7 +128,9 @@ async def test_summary_previous_period_math(fact_session: Any) -> None:
 # ── timeseries ───────────────────────────────────────────────────────────────
 async def test_timeseries_day_buckets(fact_session: Any) -> None:
     await _insert_fact(fact_session, date=date(2026, 1, 8), store_total_installs=10)
-    await _insert_fact(fact_session, date=date(2026, 1, 8), store_total_installs=5)
+    await _insert_fact(
+        fact_session, canonical_key="appB", date=date(2026, 1, 8), store_total_installs=5
+    )
     await _insert_fact(fact_session, date=date(2026, 1, 9), store_total_installs=7)
     await fact_session.commit()
 
@@ -146,8 +148,8 @@ async def test_timeseries_day_buckets(fact_session: Any) -> None:
 # ── breakdown ────────────────────────────────────────────────────────────────
 async def test_breakdown_by_pod_ordered_desc(fact_session: Any) -> None:
     await _insert_fact(fact_session, pod="POD_A", store_total_installs=10)
-    await _insert_fact(fact_session, pod="POD_B", store_total_installs=40)
-    await _insert_fact(fact_session, pod="POD_B", store_total_installs=2)
+    await _insert_fact(fact_session, canonical_key="appB", pod="POD_B", store_total_installs=40)
+    await _insert_fact(fact_session, canonical_key="appC", pod="POD_B", store_total_installs=2)
     await fact_session.commit()
 
     qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("all", None)]))

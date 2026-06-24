@@ -42,7 +42,7 @@ backend ↔ frontend and serving ↔ analytics.
 
 ```
 BigQuery view (daily_performance_v1)
-        │   daily Cloud Run Job (sync): validate → staged load → integrity checks → atomic swap
+        │   daily sync: validate → staged load → integrity checks → UPSERT (history accumulates)
         ▼
 Neon Postgres  (fact_daily_performance, dim_app, RBAC, audit, saved views/reports, layouts…)
         │   FastAPI (Cloud Run): RBAC + scoped SQL, results cached in Upstash Redis (agg:*)
@@ -78,11 +78,13 @@ columns/types/groups/order. **Never hand-write column lists elsewhere.**
   (indistinguishable from nonexistent). Frontend hiding is cosmetic only.
 
 ### Fail-safe sync job
-`sync/sync_job.py` (a daily Cloud Run Job): record run → **validate** view schema vs the
+`sync/sync_job.py` (the daily sync): record run → **validate** view schema vs the
 registry → **staged load** (COPY into a staging table) → **integrity checks** (row delta
-±30%, freshness ≤ 3 days, 7-day revenue penny-match vs BigQuery) → **atomic rename swap**
-→ refresh `dim_app` → bust `agg:*`. On **any** failure it leaves the live table untouched
-(keeps serving yesterday's data), alerts, and records the reason in `sync_runs`. The
+±30%, freshness ≤ 3 days, 7-day revenue penny-match vs BigQuery) → **UPSERT staging into the
+live table** by natural key (`date, platform, app_key`) — re-running a date updates in place,
+new dates append, aged-out history is retained → refresh `dim_app` → drop staging → bust
+`agg:*`. On **any** failure it discards the staged data and leaves the live table untouched
+(keeps serving existing data), alerts, and records the reason in `sync_runs`. The
 dashboard never shows half-loaded data.
 
 ---
@@ -185,8 +187,9 @@ Decide which kind first — the two paths touch different layers:
   1. Add **one `Col(...)` entry** to the registry — in **both**
      `backend/app/core/metric_registry.py` **and** `sync/metric_registry.py` (the parity
      test enforces they match), with its metric group.
-  2. Add an **Alembic migration** for the column on the materialized table (the daily sync
-     also rebuilds the fact table from the registry on its next swap).
+  2. Add an **Alembic migration** for the column on the materialized fact table (the sync
+     UPSERTs into the live table and no longer rebuilds it, so the column must exist there;
+     the sync only creates the table from the registry on a fresh DB where it's absent).
   3. That's it — the registry **generates** the DDL, the per-role Pydantic models, the RBAC
      column filter, and the fact indexes. Don't hand-edit column lists anywhere.
 
