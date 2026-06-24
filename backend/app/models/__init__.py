@@ -9,6 +9,7 @@ Alembic autogenerate and ``create_all`` see the full schema.
 
 from __future__ import annotations
 
+from app.models.access import AccessRequest
 from app.models.base import Base
 from app.models.dim import DimApp
 from app.models.identity import Role, User, UserRole
@@ -21,6 +22,7 @@ from app.models.targets import RevenueTarget
 
 __all__ = [
     "Base",
+    "AccessRequest",
     "DimApp",
     "User",
     "Role",

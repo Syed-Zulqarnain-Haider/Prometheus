@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -83,6 +84,43 @@ async def get_user_context(
 CurrentUser = Annotated[UserContext, Depends(get_user_context)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 RedisClient = Annotated[Redis, Depends(get_redis)]
+
+
+@dataclass
+class VerifiedIdentity:
+    """A Firebase-verified identity that is NOT (necessarily) provisioned."""
+
+    firebase_uid: str
+    email: str
+    display_name: str | None
+
+
+async def get_verified_identity(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
+) -> VerifiedIdentity:
+    """Verify the Firebase token WITHOUT requiring a provisioned account — so an
+    authenticated-but-unprovisioned user can lodge an access request. Grants NOTHING by
+    itself; the caller only uses the verified identity to record a pending request."""
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication token")
+    try:
+        decoded = verifier.verify(credentials.credentials)
+    except InvalidTokenError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authentication token") from exc
+    firebase_uid = decoded.get("uid")
+    if not firebase_uid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authentication token")
+    email = decoded.get("email")
+    if not email:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Your sign-in did not provide an email address"
+        )
+    display_name = decoded.get("name") or decoded.get("display_name")
+    return VerifiedIdentity(firebase_uid=firebase_uid, email=email, display_name=display_name)
+
+
+VerifiedUser = Annotated[VerifiedIdentity, Depends(get_verified_identity)]
 
 
 def require_capability(

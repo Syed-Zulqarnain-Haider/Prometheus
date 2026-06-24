@@ -7,16 +7,54 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, require_capability
+from app.api.deps import CurrentUser, DbSession, VerifiedUser, require_capability
 from app.core.http import client_ip
-from app.core.rate_limit import enforce_rate_limit
+from app.core.rate_limit import enforce_access_request_rate_limit, enforce_rate_limit
 from app.models import User
+from app.schemas.access import AccessRequestStatus
 from app.schemas.auth import DirectoryEntry, UserContext
+from app.services import access_service
 from app.services.audit import AuditDep
 
 # Per-user rate limiting applies to the auth routes too (parity with every other
 # router); each route resolves CurrentUser, so the limiter has the caller's id.
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(enforce_rate_limit)])
+
+# A SEPARATE /auth router WITHOUT the CurrentUser-based limiter — its routes serve
+# authenticated-but-UNPROVISIONED identities (the main router's limiter resolves
+# CurrentUser, which 401s them before the route runs).
+public_router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@public_router.post(
+    "/access-request",
+    response_model=AccessRequestStatus,
+    dependencies=[Depends(enforce_access_request_rate_limit)],
+)
+async def request_access(
+    identity: VerifiedUser,
+    request: Request,
+    db: DbSession,
+    audit: AuditDep,
+) -> AccessRequestStatus:
+    """Lodge (or refresh) a pending access request for a verified-but-unprovisioned user.
+    Idempotent by Firebase UID; grants ZERO access — an admin must approve. Audited."""
+    req = await access_service.record_request(
+        db,
+        firebase_uid=identity.firebase_uid,
+        email=identity.email,
+        display_name=identity.display_name,
+    )
+    await audit.write(
+        user_id=None,
+        action="access_request",
+        resource=identity.firebase_uid,
+        detail={"email": identity.email},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return AccessRequestStatus(status=req.status)
+
 
 # The share directory is only needed by users who can share reports; gating it on
 # the share_report capability stops lower-privilege roles (e.g. viewer) from

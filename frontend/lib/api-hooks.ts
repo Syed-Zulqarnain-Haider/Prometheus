@@ -417,6 +417,65 @@ export function useDeleteUser() {
   });
 }
 
+// ── Access requests (Google sign-in → admin approves/rejects) ──────────────────
+export interface AccessRequest {
+  id: string;
+  firebase_uid: string;
+  email: string;
+  display_name: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApproveAccessInput {
+  roles: string[];
+  scopes: ScopeInput[];
+  access_duration_days?: number;
+  access_expires_at?: string | null;
+}
+
+/** Lodge a pending access request (authenticated-but-unprovisioned caller). */
+export function useRequestAccess() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ status: string }>("/api/v1/auth/access-request", { method: "POST" }),
+  });
+}
+
+export function useAccessRequests() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["access-requests"],
+    queryFn: () => apiFetch<AccessRequest[]>("/api/v1/admin/access-requests"),
+    enabled: Boolean(user),
+  });
+}
+
+export function useApproveAccessRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ApproveAccessInput }) =>
+      apiFetch<AdminUser>(`/api/v1/admin/access-requests/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["access-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+  });
+}
+
+export function useRejectAccessRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<AccessRequest>(`/api/v1/admin/access-requests/${id}/reject`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["access-requests"] }),
+  });
+}
+
 // ── Admin: roles ──────────────────────────────────────────────────────────────
 export function useAdminRoles() {
   const { user } = useAuth();

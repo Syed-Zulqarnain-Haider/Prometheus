@@ -21,6 +21,7 @@ from app.core.config import get_settings
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit, enforce_sync_rate_limit
 from app.models import User
+from app.schemas.access import AccessRequestApprove, AccessRequestOut
 from app.schemas.admin import (
     AuditPage,
     DataHealth,
@@ -42,6 +43,7 @@ from app.schemas.integration import (
 )
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
 from app.services import (
+    access_service,
     admin_service,
     integration_service,
     settings_service,
@@ -248,6 +250,85 @@ async def delete_user(
         user_agent=request.headers.get("user-agent"),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Access requests (Google sign-in -> admin approves/rejects) ──────────────────
+@router.get("/access-requests", response_model=list[AccessRequestOut])
+async def list_access_requests(db: DbSession) -> list[AccessRequestOut]:
+    """Pending access requests awaiting approval (oldest first)."""
+    return await access_service.list_pending(db)
+
+
+@router.post("/access-requests/{request_id}/approve", response_model=UserSummary)
+async def approve_access_request(
+    request_id: uuid.UUID,
+    body: AccessRequestApprove,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> UserSummary:
+    """Provision the requester with the chosen role/scope (+ optional expiry) and mark the
+    request approved. Never auto-grants admin — the admin selects the roles explicitly."""
+    _reject_both_expiry(body.access_expires_at, body.access_duration_days)
+    expiry = _resolve_expiry(body.access_expires_at, body.access_duration_days)
+    try:
+        summary, firebase_uid = await access_service.approve(
+            db,
+            request_id,
+            roles=body.roles,
+            scopes=body.scopes,
+            access_expires_at=expiry,
+            actor_id=context.user_id,
+        )
+    except LookupError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    await _bust_cache(redis, firebase_uid)
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_approve_access",
+        resource=str(request_id),
+        detail={
+            "email": summary.email,
+            "roles": summary.roles,
+            "expires_at": expiry.isoformat() if expiry else None,
+        },
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return summary
+
+
+@router.post("/access-requests/{request_id}/reject", response_model=AccessRequestOut)
+async def reject_access_request(
+    request_id: uuid.UUID,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> AccessRequestOut:
+    """Reject a request: zero access, no role. The identity may re-request by signing in."""
+    try:
+        req = await access_service.reject(db, request_id, context.user_id)
+    except LookupError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_reject_access",
+        resource=str(request_id),
+        detail={"email": req.email, "firebase_uid": req.firebase_uid},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return req
 
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
