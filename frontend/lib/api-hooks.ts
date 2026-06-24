@@ -749,10 +749,8 @@ export function useClearData() {
         method: "POST",
         body: JSON.stringify({ confirmation }),
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integration-status"] });
-      queryClient.invalidateQueries({ queryKey: ["data-health"] });
-      queryClient.invalidateQueries({ queryKey: ["freshness"] });
-    },
+    // Clearing ALL fact data invalidates every dashboard/aggregate query, not just the
+    // integration views — invalidate the whole cache so nothing keeps showing pre-clear data.
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 }

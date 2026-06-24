@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api-client";
 import {
   type AccessRequest,
   useAccessRequests,
@@ -97,8 +98,13 @@ function RequestRow({ req, roleNames }: { req: AccessRequest; roleNames: string[
           {roles.length === 0 && (
             <span className="text-xs text-muted-foreground">Pick at least one role to approve.</span>
           )}
-          {(approve.isError || reject.isError) && (
-            <span className="text-xs text-destructive">Action failed. Try again.</span>
+          {(approve.error || reject.error) && (
+            <span className="text-xs text-destructive">
+              {(() => {
+                const err = approve.error ?? reject.error;
+                return err instanceof ApiError ? err.message : "Action failed. Try again.";
+              })()}
+            </span>
           )}
         </div>
       </CardContent>

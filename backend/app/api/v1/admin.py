@@ -67,10 +67,13 @@ async def _bust_cache(redis: Redis, firebase_uid: str) -> None:
 
 
 def _resolve_expiry(expires_at: datetime | None, duration_days: int | None) -> datetime | None:
-    """Absolute timestamp from either an explicit instant or a duration in days (the
-    latter takes precedence). Returns None for permanent."""
+    """Absolute, TZ-AWARE timestamp from either an explicit instant or a duration in days
+    (the latter takes precedence). A naive instant is interpreted as UTC so downstream
+    comparisons (e.g. the last-admin guard) never mix naive/aware. None = permanent."""
     if duration_days is not None:
         return datetime.now(UTC) + timedelta(days=duration_days)
+    if expires_at is not None and expires_at.tzinfo is None:
+        return expires_at.replace(tzinfo=UTC)
     return expires_at
 
 
@@ -285,6 +288,9 @@ async def approve_access_request(
     except LookupError as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except access_service.RequestAlreadyDecided as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -319,6 +325,9 @@ async def reject_access_request(
     except LookupError as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except access_service.RequestAlreadyDecided as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     await audit.log_admin_action(
         user_id=context.user_id,

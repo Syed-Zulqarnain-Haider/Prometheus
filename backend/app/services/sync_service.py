@@ -67,7 +67,12 @@ def is_due(now_utc: datetime, schedule_hhmm: str, tz_name: str) -> tuple[bool, d
         tz = ZoneInfo(tz_name)
         hours, minutes = (int(part) for part in schedule_hhmm.split(":"))
         now_local = now_utc.astimezone(tz)
-        scheduled_local = now_local.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+        # Build today's wall-clock target FRESH with the zone so zoneinfo resolves the
+        # correct UTC offset for that instant — .replace(hour=...) on an already-localized
+        # datetime would reuse *now's* offset and be wrong by an hour on DST-transition days.
+        scheduled_local = datetime(
+            now_local.year, now_local.month, now_local.day, hours, minutes, tzinfo=tz
+        )
         scheduled_utc = scheduled_local.astimezone(UTC)
     except Exception:  # noqa: BLE001 — a malformed schedule/tz simply means "not due"
         log.exception("is_due: bad schedule (%r) or timezone (%r)", schedule_hhmm, tz_name)
