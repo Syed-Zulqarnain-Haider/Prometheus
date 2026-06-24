@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
+import { AccessRequestPending } from "@/components/layout/access-request-pending";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { FreshnessBanner } from "@/components/layout/freshness-banner";
 import { Header } from "@/components/layout/header";
@@ -34,9 +35,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (me.isError) {
-    // 403 = provisioned but deactivated; anything else (401 unprovisioned) = no account.
+    // 403 = provisioned but deactivated/expired; 401 = no account → offer to request access.
     const inactive = me.error instanceof ApiError && me.error.status === 403;
-    return <NotProvisioned inactive={inactive} onSignOut={() => void signOut()} />;
+    if (inactive) {
+      return <NotProvisioned inactive onSignOut={() => void signOut()} />;
+    }
+    return <AccessRequestPending onSignOut={() => void signOut()} />;
   }
 
   return (

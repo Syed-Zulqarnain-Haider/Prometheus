@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "revenue_targets",
     "audit_log",
     "sync_runs",
+    "access_requests",
 }
 
 

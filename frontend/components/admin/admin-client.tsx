@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { AccessRequestsPanel } from "@/components/admin/access-requests-panel";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { IntegrationPanel } from "@/components/admin/integration-panel";
 import { RolesPanel } from "@/components/admin/roles-panel";
@@ -10,10 +11,11 @@ import { TargetsPanel } from "@/components/admin/targets-panel";
 import { UsersPanel } from "@/components/admin/users-panel";
 import { useMe } from "@/lib/api-hooks";
 
-type Tab = "users" | "roles" | "targets" | "audit" | "integration" | "system";
+type Tab = "users" | "access" | "roles" | "targets" | "audit" | "integration" | "system";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "users", label: "Users" },
+  { value: "access", label: "Access requests" },
   { value: "roles", label: "Roles & permissions" },
   { value: "targets", label: "Revenue targets" },
   { value: "audit", label: "Audit log" },
@@ -56,6 +58,7 @@ export function AdminClient() {
       </div>
 
       {tab === "users" && <UsersPanel />}
+      {tab === "access" && <AccessRequestsPanel />}
       {tab === "roles" && <RolesPanel />}
       {tab === "targets" && <TargetsPanel />}
       {tab === "audit" && <AuditPanel />}
