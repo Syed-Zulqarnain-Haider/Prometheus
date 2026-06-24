@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   type User,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
 } from "firebase/auth";
@@ -14,6 +15,7 @@ import { getFirebaseAuth } from "@/lib/firebase";
 interface AuthState {
   user: User | null;
   loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -37,10 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
-      // Google is the only UI sign-in path. (The email/password PROVIDER stays enabled in
-      // Firebase for the create_admin.py bootstrap; we just don't expose it in the UI.)
-      // Authentication is never authorization: every backend route still requires a
-      // provisioned user matched by Firebase UID — an unprovisioned account gets no role.
+      // Both sign-in methods only AUTHENTICATE via Firebase. Authorization is
+      // unchanged: every backend route still requires a provisioned user (matched
+      // by Firebase UID) — an unprovisioned account gets no data and no role.
+      signIn: async (email, password) => {
+        await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+      },
       signInWithGoogle: async () => {
         await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
       },
