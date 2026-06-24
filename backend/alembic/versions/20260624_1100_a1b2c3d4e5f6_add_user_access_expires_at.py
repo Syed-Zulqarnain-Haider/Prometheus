@@ -50,10 +50,12 @@ _USER_FKS: list[tuple[str, str, str]] = [
 _FIND_FK = sa.text(
     """
     SELECT conname FROM pg_constraint
-    WHERE contype = 'f' AND conrelid = :tbl::regclass AND confrelid = 'users'::regclass
+    WHERE contype = 'f'
+      AND conrelid = CAST(:tbl AS regclass)
+      AND confrelid = CAST('users' AS regclass)
       AND conkey = ARRAY[(
           SELECT attnum FROM pg_attribute
-          WHERE attrelid = :tbl::regclass AND attname = :col AND NOT attisdropped
+          WHERE attrelid = CAST(:tbl AS regclass) AND attname = :col AND NOT attisdropped
       )]
     """
 )
