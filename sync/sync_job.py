@@ -9,8 +9,9 @@ and the dashboard keeps serving yesterday's data with a visible freshness banner
   2. validate view schema vs metric_registry  → mismatch: 'schema_mismatch', alert, STOP
   3. stream view → fact_daily_performance_staging (COPY, batched)
   4. integrity checks (row delta ±30%, freshness, 7-day revenue penny-match vs BQ)
-  5. atomic swap inside one transaction (zero downtime)
-  6. refresh dim_app, re-grant SELECT to api_service
+  5. UPSERT staging → fact_daily_performance by natural key (date, platform, app_key)
+     in one transaction — history ACCUMULATES (never a destructive swap/replace)
+  6. refresh dim_app, re-grant SELECT to api_service, drop staging
   7. bust Redis 'agg:*' keys
   8. record success + bq_built_at  (the UI's "data as of")
 
@@ -34,8 +35,8 @@ import psycopg
 from google.cloud import bigquery
 
 from metric_registry import (
-    COLUMN_NAMES, INDEX_BASE_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
-    generate_fact_ddl, generate_indexes,
+    COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
+    generate_fact_ddl, generate_indexes, generate_upsert_sql,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -186,24 +187,27 @@ def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
     return problems
 
 
-# ── Steps 5–6: atomic swap + dim_app refresh ─────────────────────────────────
-def swap_and_refresh(pg: psycopg.Connection) -> None:
+# ── Steps 5–6: UPSERT into the live fact table + dim_app refresh ──────────────
+def upsert_and_refresh(pg: psycopg.Connection) -> None:
+    """Merge the validated staging table into the LIVE fact table by natural key, so
+    history accumulates (never a destructive swap/replace). On a fresh DB the live table
+    is created first; on an existing deploy it is updated in place. Everything runs in one
+    transaction — a failure here rolls back and leaves the live data untouched."""
     with pg.cursor() as cur:
+        # First run / fresh DB: create the live table + indexes. We NEVER drop or replace
+        # it once it exists — the UPSERT below accumulates into it.
         cur.execute("SELECT to_regclass(%s)", (FACT,))
-        live_exists = cur.fetchone()[0] is not None
+        if cur.fetchone()[0] is None:
+            cur.execute(generate_fact_ddl(FACT))
+            for ddl in generate_indexes(FACT):
+                cur.execute(ddl)
 
-        # One transaction: rename swap is instantaneous; readers never see a gap.
-        if live_exists:
-            cur.execute(f"ALTER TABLE {FACT} RENAME TO {FACT}_old")
-        cur.execute(f"ALTER TABLE {STAGING} RENAME TO {FACT}")
-        if live_exists:
-            cur.execute(f"DROP TABLE {FACT}_old")   # frees the canonical _pkey name
-        cur.execute(f"ALTER TABLE {FACT} RENAME CONSTRAINT {STAGING}_pkey TO {FACT}_pkey")
-        for base in INDEX_BASE_NAMES:
-            cur.execute(f"ALTER INDEX {base}_s RENAME TO {base}")
+        # UPSERT by (date, platform, app_key): existing (date, app) rows update in place,
+        # new dates append, and rows absent from today's view are retained.
+        cur.execute(generate_upsert_sql(FACT, STAGING))
         cur.execute(f"GRANT SELECT ON {FACT} TO api_service")
 
-        # dim_app: latest mapped attributes per app
+        # dim_app: latest mapped attributes per app (read from the now-updated fact)
         cur.execute("DELETE FROM dim_app")
         cur.execute(f"""
             INSERT INTO dim_app (canonical_key, app_name, apple_id, android_package,
@@ -217,6 +221,9 @@ def swap_and_refresh(pg: psycopg.Connection) -> None:
             WHERE canonical_key IS NOT NULL
             ORDER BY canonical_key, date DESC
         """)
+
+        # Staging has served its purpose (validation + integrity + the UPSERT source).
+        cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
     pg.commit()
 
 
@@ -283,7 +290,7 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        swap_and_refresh(pg)
+        upsert_and_refresh(pg)
         bust_cache()
         finish("success", rows=rows, built_at=built_at)
         log.info("sync complete: %d rows, data as of %s", rows, built_at)

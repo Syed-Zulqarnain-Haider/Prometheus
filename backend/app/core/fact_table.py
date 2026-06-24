@@ -14,11 +14,13 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Computed,
     Date,
     DateTime,
     Float,
     MetaData,
     Numeric,
+    PrimaryKeyConstraint,
     Table,
     Text,
     types,
@@ -56,6 +58,16 @@ FACT_TABLE = Table(
     "fact_daily_performance",
     fact_metadata,
     *[Column(col.name, _sa_type(col.pg_type)) for col in REGISTRY],
-    # Generated column used in the primary key (see 002_fact_table.sql).
-    Column("app_key", Text()),
+    # Generated natural-key component + primary key — mirrors the sync's generate_fact_ddl
+    # and sql/postgres/002_fact_table.sql, so create_all (single-VM bootstrap + tests)
+    # produces the SAME schema the sync UPSERTs into: ON CONFLICT (date, platform, app_key).
+    Column(
+        "app_key",
+        Text(),
+        Computed(
+            "COALESCE(canonical_key, android_package, CAST(apple_id AS TEXT), 'unknown')",
+            persisted=True,
+        ),
+    ),
+    PrimaryKeyConstraint("date", "platform", "app_key", name="fact_daily_performance_pkey"),
 )

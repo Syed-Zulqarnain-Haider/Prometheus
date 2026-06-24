@@ -164,6 +164,33 @@ def generate_fact_ddl(table_name: str) -> str:
 );"""
 
 
+# The natural key the daily sync UPSERTs on — the fact table's primary key. app_key is a
+# generated column (COALESCE of canonical_key / android_package / apple_id), so this
+# triple uniquely identifies one app's row for one day across iOS + Android.
+UPSERT_KEY = ("date", "platform", "app_key")
+
+
+def generate_upsert_sql(fact_table: str, staging_table: str) -> str:
+    """Emit the INSERT…SELECT…ON CONFLICT that merges a freshly loaded staging table
+    into the live fact table, keyed on (date, platform, app_key).
+
+    Re-running a date UPDATES the existing rows in place (every non-key column refreshed
+    to the latest values — so the Apple 2-3 day lag self-corrects); a new date APPENDS;
+    rows already in the fact table but absent from staging are RETAINED. The fact table
+    therefore accumulates full history even after BigQuery ages older days out — never a
+    destructive replace."""
+    cols = ", ".join(COLUMN_NAMES)
+    # app_key is generated (never in COLUMN_NAMES); date/platform are the key, not updated.
+    key = set(UPSERT_KEY)
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in COLUMN_NAMES if c not in key)
+    conflict = ", ".join(UPSERT_KEY)
+    return (
+        f"INSERT INTO {fact_table} ({cols})\n"
+        f"SELECT {cols} FROM {staging_table}\n"
+        f"ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
+    )
+
+
 # Columns covered by the date-leading covering index (idx_fact_cover) so the hot,
 # uncached Overview aggregates (summary / timeseries / breakdown / table) run as
 # INDEX-ONLY scans instead of scattered heap reads. Under production-like (uncorrelated)

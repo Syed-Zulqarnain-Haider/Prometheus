@@ -29,8 +29,11 @@ performance data. ~50 internal users at launch. Data source: BigQuery. Serving: 
   (Locally, a Redis container via `docker compose`.)
 - **Auth**: Firebase Auth. JWT verified server-side (firebase-admin) on EVERY route.
 - **Data flow**: BigQuery view `terafort.api.daily_performance_v1` → daily sync job
-  (Cloud Run Job, ~06:00 UTC) → `fact_daily_performance` in Postgres via staged load +
-  atomic swap. On any sync failure: keep serving yesterday's data, alert, record in `sync_runs`.
+  (~06:00 UTC) → `fact_daily_performance` in Postgres via staged load + UPSERT-by-natural-key
+  (`date, platform, app_key`) — history ACCUMULATES (re-running a date updates in place; new
+  dates append; aged-out days are retained). NOT a destructive swap/replace. On any sync
+  failure the staged data is discarded and the live table is untouched: keep serving existing
+  data, alert, record in `sync_runs`.
 
 ## The contract rules (NEVER violate)
 1. The app reads ONLY the BigQuery view `daily_performance_v1`, never the underlying table
