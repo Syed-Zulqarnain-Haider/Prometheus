@@ -11,13 +11,18 @@ import json
 from typing import Any
 
 from app.models import AuditLog
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from tests.conftest import MetricsEnv
 
 
 def _auth(role: str) -> dict[str, str]:
     return {"Authorization": f"Bearer valid-{role}"}
+
+
+async def _count(env: MetricsEnv, table: str) -> int:
+    async with env.sessionmaker() as session:
+        return int(await session.scalar(text(f"SELECT count(*) FROM {table}")) or 0)
 
 
 # ── Admin-only access ────────────────────────────────────────────────────────
@@ -177,4 +182,88 @@ async def test_test_bigquery_is_rate_limited(metrics_env: MetricsEnv) -> None:
         ok = await c.post("/api/v1/admin/integration/test-bigquery", headers=_auth("admin"))
         assert ok.status_code == 200
     blocked = await c.post("/api/v1/admin/integration/test-bigquery", headers=_auth("admin"))
+    assert blocked.status_code == 429
+
+
+# ── PR 4: schema diff (informational) + Clear Data (destructive) ──────────────
+async def test_schema_diff_and_clear_data_require_admin(metrics_env: MetricsEnv) -> None:
+    c = metrics_env.client
+    for role in ("viewer", "finance"):
+        diff = await c.get("/api/v1/admin/integration/schema-diff", headers=_auth(role))
+        assert diff.status_code == 403, f"{role} reached schema-diff"
+        clear = await c.post(
+            "/api/v1/admin/integration/clear-data",
+            json={"confirmation": "DELETE ALL DATA"},
+            headers=_auth(role),
+        )
+        assert clear.status_code == 403, f"{role} reached clear-data"
+
+
+async def test_schema_diff_honest_when_no_key(metrics_env: MetricsEnv) -> None:
+    resp = await metrics_env.client.get(
+        "/api/v1/admin/integration/schema-diff", headers=_auth("admin")
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["configured"] is False  # no BQ key mounted in the test env
+    assert "key" in (body["message"] or "").lower()
+    # Never leaks a credential or key path.
+    for needle in ("/secrets/", "postgresql://", "password"):
+        assert needle not in json.dumps(body)
+
+
+async def test_clear_data_rejects_wrong_confirmation(metrics_env: MetricsEnv) -> None:
+    before = await _count(metrics_env, "fact_daily_performance")
+    assert before > 0
+    # Three wrong phrases (within the 3/min budget): wrong case, partial, empty.
+    for phrase in ("delete all data", "DELETE ALL", ""):
+        resp = await metrics_env.client.post(
+            "/api/v1/admin/integration/clear-data",
+            json={"confirmation": phrase},
+            headers=_auth("admin"),
+        )
+        assert resp.status_code == 400, f"phrase {phrase!r} should be rejected"
+    # Nothing was deleted.
+    assert await _count(metrics_env, "fact_daily_performance") == before
+
+
+async def test_clear_data_wipes_only_analytics_and_is_audited(metrics_env: MetricsEnv) -> None:
+    # The fixture seeds fact + dim_app + sync_runs, plus users/roles (preserved).
+    for table in ("fact_daily_performance", "dim_app", "sync_runs", "users", "roles"):
+        assert await _count(metrics_env, table) > 0, f"{table} not seeded"
+
+    resp = await metrics_env.client.post(
+        "/api/v1/admin/integration/clear-data",
+        json={"confirmation": "DELETE ALL DATA"},
+        headers=_auth("admin"),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cleared"] is True
+    assert set(body["rows_deleted"]) == {"fact_daily_performance", "dim_app", "sync_runs"}
+    assert body["total"] > 0
+
+    # Analytics wiped …
+    for table in ("fact_daily_performance", "dim_app", "sync_runs"):
+        assert await _count(metrics_env, table) == 0, f"{table} not cleared"
+    # … everything else preserved.
+    for table in ("users", "roles", "role_capabilities", "user_scopes"):
+        assert await _count(metrics_env, table) > 0, f"{table} was wrongly cleared"
+
+    # The destructive action is audited (and audit_log itself is preserved).
+    async with metrics_env.sessionmaker() as session:
+        stmt = select(AuditLog.action).where(AuditLog.action == "admin_clear_data")
+        actions = (await session.execute(stmt)).scalars().all()
+    assert "admin_clear_data" in actions
+
+
+async def test_clear_data_is_rate_limited(metrics_env: MetricsEnv) -> None:
+    c = metrics_env.client
+    body = {"confirmation": "DELETE ALL DATA"}
+    for _ in range(3):  # SYNC_RATE_LIMIT = 3 / min
+        ok = await c.post("/api/v1/admin/integration/clear-data", json=body, headers=_auth("admin"))
+        assert ok.status_code == 200
+    blocked = await c.post(
+        "/api/v1/admin/integration/clear-data", json=body, headers=_auth("admin")
+    )
     assert blocked.status_code == 429

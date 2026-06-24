@@ -1,6 +1,16 @@
 "use client";
 
-import { Activity, Database, Play, Plug, RefreshCw, Server } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Database,
+  FileSearch,
+  Play,
+  Plug,
+  RefreshCw,
+  Server,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,14 +22,19 @@ import { ApiError } from "@/lib/api-client";
 import {
   type AppSetting,
   type ConnectionStatus,
+  type SchemaDiff,
   type SyncTriggerResult,
   useAppSettings,
+  useClearData,
   useIntegrationStatus,
   useRunSync,
+  useSchemaDiff,
   useTestBigQuery,
   useUpdateSetting,
 } from "@/lib/api-hooks";
 import { formatDateTime, formatNumber } from "@/lib/format";
+
+const CLEAR_PHRASE = "DELETE ALL DATA";
 
 function StatusBadge({ status }: { status: ConnectionStatus["status"] }) {
   if (status === "up") return <Badge variant="secondary">connected</Badge>;
@@ -120,6 +135,197 @@ function BoolSetting({ setting }: { setting: AppSetting }) {
   );
 }
 
+function SchemaDiffLists({ diff }: { diff: SchemaDiff }) {
+  return (
+    <div className="space-y-3">
+      {diff.missing_in_view.length > 0 && (
+        <div>
+          <p className="font-medium text-destructive">
+            Missing from the view ({diff.missing_in_view.length})
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {diff.missing_in_view.map((c) => (
+              <Badge key={c} variant="destructive">
+                {c}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      {diff.type_mismatches.length > 0 && (
+        <div>
+          <p className="font-medium text-destructive">
+            Type mismatches ({diff.type_mismatches.length})
+          </p>
+          <ul className="mt-1 space-y-0.5 text-muted-foreground">
+            {diff.type_mismatches.map((m) => (
+              <li key={m.column}>
+                <span className="font-mono">{m.column}</span>: expected {m.expected}, got {m.actual}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {diff.unregistered_in_view.length > 0 && (
+        <div>
+          <p className="font-medium">
+            New in the view — adopt via the registry ({diff.unregistered_in_view.length})
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {diff.unregistered_in_view.map((c) => (
+              <Badge key={c.column} variant="outline">
+                {c.column} ({c.data_type})
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      {diff.optional_absent.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Optional columns absent (defaulted to 0): {diff.optional_absent.join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SchemaDiffSection() {
+  const diff = useSchemaDiff();
+  const result = diff.data;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        Schema diff
+      </h2>
+      <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <p className="text-sm text-muted-foreground">
+            Compare the BigQuery view&apos;s columns to the metric registry. Read-only — this
+            never alters any schema; adopting a new column stays a deliberate registry change.
+          </p>
+          <Button className="gap-2" disabled={diff.isPending} onClick={() => diff.mutate()}>
+            {diff.isPending ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileSearch className="h-4 w-4" />
+            )}
+            Check schema
+          </Button>
+        </CardContent>
+        {result && (
+          <CardContent className="space-y-3 pt-0 text-sm">
+            {!result.configured || result.message ? (
+              <p className="text-muted-foreground">{result.message}</p>
+            ) : result.in_sync ? (
+              <p className="text-primary">The view matches the registry.</p>
+            ) : (
+              <SchemaDiffLists diff={result} />
+            )}
+          </CardContent>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+function DangerZone() {
+  const clear = useClearData();
+  const [ack, setAck] = useState(false);
+  const [phrase, setPhrase] = useState("");
+  const [armed, setArmed] = useState(false);
+  const canArm = ack && phrase === CLEAR_PHRASE && !clear.isPending;
+
+  const reset = () => {
+    setAck(false);
+    setPhrase("");
+    setArmed(false);
+  };
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-destructive">
+        Danger zone
+      </h2>
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-4 w-4" /> Clear all analytics data
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Permanently deletes ALL fact data, app dimensions, and sync history. Users, roles,
+            dashboards, settings, saved reports, and the audit log are <strong>not</strong>{" "}
+            affected. This cannot be undone.
+          </p>
+          <label className="flex items-start gap-2">
+            <Checkbox checked={ack} onCheckedChange={(v) => setAck(v === true)} />
+            <span>I understand this permanently deletes all analytics data and cannot be undone.</span>
+          </label>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Type <span className="font-mono font-medium">{CLEAR_PHRASE}</span> to confirm:
+            </p>
+            <Input
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder={CLEAR_PHRASE}
+              className="w-64"
+            />
+          </div>
+          {!armed ? (
+            <Button
+              variant="destructive"
+              className="gap-2"
+              disabled={!canArm}
+              onClick={() => setArmed(true)}
+            >
+              <Trash2 className="h-4 w-4" /> Clear all data
+            </Button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+              <span className="text-sm font-medium text-destructive">
+                Are you absolutely sure? This is irreversible.
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={clear.isPending}
+                onClick={() => clear.mutate(phrase, { onSuccess: reset })}
+              >
+                {clear.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+                Yes, permanently delete
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={clear.isPending}
+                onClick={() => setArmed(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
+          {clear.isError && (
+            <p className="text-xs text-destructive">
+              {clear.error instanceof ApiError ? clear.error.message : "Clear failed."}
+            </p>
+          )}
+          {clear.data && (
+            <p className="text-sm text-primary">
+              Cleared {formatNumber(clear.data.total)} rows (
+              {Object.entries(clear.data.rows_deleted)
+                .map(([t, n]) => `${t}: ${n}`)
+                .join(", ")}
+              ).
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 export function IntegrationPanel() {
   const status = useIntegrationStatus();
   const settings = useAppSettings();
@@ -180,6 +386,9 @@ export function IntegrationPanel() {
           )}
         </Card>
       </section>
+
+      {/* B2) Schema diff (read-only, informational) */}
+      <SchemaDiffSection />
 
       {/* C) Integration settings (non-secret config) */}
       <section className="space-y-3">
@@ -306,6 +515,9 @@ export function IntegrationPanel() {
           </CardContent>
         </Card>
       </section>
+
+      {/* F) Danger zone — Clear Data (destructive) */}
+      <DangerZone />
     </div>
   );
 }

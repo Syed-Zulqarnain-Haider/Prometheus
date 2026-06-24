@@ -33,7 +33,13 @@ from app.schemas.admin import (
     UserSummary,
     UserUpdate,
 )
-from app.schemas.integration import BigQueryTestResult, IntegrationStatus
+from app.schemas.integration import (
+    BigQueryTestResult,
+    ClearDataRequest,
+    ClearDataResult,
+    IntegrationStatus,
+    SchemaDiff,
+)
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
 from app.services import (
     admin_service,
@@ -381,6 +387,55 @@ async def test_bigquery_connection(
         user_id=context.user_id,
         action="admin_test_bigquery",
         detail={"ok": result.ok},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return result
+
+
+# ── Integration: read-only schema diff (BQ view vs registry — informational) ────
+@router.get(
+    "/integration/schema-diff",
+    response_model=SchemaDiff,
+    dependencies=[Depends(enforce_sync_rate_limit)],
+)
+async def get_schema_diff(db: DbSession) -> SchemaDiff:
+    """Compare the live BigQuery view's columns against the metric registry. READ-ONLY
+    and INFORMATIONAL — it never alters any schema; adopting a column stays a deliberate
+    registry change."""
+    settings = get_settings()
+    gcp_project = str(await settings_service.get_value(db, "gcp_project"))
+    bq_view = str(await settings_service.get_value(db, "bq_view"))
+    return await integration_service.schema_diff(settings, gcp_project, bq_view)
+
+
+# ── Integration: Clear Data (DESTRUCTIVE — typed confirmation, audited) ──────────
+@router.post(
+    "/integration/clear-data",
+    response_model=ClearDataResult,
+    dependencies=[Depends(enforce_sync_rate_limit)],
+)
+async def clear_data(
+    body: ClearDataRequest,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> ClearDataResult:
+    """Wipe ONLY analytics/fact data (fact_daily_performance, dim_app, sync_runs). NEVER
+    users, roles, layouts, settings, targets, saved views/reports, or the audit log.
+    Requires the exact typed confirmation phrase; fully audited (who/when/rows)."""
+    if body.confirmation != integration_service.CLEAR_DATA_PHRASE:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Confirmation phrase must be exactly '{integration_service.CLEAR_DATA_PHRASE}'.",
+        )
+    result = await integration_service.clear_analytics_data(db, redis)
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_clear_data",
+        detail={"rows_deleted": result.rows_deleted, "total": result.total},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
