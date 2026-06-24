@@ -1,7 +1,9 @@
 """Operational application settings (``app_settings``) — non-secret key/value only.
 
-Values are constrained by the settings registry to int/bool, so no credential or
-connection string can ever be persisted here. Secrets live in env / Secret Manager.
+Values are constrained by the settings registry to int/bool or a SHORT,
+format-validated string (HH:MM, IANA timezone, GCP project id, BigQuery view), so no
+credential or connection string can ever be persisted here. Secrets live in env /
+Secret Manager. The column is JSONB, which natively holds each of those scalar types.
 """
 
 from __future__ import annotations

@@ -30,17 +30,20 @@ class SystemHealth(BaseModel):
 class SettingOut(BaseModel):
     key: str
     type: str
-    value: int | bool
-    default: int | bool
+    value: int | bool | str
+    default: int | bool | str
     label: str
     description: str
+    group: str = "general"
     minimum: int | None = None
     maximum: int | None = None
     updated_at: datetime | None = None
 
 
 class SettingUpdate(BaseModel):
-    value: int | bool  # int/bool only — a secret string can never be submitted here
+    # int/bool, or a SHORT format-validated string (HH:MM, IANA tz, GCP project, BQ
+    # view) — the registry rejects anything else, so a secret blob can never be stored.
+    value: int | bool | str
 
 
 class SyncTriggerResult(BaseModel):

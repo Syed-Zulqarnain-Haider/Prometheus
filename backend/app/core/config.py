@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     sync_trigger_url: str | None = None  # e.g. the deployed Cloud Run Job execution URL
     sync_trigger_token: str | None = None  # bearer for the trigger URL (secret; env only)
 
+    # Path to the BigQuery READER service-account key. This is a SEPARATE identity from
+    # Firebase's GOOGLE_APPLICATION_CREDENTIALS — never reuse that one for BigQuery. The
+    # key is a MOUNTED FILE (never uploaded or stored via the UI/DB); only its PATH is
+    # configured here. Its presence drives the Integration tab's BigQuery status, and the
+    # read-only "Test Connection" loads it explicitly from this path.
+    bq_credentials_path: str = "/secrets/bq-reader.json"
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

@@ -19,7 +19,7 @@ from app.models import AppSetting
 from app.schemas.system import ClientSettings, SettingOut
 
 
-def _coerce_or_default(spec: SettingSpec, raw: object | None) -> int | bool:
+def _coerce_or_default(spec: SettingSpec, raw: object | None) -> int | bool | str:
     if raw is None:
         return spec.default
     try:
@@ -28,7 +28,7 @@ def _coerce_or_default(spec: SettingSpec, raw: object | None) -> int | bool:
         return spec.default  # tolerate a legacy/invalid stored value
 
 
-async def get_value(db: AsyncSession, key: str) -> int | bool:
+async def get_value(db: AsyncSession, key: str) -> int | bool | str:
     """Effective value for a registered setting (stored value or default)."""
     spec = SETTINGS_REGISTRY[key]
     row = await db.get(AppSetting, key)
@@ -48,6 +48,7 @@ async def list_settings(db: AsyncSession) -> list[SettingOut]:
                 default=spec.default,
                 label=spec.label,
                 description=spec.description,
+                group=spec.group,
                 minimum=spec.minimum,
                 maximum=spec.maximum,
                 updated_at=row.updated_at if row else None,
@@ -81,6 +82,7 @@ async def set_value(
         default=spec.default,
         label=spec.label,
         description=spec.description,
+        group=spec.group,
         minimum=spec.minimum,
         maximum=spec.maximum,
         updated_at=now,
