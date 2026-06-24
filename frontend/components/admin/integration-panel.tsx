@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Database, Plug, RefreshCw, Server } from "lucide-react";
+import { Activity, Database, Play, Plug, RefreshCw, Server } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,10 @@ import { ApiError } from "@/lib/api-client";
 import {
   type AppSetting,
   type ConnectionStatus,
+  type SyncTriggerResult,
   useAppSettings,
   useIntegrationStatus,
+  useRunSync,
   useTestBigQuery,
   useUpdateSetting,
 } from "@/lib/api-hooks";
@@ -122,6 +124,8 @@ export function IntegrationPanel() {
   const status = useIntegrationStatus();
   const settings = useAppSettings();
   const testBq = useTestBigQuery();
+  const runSync = useRunSync();
+  const [syncResult, setSyncResult] = useState<SyncTriggerResult | null>(null);
 
   const integrationSettings = (settings.data ?? []).filter((s) => s.group === "integration");
 
@@ -205,7 +209,45 @@ export function IntegrationPanel() {
         </p>
       </section>
 
-      {/* D) Sync history */}
+      {/* D) Run sync now */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Run sync
+        </h2>
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              Trigger the BigQuery → Postgres sync on demand. Runs once at a time and is
+              fully audited. Honest status if the data source isn&apos;t configured.
+            </p>
+            <Button
+              className="gap-2"
+              disabled={runSync.isPending}
+              onClick={() => runSync.mutate(undefined, { onSuccess: setSyncResult })}
+            >
+              {runSync.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              Run sync now
+            </Button>
+          </CardContent>
+          {syncResult && (
+            <CardContent className="pt-0">
+              <p
+                className={`text-sm ${
+                  syncResult.triggered ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {syncResult.message}
+              </p>
+            </CardContent>
+          )}
+        </Card>
+      </section>
+
+      {/* E) Sync history */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Sync history

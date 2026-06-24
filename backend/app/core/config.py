@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # read-only "Test Connection" loads it explicitly from this path.
     bq_credentials_path: str = "/secrets/bq-reader.json"
 
+    # libpq DSN the sync uses to write Postgres, e.g.
+    # postgresql://sync_service:...@host:5432/db?sslmode=require. This is the SYNC's DB
+    # identity (the write-capable ``sync_service`` role) — DISTINCT from ``database_url``
+    # (the api's read role). Secret, env-only (never DB/UI/logs). Its presence (plus the
+    # BQ key + GCP project) is what enables the backend to run the sync LOCALLY; absent,
+    # the scheduler/trigger falls back to ``sync_trigger_url`` or reports not-configured.
+    sync_pg_dsn: str | None = None
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

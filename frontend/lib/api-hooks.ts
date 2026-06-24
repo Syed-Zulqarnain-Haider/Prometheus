@@ -581,9 +581,16 @@ export function useUpdateSetting() {
 }
 
 export function useRunSync() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
       apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", { method: "POST" }),
+    onSuccess: () => {
+      // A completed run (local path) updates history/status; refresh both surfaces.
+      queryClient.invalidateQueries({ queryKey: ["integration-status"] });
+      queryClient.invalidateQueries({ queryKey: ["data-health"] });
+      queryClient.invalidateQueries({ queryKey: ["system-health"] });
+    },
   });
 }
 

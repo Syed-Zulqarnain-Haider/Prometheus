@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -34,6 +34,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.redis import redis_client
 from app.core.security_headers import build_security_headers_middleware
 from app.services.cache_warm import warm_overview_cache
+from app.services.sync_scheduler import scheduler_loop
 
 logger = logging.getLogger("app.main")
 
@@ -80,7 +81,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.exception("aggregate cache warm-up failed")
 
         app.state.warm_task = asyncio.create_task(_warm())
+        # Daily-sync scheduler: safe on every instance (advisory-lock guarded). It only
+        # acts when an admin enables the sync and the configured time is reached.
+        app.state.scheduler_task = asyncio.create_task(
+            scheduler_loop(app.state.sessionmaker, settings)
+        )
     yield
+    scheduler_task = getattr(app.state, "scheduler_task", None)
+    if scheduler_task is not None:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
 
 
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
