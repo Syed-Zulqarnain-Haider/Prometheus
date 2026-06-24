@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -55,12 +55,16 @@ async def _user_summary(db: AsyncSession, user: User) -> UserSummary:
             .order_by(UserScope.scope_type, UserScope.scope_value)
         )
     ).all()
+    now = datetime.now(UTC)
+    is_expired = user.access_expires_at is not None and user.access_expires_at <= now
     return UserSummary(
         id=user.id,
         firebase_uid=user.firebase_uid,
         email=user.email,
         display_name=user.display_name,
         is_active=user.is_active,
+        access_expires_at=user.access_expires_at,
+        is_expired=is_expired,
         roles=roles,
         scopes=[ScopeOut(scope_type=st, scope_value=sv) for st, sv in scope_rows],
         created_at=user.created_at,
@@ -70,6 +74,58 @@ async def _user_summary(db: AsyncSession, user: User) -> UserSummary:
 async def list_users(db: AsyncSession) -> list[UserSummary]:
     users = list((await db.execute(select(User).order_by(User.email))).scalars().all())
     return [await _user_summary(db, u) for u in users]
+
+
+# ── Last-admin lockout guard ──────────────────────────────────────────────────
+async def role_names(db: AsyncSession, user_id: uuid.UUID) -> list[str]:
+    """The user's current role names."""
+    return list(
+        await db.scalars(
+            select(Role.name)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user_id)
+        )
+    )
+
+
+def is_active_admin(
+    *, is_active: bool, roles: list[str], access_expires_at: datetime | None
+) -> bool:
+    """Would a user in this state count as an ACTIVE admin right now? (active + admin role
+    + not currently expired)."""
+    not_expired = access_expires_at is None or access_expires_at > datetime.now(UTC)
+    return is_active and "admin" in roles and not_expired
+
+
+async def other_active_admins_exist(db: AsyncSession, exclude_user_id: uuid.UUID) -> bool:
+    """Is there at least one ACTIVE admin OTHER than ``exclude_user_id``? Used to refuse any
+    change that would otherwise leave the system with zero admins (lockout prevention)."""
+    now = datetime.now(UTC)
+    count = await db.scalar(
+        select(func.count(func.distinct(User.id)))
+        .select_from(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(
+            Role.name == "admin",
+            User.is_active.is_(True),
+            User.id != exclude_user_id,
+            or_(User.access_expires_at.is_(None), User.access_expires_at > now),
+        )
+    )
+    return bool(count and count > 0)
+
+
+async def delete_user(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Hard-delete a user. Roles/scopes/layouts/saved views+reports cascade; audit and other
+    actor references are preserved with the user link nulled (FK ON DELETE actions). Caller
+    enforces the self / last-active-admin guards first. Returns False if not found."""
+    user = await db.get(User, user_id)
+    if user is None:
+        return False
+    await db.delete(user)
+    await db.commit()
+    return True
 
 
 async def _role_ids(db: AsyncSession, role_names: list[str]) -> dict[str, int]:
@@ -120,12 +176,14 @@ async def create_user(
     roles: list[str],
     scopes: list[ScopeIn],
     created_by: uuid.UUID,
+    access_expires_at: datetime | None = None,
 ) -> UserSummary:
     user = User(
         firebase_uid=firebase_uid,
         email=email,
         display_name=display_name,
         is_active=True,
+        access_expires_at=access_expires_at,
         created_by=created_by,
     )
     db.add(user)
@@ -147,11 +205,15 @@ async def update_user(
     scopes: list[ScopeIn] | None,
     actor_id: uuid.UUID,
     display_name_set: bool,
+    access_expires_at: datetime | None = None,
+    access_set: bool = False,
 ) -> UserSummary:
     if display_name_set:
         user.display_name = display_name
     if is_active is not None:
         user.is_active = is_active
+    if access_set:
+        user.access_expires_at = access_expires_at
     if roles is not None:
         await _set_roles(db, user.id, roles)
     if scopes is not None:

@@ -89,15 +89,17 @@ class ReportShare(Base):
         ForeignKey("saved_reports.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # CASCADE: a share to/from a deleted user is moot — remove the share row.
     shared_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     shared_with: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    # SET NULL: keep an approved share if the approving admin is later deleted.
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id")
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

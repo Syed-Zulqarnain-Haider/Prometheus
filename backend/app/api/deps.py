@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -39,6 +40,7 @@ async def get_user_context(
       * missing / malformed / unverifiable token -> 401
       * verified token but no provisioned account -> 401
       * provisioned but inactive account          -> 403
+      * provisioned but access expired            -> 403  (checked live, every request)
     """
     if credentials is None or not credentials.credentials:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication token")
@@ -55,20 +57,25 @@ async def get_user_context(
     cache_key = user_context_cache_key(firebase_uid)
     cached = await cache.get(cache_key)
     if cached is not None:
-        cached_context = UserContext.model_validate_json(cached)
-        request.state.user_context = cached_context
-        return cached_context
+        context = UserContext.model_validate_json(cached)
+    else:
+        resolved = await resolve_user_context(db, firebase_uid)
+        if resolved is None:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "No account is provisioned for this identity",
+            )
+        if not resolved.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
+        context = resolved
+        await cache.set(cache_key, context.model_dump_json(), ex=USER_CONTEXT_TTL_SECONDS)
 
-    context = await resolve_user_context(db, firebase_uid)
-    if context is None:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "No account is provisioned for this identity",
-        )
-    if not context.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
+    # Time-limited access: enforced on EVERY request (a context cached before the deadline
+    # must not keep serving past it). An expired user is denied exactly like a deactivated
+    # one — this holds even if the UI is bypassed.
+    if context.access_expires_at is not None and context.access_expires_at <= datetime.now(UTC):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access has expired")
 
-    await cache.set(cache_key, context.model_dump_json(), ex=USER_CONTEXT_TTL_SECONDS)
     request.state.user_context = context
     return context
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -34,6 +35,9 @@ class UserContext(BaseModel):
     email: str
     display_name: str | None = None
     is_active: bool
+    # NULL = permanent. Enforced live on every request (see deps.get_user_context); a
+    # default keeps any pre-existing cached context JSON deserializable.
+    access_expires_at: datetime | None = None
     roles: list[str]
     metric_groups: list[str]
     capabilities: list[str]

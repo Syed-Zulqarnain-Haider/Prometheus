@@ -30,6 +30,8 @@ class UserSummary(BaseModel):
     email: str
     display_name: str | None
     is_active: bool
+    access_expires_at: datetime | None  # NULL = permanent
+    is_expired: bool  # access_expires_at in the past (computed live)
     roles: list[str]
     scopes: list[ScopeOut]
     created_at: datetime
@@ -41,15 +43,27 @@ class UserCreate(BaseModel):
     display_name: str | None = None
     roles: list[str] = Field(default_factory=list)
     scopes: list[ScopeIn] = Field(default_factory=list)
+    # Optional time-limited access. Provide an absolute timestamp OR a duration in days
+    # (the backend converts it to a timestamp); duration takes precedence. Both omitted =
+    # permanent. NOT both at once.
+    access_expires_at: datetime | None = None
+    access_duration_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class UserUpdate(BaseModel):
-    """Partial update. ``roles``/``scopes``, when present, REPLACE the existing set."""
+    """Partial update. ``roles``/``scopes``, when present, REPLACE the existing set.
+
+    Access expiry: send ``access_duration_days`` to (re)set a window, ``access_expires_at``
+    for an absolute instant, or ``access_expires_at: null`` to make access permanent. Omit
+    both to leave the current expiry unchanged.
+    """
 
     display_name: str | None = None
     is_active: bool | None = None
     roles: list[str] | None = None
     scopes: list[ScopeIn] | None = None
+    access_expires_at: datetime | None = None
+    access_duration_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 # ── Roles (metric-group permissions + capabilities) ──────────────────────────

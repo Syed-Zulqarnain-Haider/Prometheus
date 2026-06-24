@@ -9,7 +9,7 @@ than waiting out the 5-minute cache.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -64,6 +64,22 @@ async def _bust_cache(redis: Redis, firebase_uid: str) -> None:
     await redis.delete(user_context_cache_key(firebase_uid))
 
 
+def _resolve_expiry(expires_at: datetime | None, duration_days: int | None) -> datetime | None:
+    """Absolute timestamp from either an explicit instant or a duration in days (the
+    latter takes precedence). Returns None for permanent."""
+    if duration_days is not None:
+        return datetime.now(UTC) + timedelta(days=duration_days)
+    return expires_at
+
+
+def _reject_both_expiry(expires_at: datetime | None, duration_days: int | None) -> None:
+    if expires_at is not None and duration_days is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Provide either access_expires_at or access_duration_days, not both",
+        )
+
+
 # ── Users ─────────────────────────────────────────────────────────────────────
 @router.get("/users", response_model=list[UserSummary])
 async def list_users(db: DbSession) -> list[UserSummary]:
@@ -78,6 +94,8 @@ async def create_user(
     db: DbSession,
     audit: AuditDep,
 ) -> UserSummary:
+    _reject_both_expiry(body.access_expires_at, body.access_duration_days)
+    expiry = _resolve_expiry(body.access_expires_at, body.access_duration_days)
     try:
         summary = await admin_service.create_user(
             db,
@@ -87,6 +105,7 @@ async def create_user(
             roles=body.roles,
             scopes=body.scopes,
             created_by=context.user_id,
+            access_expires_at=expiry,
         )
     except ValueError as exc:
         await db.rollback()
@@ -101,7 +120,11 @@ async def create_user(
         user_id=context.user_id,
         action="admin_create_user",
         resource=str(summary.id),
-        detail={"email": body.email, "roles": summary.roles},
+        detail={
+            "email": body.email,
+            "roles": summary.roles,
+            "expires_at": expiry.isoformat() if expiry else None,
+        },
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
@@ -121,6 +144,36 @@ async def update_user(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    _reject_both_expiry(body.access_expires_at, body.access_duration_days)
+    access_set = bool({"access_expires_at", "access_duration_days"} & body.model_fields_set)
+    new_expiry = (
+        _resolve_expiry(body.access_expires_at, body.access_duration_days)
+        if access_set
+        else user.access_expires_at
+    )
+
+    # Last-active-admin lockout guard: refuse any change (demote / deactivate / already-past
+    # expiry) that would leave the system with zero active admins. A FUTURE expiry is allowed.
+    current_roles = await admin_service.role_names(db, user.id)
+    new_is_active = user.is_active if body.is_active is None else body.is_active
+    new_roles = current_roles if body.roles is None else body.roles
+    was_admin = admin_service.is_active_admin(
+        is_active=user.is_active, roles=current_roles, access_expires_at=user.access_expires_at
+    )
+    will_admin = admin_service.is_active_admin(
+        is_active=new_is_active, roles=new_roles, access_expires_at=new_expiry
+    )
+    would_orphan_admins = (
+        was_admin
+        and not will_admin
+        and not await admin_service.other_active_admins_exist(db, user.id)
+    )
+    if would_orphan_admins:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Cannot remove access from the last active admin"
+        )
+
     try:
         summary = await admin_service.update_user(
             db,
@@ -131,13 +184,20 @@ async def update_user(
             scopes=body.scopes,
             actor_id=context.user_id,
             display_name_set="display_name" in body.model_fields_set,
+            access_expires_at=new_expiry,
+            access_set=access_set,
         )
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    # Any of these can change resolved RBAC — bust the cache for instant effect.
-    if body.is_active is not None or body.roles is not None or body.scopes is not None:
+    # Anything affecting resolved access/RBAC — bust the cache for instant effect.
+    if (
+        body.is_active is not None
+        or body.roles is not None
+        or body.scopes is not None
+        or access_set
+    ):
         await _bust_cache(redis, user.firebase_uid)
 
     await audit.log_admin_action(
@@ -149,6 +209,45 @@ async def update_user(
         user_agent=request.headers.get("user-agent"),
     )
     return summary
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> Response:
+    """Hard-delete a user (roles/scopes/layouts/saved views+reports cascade; audit + other
+    actor links are nulled). GUARDS: an admin cannot delete their OWN account, nor the LAST
+    active admin — both return 400 (lockout prevention)."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if user_id == context.user_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete your own account")
+
+    current_roles = await admin_service.role_names(db, user.id)
+    if admin_service.is_active_admin(
+        is_active=user.is_active, roles=current_roles, access_expires_at=user.access_expires_at
+    ) and not await admin_service.other_active_admins_exist(db, user.id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete the last active admin")
+
+    # Capture before the row is gone; the deleted user's own audit rows have user_id nulled.
+    firebase_uid, email = user.firebase_uid, user.email
+    await admin_service.delete_user(db, user_id)
+    await _bust_cache(redis, firebase_uid)
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_delete_user",
+        resource=str(user_id),
+        detail={"email": email},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
