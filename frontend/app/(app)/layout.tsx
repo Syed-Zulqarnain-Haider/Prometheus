@@ -79,7 +79,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         >
           <FilterBar />
         </Suspense>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );
