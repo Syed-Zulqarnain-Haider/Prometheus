@@ -62,7 +62,7 @@ export function KpiCard({
           )}
           {spark && spark.length > 1 && (
             <div className="w-24">
-              <Chart option={sparklineOption(spark)} height={32} />
+              <Chart option={sparklineOption(spark)} height={32} adjustable={false} />
             </div>
           )}
         </div>
