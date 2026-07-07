@@ -47,11 +47,11 @@ export function KpiRow({ filters }: { filters: Filters }) {
   );
 
   const kpis = [
-    { label: "Revenue", field: "total_revenue_usd", value: formatUSD(current.total_revenue_usd), spark: revenue },
-    { label: "Spend", field: "total_ua_spend_usd", value: formatUSD(current.total_ua_spend_usd), spark: spend },
-    { label: "Net Revenue", field: "net_revenue_usd", value: formatUSD(current.net_revenue_usd), spark: netRevenueSpark },
-    { label: "Gross Profit", field: "gross_profit_usd", value: formatUSD(current.gross_profit_usd), spark: grossProfitSpark },
-    { label: "Profit %", field: "profit_margin", value: formatPercent(current.profit_margin), spark: undefined },
+    { label: "Revenue", field: "total_revenue_usd", value: formatUSD(current.total_revenue_usd), spark: revenue, description: "Total revenue (IAP net + ad revenue) for the selected period." },
+    { label: "Spend", field: "total_ua_spend_usd", value: formatUSD(current.total_ua_spend_usd), spark: spend, description: "Total user-acquisition spend for the selected period." },
+    { label: "Net Revenue", field: "net_revenue_usd", value: formatUSD(current.net_revenue_usd), spark: netRevenueSpark, description: "Revenue minus UA spend." },
+    { label: "Gross Profit", field: "gross_profit_usd", value: formatUSD(current.gross_profit_usd), spark: grossProfitSpark, description: "IAP gross + ad revenue, minus UA spend and tech cost." },
+    { label: "Profit %", field: "profit_margin", value: formatPercent(current.profit_margin), spark: undefined, description: "Profit as a percentage of revenue." },
   ];
 
   return (
@@ -64,6 +64,7 @@ export function KpiRow({ filters }: { filters: Filters }) {
           current={current[kpi.field]}
           previous={previous?.[kpi.field]}
           spark={kpi.spark}
+          description={kpi.description}
           loading={loading}
         />
       ))}
