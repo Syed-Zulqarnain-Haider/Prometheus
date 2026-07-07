@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,33 +12,35 @@ import type { Filters } from "@/lib/filters";
 import { formatCompact, formatMultiplier, formatUSD } from "@/lib/format";
 import { REPORT_METRICS } from "@/lib/report-metrics";
 import type { MetricValue } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-type Row = Record<string, MetricValue>;
+export type Row = Record<string, MetricValue>;
 
 /** The additive measures the caller may see, derived from their metric groups —
  *  the same authority the server enforces. A column is shown only if EVERY measure
  *  it needs is permitted, so a role without spend never sees UA Cost / Net Rev / ROAS. */
-function permittedMeasures(groups: string[]): Set<string> {
+export function permittedMeasures(groups: string[]): Set<string> {
   const allowed = new Set(groups);
   return new Set(REPORT_METRICS.filter((m) => allowed.has(m.group)).map((m) => m.name));
 }
 
-interface ColumnDef {
+export interface ColumnDef {
   id: string;
   label: string;
   requires: string[]; // measure names that must all be permitted to show the column
   align: "left" | "right";
   fmt: "usd" | "count" | "roas" | "text";
   value: (row: Row) => number | string | null;
+  /** Optional custom cell (e.g. the Game link); falls back to formatted ``value``. */
+  render?: (row: Row) => ReactNode;
 }
 
-// Left → right, mapped to the metric registry's existing fields. Derived columns
-// (Gross Rev, Net Rev, ROAS) are computed per row from summed, permitted components.
-const COLUMNS: ColumnDef[] = [
-  { id: "publisher", label: "Publisher", requires: [], align: "left", fmt: "text",
-    value: (r) => (r.publisher == null ? "—" : String(r.publisher)) },
-  { id: "game", label: "Game", requires: [], align: "left", fmt: "text",
-    value: (r) => String(r.app_name ?? r.canonical_key ?? "—") },
+/** The SHARED metric columns, left → right, mapped to the metric registry's existing
+ *  fields. Every dimension table (Publisher, HOU, …) INHERITS this exact set — do NOT
+ *  redefine it elsewhere. Derived columns (Gross Rev, Net Rev, ROAS) are computed per row
+ *  from the row's SUMMED, permitted components, so for a grouped row they are the correct
+ *  ratio/­total-from-totals (never an average of member ratios). */
+export const METRIC_COLUMNS: ColumnDef[] = [
   { id: "installs", label: "Installs", requires: ["store_total_installs"], align: "right", fmt: "count",
     value: (r) => num(r.store_total_installs) },
   { id: "paid", label: "Paid Inst", requires: ["total_paid_installs"], align: "right", fmt: "count",
@@ -57,7 +59,34 @@ const COLUMNS: ColumnDef[] = [
     value: (r) => { const s = num(r.total_ua_spend_usd); return s > 0 ? num(r.total_revenue_usd) / s : null; } },
 ];
 
-function format(col: ColumnDef, v: number | string | null): string {
+/** Identity columns for the per-app Publisher table: Publisher + the (linked) Game. */
+const PUBLISHER_IDENTITY: ColumnDef[] = [
+  { id: "publisher", label: "Publisher", requires: [], align: "left", fmt: "text",
+    value: (r) => (r.publisher == null ? "—" : String(r.publisher)) },
+  {
+    id: "game", label: "Game", requires: [], align: "left", fmt: "text",
+    value: (r) => String(r.app_name ?? r.canonical_key ?? "—"),
+    render: (r) => {
+      const ck = String(r.canonical_key ?? r.app_name ?? "");
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <Link
+            href={`/apps/${encodeURIComponent(ck)}`}
+            className="font-medium text-[color:var(--color-accent)] hover:underline"
+          >
+            {String(r.app_name ?? ck)}
+          </Link>
+          <StoreLinkIcon
+            androidPackage={r.android_package as string | null}
+            appleId={r.apple_id as number | null}
+          />
+        </span>
+      );
+    },
+  },
+];
+
+export function formatCell(col: ColumnDef, v: number | string | null): string {
   if (v == null) return "—";
   if (col.fmt === "text") return String(v);
   if (col.fmt === "usd") return formatUSD(v as number, { compact: true });
@@ -65,18 +94,25 @@ function format(col: ColumnDef, v: number | string | null): string {
   return formatMultiplier(v as number);
 }
 
-/** Full-width per-game revenue table for the Overview. One row per app (game) with
- *  its publisher, RBAC-gated columns, compact formatting, sorted by Gross Rev desc.
- *  Horizontally scrolls within the card when space is tight. */
-export function RevenueTable({ title, filters }: { title: string; filters: Filters }) {
-  const { data: me } = useMe();
-  const permitted = useMemo(() => permittedMeasures(me?.metric_groups ?? []), [me]);
-
-  const columns = useMemo(
-    () => COLUMNS.filter((c) => c.requires.every((m) => permitted.has(m))),
-    [permitted],
-  );
-  // Default sort = Gross Rev desc; fall back to the first visible revenue/installs col.
+/** Presentational core shared by every dimension table. Takes permission-filtered columns
+ *  and already-aggregated rows, applies the SAME default sort (Gross Rev desc, falling back
+ *  to the first visible revenue/installs column), keeps the top 10, and renders the Swiss
+ *  Ledger table with identical loading/empty/error states. Horizontally scrolls when tight. */
+export function MetricTable({
+  title,
+  columns,
+  rows,
+  rowKey,
+  isLoading,
+  isError,
+}: {
+  title: string;
+  columns: ColumnDef[];
+  rows: Row[];
+  rowKey: (row: Row) => string;
+  isLoading: boolean;
+  isError: boolean;
+}) {
   const sortCol =
     columns.find((c) => c.id === "gross") ??
     columns.find((c) => c.id === "net") ??
@@ -84,24 +120,17 @@ export function RevenueTable({ title, filters }: { title: string; filters: Filte
     columns.find((c) => c.id === "installs") ??
     null;
 
-  // The table endpoint is keyset-sorted by a single permitted column; fetch a generous
-  // superset, then sort client-side by the chosen key and take the top 10.
-  const fetchSort = permitted.has("total_revenue_usd")
-    ? "total_revenue_usd"
-    : permitted.has("store_total_installs")
-      ? "store_total_installs"
-      : "canonical_key";
-  const table = useTable(filters, fetchSort, 100);
-
-  const rows = useMemo(() => {
-    const data = table.data?.rows ?? [];
-    return [...data]
-      .sort((a, b) =>
-        (sortCol ? Number(sortCol.value(b) ?? -Infinity) : 0) -
-        (sortCol ? Number(sortCol.value(a) ?? -Infinity) : 0),
-      )
-      .slice(0, 10);
-  }, [table.data, sortCol]);
+  const sorted = useMemo(
+    () =>
+      [...rows]
+        .sort(
+          (a, b) =>
+            (sortCol ? Number(sortCol.value(b) ?? -Infinity) : 0) -
+            (sortCol ? Number(sortCol.value(a) ?? -Infinity) : 0),
+        )
+        .slice(0, 10),
+    [rows, sortCol],
+  );
 
   const span = columns.length;
 
@@ -127,7 +156,7 @@ export function RevenueTable({ title, filters }: { title: string; filters: Filte
               </tr>
             </thead>
             <tbody>
-              {table.isLoading &&
+              {isLoading &&
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-b border-border-faint">
                     <td className="px-3 py-2" colSpan={span}>
@@ -135,56 +164,71 @@ export function RevenueTable({ title, filters }: { title: string; filters: Filte
                     </td>
                   </tr>
                 ))}
-              {!table.isLoading && table.isError && (
+              {!isLoading && isError && (
                 <tr>
                   <td className="px-3 py-6 text-center text-[color:var(--color-negative)]" colSpan={span}>
                     Couldn&apos;t load this table — please retry.
                   </td>
                 </tr>
               )}
-              {!table.isLoading && !table.isError && rows.length === 0 && (
+              {!isLoading && !isError && sorted.length === 0 && (
                 <tr>
                   <td className="px-3 py-6 text-center text-muted-foreground" colSpan={span}>
                     No data for the selected filters
                   </td>
                 </tr>
               )}
-              {rows.map((row) => {
-                const ck = String(row.canonical_key ?? row.app_name ?? "");
-                return (
-                  <tr key={ck} className="border-b border-border-faint hover:bg-accent">
-                    {columns.map((c) =>
-                      c.id === "game" ? (
-                        <td key={c.id} className="whitespace-nowrap px-3 py-2">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Link
-                              href={`/apps/${encodeURIComponent(ck)}`}
-                              className="font-medium text-[color:var(--color-accent)] hover:underline"
-                            >
-                              {String(row.app_name ?? ck)}
-                            </Link>
-                            <StoreLinkIcon
-                              androidPackage={row.android_package as string | null}
-                              appleId={row.apple_id as number | null}
-                            />
-                          </span>
-                        </td>
-                      ) : (
-                        <td
-                          key={c.id}
-                          className={`whitespace-nowrap px-3 py-2 ${c.align === "right" ? "text-right tabular-nums" : ""}`}
-                        >
-                          {format(c, c.value(row))}
-                        </td>
-                      ),
-                    )}
-                  </tr>
-                );
-              })}
+              {sorted.map((row) => (
+                <tr key={rowKey(row)} className="border-b border-border-faint hover:bg-accent">
+                  {columns.map((c) => (
+                    <td
+                      key={c.id}
+                      className={cn(
+                        "whitespace-nowrap px-3 py-2",
+                        c.align === "right" && "text-right tabular-nums",
+                      )}
+                    >
+                      {c.render ? c.render(row) : formatCell(c, c.value(row))}
+                    </td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Full-width per-game revenue table for the Overview. One row per app (game) with its
+ *  publisher, RBAC-gated columns, compact formatting, sorted by Gross Rev desc. */
+export function RevenueTable({ title, filters }: { title: string; filters: Filters }) {
+  const { data: me } = useMe();
+  const permitted = useMemo(() => permittedMeasures(me?.metric_groups ?? []), [me]);
+
+  const columns = useMemo(
+    () => [...PUBLISHER_IDENTITY, ...METRIC_COLUMNS].filter((c) => c.requires.every((m) => permitted.has(m))),
+    [permitted],
+  );
+
+  // The table endpoint is keyset-sorted by a single permitted column; fetch a generous
+  // superset, then MetricTable sorts client-side by Gross Rev and takes the top 10.
+  const fetchSort = permitted.has("total_revenue_usd")
+    ? "total_revenue_usd"
+    : permitted.has("store_total_installs")
+      ? "store_total_installs"
+      : "canonical_key";
+  const table = useTable(filters, fetchSort, 100);
+
+  return (
+    <MetricTable
+      title={title}
+      columns={columns}
+      rows={table.data?.rows ?? []}
+      rowKey={(r) => String(r.canonical_key ?? r.app_name ?? "")}
+      isLoading={table.isLoading}
+      isError={table.isError}
+    />
   );
 }

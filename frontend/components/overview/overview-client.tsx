@@ -6,9 +6,9 @@ import type { Layouts } from "react-grid-layout";
 
 import { DashboardGrid } from "@/components/overview/dashboard-grid";
 import { DemoSection } from "@/components/overview/demo-section";
+import { HouTable } from "@/components/overview/hou-table";
 import { KpiRow } from "@/components/overview/kpi-row";
 import { MonthlyTrend } from "@/components/overview/monthly-trend";
-import { PublisherTable } from "@/components/overview/publisher-table";
 import { RatioCards } from "@/components/overview/ratio-cards";
 import { RevenueComposition } from "@/components/overview/revenue-composition";
 import { RevenueProgress } from "@/components/overview/revenue-progress";
@@ -66,7 +66,8 @@ export function OverviewClient() {
     composition: <RevenueComposition filters={filters} />,
     platform: <PlatformSplit filters={filters} />,
     pod: <PodSplit filters={filters} />,
-    publisher: <PublisherTable filters={filters} />,
+    // Same grid slot (id "publisher") — now the HOU-grouped table, so saved layouts hold.
+    publisher: <HouTable filters={filters} />,
     "top-apps": <TopAppsTable filters={filters} />,
   };
 

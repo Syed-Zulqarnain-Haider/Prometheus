@@ -165,6 +165,79 @@ async def test_breakdown_by_pod_ordered_desc(fact_session: Any) -> None:
     ]
 
 
+async def test_breakdown_by_hou_sums_and_recomputes_ratio_from_totals(fact_session: Any) -> None:
+    """HOU Performance backing query: additive measures SUM per HOU, a NULL hou is kept as
+    its own group (the UI's "Unassigned" bucket, not dropped), and a ratio like ROAS must be
+    recomputed from the HOU totals — SUM(rev)/SUM(spend) — NOT averaged from member ratios."""
+    # Two apps in HOU_A with very different ROAS (3.0 and 0.25); one in HOU_B; one NULL hou.
+    await _insert_fact(fact_session, hou="HOU_A", total_revenue_usd=300, total_ua_spend_usd=100)
+    await _insert_fact(
+        fact_session,
+        canonical_key="appB",
+        hou="HOU_A",
+        total_revenue_usd=100,
+        total_ua_spend_usd=400,
+    )
+    await _insert_fact(
+        fact_session, canonical_key="appC", hou="HOU_B", total_revenue_usd=50, total_ua_spend_usd=25
+    )
+    await _insert_fact(
+        fact_session, canonical_key="appD", hou=None, total_revenue_usd=80, total_ua_spend_usd=20
+    )
+    await fact_session.commit()
+
+    qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("all", None)]))
+    params = MetricFilters(date_from=date(2026, 1, 1), date_to=date(2026, 1, 31))
+    rows = (
+        (
+            await fact_session.execute(
+                qb.breakdown(params, "hou", ["total_revenue_usd", "total_ua_spend_usd"])
+            )
+        )
+        .mappings()
+        .all()
+    )
+    by_hou = {
+        r["hou"]: (float(r["total_revenue_usd"]), float(r["total_ua_spend_usd"])) for r in rows
+    }
+    # Additive measures summed per HOU; the NULL-hou group is present (not dropped).
+    assert by_hou["HOU_A"] == (400.0, 500.0)
+    assert by_hou["HOU_B"] == (50.0, 25.0)
+    assert by_hou[None] == (80.0, 20.0)
+
+    # ROAS recomputed from HOU totals = 400/500 = 0.8, NOT the mean of member ratios (1.625).
+    rev_a, spend_a = by_hou["HOU_A"]
+    assert rev_a / spend_a == 0.8
+    assert rev_a / spend_a != (300 / 100 + 100 / 400) / 2
+
+
+async def test_breakdown_by_hou_respects_row_scope(fact_session: Any) -> None:
+    """An HOU-scoped user aggregates ONLY over their permitted HOU(s); rows outside scope
+    (other HOUs, NULL hou) never appear."""
+    await _insert_fact(fact_session, hou="HOU_A", total_revenue_usd=300, total_ua_spend_usd=100)
+    await _insert_fact(
+        fact_session, canonical_key="appB", hou="HOU_B", total_revenue_usd=999, total_ua_spend_usd=1
+    )
+    await _insert_fact(
+        fact_session, canonical_key="appD", hou=None, total_revenue_usd=42, total_ua_spend_usd=7
+    )
+    await fact_session.commit()
+
+    qb = QueryBuilder(_context(groups=ALL_GROUPS, scopes=[("hou", "HOU_A")]))
+    params = MetricFilters(date_from=date(2026, 1, 1), date_to=date(2026, 1, 31))
+    rows = (
+        (
+            await fact_session.execute(
+                qb.breakdown(params, "hou", ["total_revenue_usd", "total_ua_spend_usd"])
+            )
+        )
+        .mappings()
+        .all()
+    )
+    assert [r["hou"] for r in rows] == ["HOU_A"]  # HOU_B and NULL hou excluded by scope
+    assert float(rows[0]["total_revenue_usd"]) == 300.0
+
+
 # ── table: keyset pagination + sort whitelist ────────────────────────────────
 async def test_table_keyset_pagination(fact_session: Any) -> None:
     for key, installs in [("a", 50), ("b", 40), ("c", 30), ("d", 20)]:
