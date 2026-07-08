@@ -1,5 +1,8 @@
 "use client";
 
+import { format, parseISO, startOfMonth, subMonths } from "date-fns";
+import { useMemo } from "react";
+
 import { Chart } from "@/components/charts/chart";
 import { ChartCard } from "@/components/charts/chart-card";
 import { usePreviousTimeseries, useTimeseries } from "@/lib/api-hooks";
@@ -8,9 +11,21 @@ import type { EChartsOption } from "@/lib/echarts";
 import type { Filters } from "@/lib/filters";
 import { formatUSD } from "@/lib/format";
 
+/** Number of monthly buckets to show, ending at the selected end date's month. */
+const MONTHS = 6;
+
 export function MonthlyTrend({ filters }: { filters: Filters }) {
-  const ts = useTimeseries(filters, ["total_revenue_usd"], "month");
-  const prev = usePreviousTimeseries(filters, ["total_revenue_usd"], "month");
+  // Always show the last 6 calendar months ENDING at the selected end date (dateTo),
+  // regardless of the filter's start date. End 5 Jul -> Feb–Jul (start 1 Feb). All other
+  // filters (platform, pods, compare, …) still apply; only the date window is overridden.
+  const windowFilters = useMemo<Filters>(() => {
+    const end = parseISO(filters.dateTo);
+    const start = startOfMonth(subMonths(end, MONTHS - 1));
+    return { ...filters, preset: "custom", dateFrom: format(start, "yyyy-MM-dd") };
+  }, [filters]);
+
+  const ts = useTimeseries(windowFilters, ["total_revenue_usd"], "month");
+  const prev = usePreviousTimeseries(windowFilters, ["total_revenue_usd"], "month");
   const labels = bucketLabels(ts.data);
   const values = metricValues(ts.data, "total_revenue_usd");
   const prevValues = metricValues(prev.data, "total_revenue_usd");
