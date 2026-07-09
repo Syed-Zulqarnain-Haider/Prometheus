@@ -317,7 +317,7 @@ async def _seed_metrics_fact(session: Any) -> None:
 
 @pytest_asyncio.fixture
 async def metrics_env() -> AsyncGenerator[MetricsEnv, None]:
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
 
     import redis.asyncio as aioredis
     from app.core.database import get_db, get_sessionmaker
@@ -381,11 +381,15 @@ async def metrics_env() -> AsyncGenerator[MetricsEnv, None]:
                     is_mapped=True,
                 )
             )
+        # Relative to now (not a fixed calendar date) so freshness/staleness tests are
+        # time-stable: 6h old is stale under a 1h threshold but fresh under a 720h one,
+        # regardless of when the suite runs.
+        built = datetime.now(UTC) - timedelta(hours=6)
         await session.execute(
             insert(SyncRun).values(
                 status="success",
-                bq_built_at=datetime(2026, 6, 2, 6, 0, tzinfo=UTC),
-                finished_at=datetime(2026, 6, 2, 6, 5, tzinfo=UTC),
+                bq_built_at=built,
+                finished_at=built + timedelta(minutes=5),
                 rows_loaded=100,
             )
         )

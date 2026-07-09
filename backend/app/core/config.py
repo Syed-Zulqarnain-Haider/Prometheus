@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     # read-only "Test Connection" loads it explicitly from this path.
     bq_credentials_path: str = "/secrets/bq-reader.json"
 
+    # Path to the BigQuery WRITER key — a service account with BigQuery Data Editor on the
+    # app_master dataset, a SEPARATE identity from the read-only reader above. Mounted file;
+    # only its PATH is configured here (never uploaded/stored via UI/DB). Required ONLY for
+    # admin App Master edits (write-back to BigQuery); absent -> edits return a clear
+    # "BigQuery write-back not configured" error and nothing is changed.
+    bq_writer_credentials_path: str = "/secrets/bq-writer.json"
+
+    # Fully-qualified BigQuery App Master table the admin page reads from and writes back to.
+    app_master_bq_table: str = "terafort.cross_platform.app_master_v2"
+
     # libpq DSN the sync uses to write Postgres, e.g.
     # postgresql://sync_service:...@host:5432/db?sslmode=require. This is the SYNC's DB
     # identity (the write-capable ``sync_service`` role) — DISTINCT from ``database_url``

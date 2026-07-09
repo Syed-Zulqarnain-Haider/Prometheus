@@ -2,6 +2,7 @@ import {
   Activity,
   AppWindow,
   BarChart3,
+  Database,
   FileText,
   LayoutDashboard,
   type LucideIcon,
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/store", label: "Store", icon: Store },
   { href: "/apps", label: "Apps Explorer", icon: AppWindow },
   { href: "/reports", label: "Reports", icon: FileText },
+  { href: "/app-master", label: "App Master", icon: Database, requiresAdmin: true },
   { href: "/admin", label: "Admin", icon: Shield, requiresAdmin: true },
   { href: "/data-health", label: "Data Health", icon: Activity, requiresAdmin: true },
 ];

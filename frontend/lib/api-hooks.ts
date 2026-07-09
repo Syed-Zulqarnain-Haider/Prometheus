@@ -754,3 +754,65 @@ export function useClearData() {
     onSuccess: () => queryClient.invalidateQueries(),
   });
 }
+
+// ── App Master (admin-only: view + edit the BigQuery app_master_v2 table) ───────
+export interface AppMasterColumnMeta {
+  name: string;
+  type: "text" | "bigint" | "boolean" | "double" | "timestamptz";
+  editable: boolean;
+}
+
+export interface AppMasterListResponse {
+  rows: Record<string, unknown>[];
+  total: number;
+  columns: AppMasterColumnMeta[];
+  primary_key: string;
+}
+
+export interface AppMasterFilters {
+  search: string;
+  platform: string; // "" = all
+  hou: string;
+  pod: string; // raw input; sent as int when numeric
+  needsReview: "" | "true" | "false";
+}
+
+export function useAppMaster(filters: AppMasterFilters, limit: number, offset: number) {
+  const { user } = useAuth();
+  const params: Record<string, string | number | boolean> = { limit, offset };
+  if (filters.search.trim()) params.search = filters.search.trim();
+  if (filters.platform) params.platform = filters.platform;
+  if (filters.hou.trim()) params.hou = filters.hou.trim();
+  if (filters.pod.trim() && Number.isInteger(Number(filters.pod))) params.pod = Number(filters.pod);
+  if (filters.needsReview) params.needs_review = filters.needsReview;
+  return useQuery({
+    queryKey: ["app-master", params],
+    queryFn: () => apiFetch<AppMasterListResponse>(`/api/v1/app-master${buildQuery(params)}`),
+    enabled: Boolean(user),
+  });
+}
+
+/** Edit one row's editable columns (writes to BigQuery first, then the serving copy). */
+export function useUpdateAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, body }: { key: string; body: Record<string, unknown> }) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+/** Re-pull the whole table from BigQuery into the Postgres serving copy. */
+export function useRefreshAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; skipped: number }>("/api/v1/app-master/refresh", {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}

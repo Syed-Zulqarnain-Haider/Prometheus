@@ -3,6 +3,7 @@
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "app_master",
     "dim_app",
     "users",
     "roles",
