@@ -5,9 +5,9 @@ Pydantic schemas, the BigQuery sync (read) and the edit write-back (write) all d
 column set, editability and BigQuery type mapping from HERE — never hand-list columns
 elsewhere. A parity test asserts the ORM model matches this registry.
 
-Two BigQuery columns have names that are not valid Postgres/identifier-safe
-(``3rd party OS``, ``Transsion delightek``); they map to sanitized Postgres names and are
-back-quoted when writing to BigQuery.
+If a BigQuery column name is ever not identifier-safe (e.g. contains a space), give it a
+sanitized Postgres ``name`` and its real BigQuery name via ``bq_name`` (back-quoted on
+read/write). The current live table has no such columns.
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ REGISTRY: list[AppMasterColumn] = [
     _c("platform", "text", "STRING"),
     _c("ios_bundle_id", "text", "STRING"),
     _c("android_package", "text", "STRING"),
+    _c("sana_mirror_package", "text", "STRING"),
     _c("apple_account", "text", "STRING"),
     _c("google_play_account", "text", "STRING"),
     _c("facebook_app_id", "text", "STRING"),
@@ -73,6 +74,8 @@ REGISTRY: list[AppMasterColumn] = [
     _c("mintegral_pub_last_revenue_at", "timestamptz", "TIMESTAMP"),
     _c("mintegral_adv_active", "boolean", "BOOL"),
     _c("mintegral_adv_last_spend_at", "timestamptz", "TIMESTAMP"),
+    _c("apero_active", "boolean", "BOOL"),
+    _c("apero_last_revenue_at", "timestamptz", "TIMESTAMP"),
     _c("needs_review", "boolean", "BOOL", editable=True),
     _c("review_reason", "text", "STRING", editable=True),
     _c("reviewed_at", "timestamptz", "TIMESTAMP"),
@@ -84,8 +87,6 @@ REGISTRY: list[AppMasterColumn] = [
     _c("in_apple_console", "boolean", "BOOL", editable=True),
     _c("in_gp_console", "boolean", "BOOL", editable=True),
     _c("ops_notes", "text", "STRING", editable=True),
-    _c("third_party_os", "text", "STRING", editable=True, bq_name="3rd party OS"),
-    _c("transsion_delightek", "boolean", "BOOL", editable=True, bq_name="Transsion delightek"),
 ]
 
 BY_NAME: dict[str, AppMasterColumn] = {c.name: c for c in REGISTRY}

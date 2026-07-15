@@ -47,5 +47,3 @@ class AppMasterUpdate(BaseModel):
     in_apple_console: bool | None = None
     in_gp_console: bool | None = None
     ops_notes: str | None = None
-    third_party_os: str | None = None
-    transsion_delightek: bool | None = None

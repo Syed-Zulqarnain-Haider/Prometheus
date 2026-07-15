@@ -9,9 +9,9 @@ Design notes:
     sync image) still imports this module — it just raises ``BigQueryUnavailable``.
   * Reader and writer are DISTINCT service-account keys (paths in settings); the writer
     needs BigQuery Data Editor and is required ONLY for edits.
-  * Column names come from the single-source registry; the two names with spaces
-    (``3rd party OS`` / ``Transsion delightek``) are back-quoted for BigQuery and aliased
-    to their sanitized Postgres names on read.
+  * Column names come from the single-source registry; any non-identifier-safe BigQuery
+    name (via ``bq_name``) is back-quoted for BigQuery and aliased to its sanitized Postgres
+    name on read.
   * These functions are BLOCKING (google-cloud-bigquery is sync); callers run them in a
     worker thread. They CANNOT be exercised without real GCP access.
 """
