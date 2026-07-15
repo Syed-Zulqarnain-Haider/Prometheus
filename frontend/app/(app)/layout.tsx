@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
 import { AccessRequestPending } from "@/components/layout/access-request-pending";
@@ -18,6 +18,9 @@ import { useAuth } from "@/lib/auth-context";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  // Pages with their OWN filter bar (App Master) don't use the global metric filters.
+  const hideGlobalFilters = pathname?.startsWith("/app-master") ?? false;
   // Provisioning gate: Firebase auth alone is NOT access. We resolve /auth/me, and
   // an authenticated-but-unprovisioned user (any provider, incl. Google) is rejected
   // server-side — we show a friendly screen instead of a broken dashboard.
@@ -70,15 +73,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header />
         <FreshnessBanner />
-        <Suspense
-          fallback={
-            <div className="border-b bg-card px-4 py-2">
-              <Skeleton className="h-8 w-full max-w-xl" />
-            </div>
-          }
-        >
-          <FilterBar />
-        </Suspense>
+        {!hideGlobalFilters && (
+          <Suspense
+            fallback={
+              <div className="border-b bg-card px-4 py-2">
+                <Skeleton className="h-8 w-full max-w-xl" />
+              </div>
+            }
+          >
+            <FilterBar />
+          </Suspense>
+        )}
         <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
     </div>

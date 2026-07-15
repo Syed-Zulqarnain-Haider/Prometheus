@@ -42,6 +42,10 @@ class BigQueryWriteError(RuntimeError):
     """The write-back DML failed or did not affect exactly one row."""
 
 
+class BigQueryReadError(RuntimeError):
+    """The BigQuery read (sync) failed — e.g. wrong table name, column mismatch, or auth."""
+
+
 def _bq_modules() -> tuple[Any, Any]:
     try:
         from google.cloud import bigquery
@@ -73,8 +77,15 @@ def fetch_rows(settings: Settings) -> list[dict[str, Any]]:
     select_list = ", ".join(f"{_bq_ident(c.bq_name)} AS {c.name}" for c in REGISTRY)
     table = _bq_ident_table(settings.app_master_bq_table)
     query = f"SELECT {select_list} FROM {table}"  # noqa: S608 — identifiers from the registry, not user input
-    rows = client.query(query).result()
-    return [{c.name: row[c.name] for c in REGISTRY} for row in rows]
+    try:
+        rows = client.query(query).result()
+        return [{c.name: row[c.name] for c in REGISTRY} for row in rows]
+    except Exception as exc:  # noqa: BLE001 — sanitize: surface the reason type, never raw provider text
+        log.warning("App Master BigQuery read failed: %s", type(exc).__name__)
+        raise BigQueryReadError(
+            f"BigQuery read failed ({type(exc).__name__}) — check the table name "
+            f"({settings.app_master_bq_table!r}) and that its columns match."
+        ) from exc
 
 
 def _bq_ident_table(fq_table: str) -> str:
@@ -105,8 +116,12 @@ def push_update(settings: Settings, key_value: str, changes: dict[str, Any]) -> 
     query = (  # noqa: S608 — all identifiers come from the registry; values are bound params
         f"UPDATE {table} SET {', '.join(set_fragments)} WHERE {_bq_ident(pk_col.bq_name)} = @pk"
     )
-    job = client.query(query, job_config=bigquery.QueryJobConfig(query_parameters=params))
-    job.result()  # wait for completion / surface errors
+    try:
+        job = client.query(query, job_config=bigquery.QueryJobConfig(query_parameters=params))
+        job.result()  # wait for completion / surface errors
+    except Exception as exc:  # noqa: BLE001 — sanitize: surface the reason type, never raw provider text
+        log.warning("App Master BigQuery write failed: %s", type(exc).__name__)
+        raise BigQueryWriteError(f"BigQuery write failed ({type(exc).__name__}).") from exc
     affected = job.num_dml_affected_rows
     if affected != 1:
         raise BigQueryWriteError(

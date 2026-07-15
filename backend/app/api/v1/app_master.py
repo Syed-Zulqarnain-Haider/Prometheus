@@ -19,6 +19,7 @@ from app.schemas.app_master import AppMasterListResponse, AppMasterUpdate
 from app.services import app_master_service
 from app.services.app_master_bq import (
     BigQueryNotConfigured,
+    BigQueryReadError,
     BigQueryUnavailable,
     BigQueryWriteError,
 )
@@ -108,6 +109,11 @@ async def refresh_app_master(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "BigQuery is not configured — the serving copy was not refreshed.",
         ) from exc
+    except BigQueryReadError as exc:
+        await db.rollback()
+        # Surface the sanitized reason (e.g. NotFound / Forbidden / BadRequest) so the admin
+        # can tell whether it's the table name, columns, or permissions — not a blank 500.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     await audit.log_admin_action(
         user_id=context.user_id,

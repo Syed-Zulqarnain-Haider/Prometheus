@@ -169,6 +169,9 @@ export function AppMasterClient() {
   const columns = data?.columns ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasFilters = Boolean(
+    filters.search || filters.platform || filters.hou || filters.pod || filters.needsReview,
+  );
 
   return (
     <div className="space-y-4">
@@ -298,7 +301,9 @@ export function AppMasterClient() {
               {!query.isLoading && !query.isError && (data?.rows.length ?? 0) === 0 && (
                 <tr>
                   <td className="px-3 py-6 text-center text-muted-foreground" colSpan={columns.length + 1}>
-                    No apps match these filters.
+                    {hasFilters
+                      ? "No apps match these filters."
+                      : "No apps loaded yet — click “Refresh from BigQuery” to pull the master list."}
                   </td>
                 </tr>
               )}
