@@ -70,11 +70,28 @@ def _bq_ident(name: str) -> str:
     return f"`{name.replace('`', '')}`"
 
 
+def _query_project(table_id: str, settings: Settings) -> str | None:
+    """The project the query JOB runs in. Prefer the table's own project (from a
+    fully-qualified ``project.dataset.table``) so the job runs where the data lives — the
+    same project the read-only schema check uses — falling back to the configured project."""
+    parts = table_id.split(".")
+    if len(parts) == 3 and parts[0]:
+        return parts[0]
+    return settings.bigquery_project or None
+
+
+def _error_reason(exc: Exception) -> str:
+    """First line of the provider error (admin-only diagnostic — names the missing
+    permission / resource, e.g. table-access vs project jobs.create)."""
+    raw = getattr(exc, "message", None) or str(exc)
+    return raw.strip().split("\n")[0][:300]
+
+
 def fetch_rows(settings: Settings, table_id: str) -> list[dict[str, Any]]:
     """Read ALL rows from the BigQuery App Master table, keyed by Postgres column names.
 
     ``table_id`` is the fully-qualified ``project.dataset.table`` (from the admin setting)."""
-    client = _client(settings.bq_credentials_path, settings.bigquery_project, _READ_SCOPES)
+    client = _client(settings.bq_credentials_path, _query_project(table_id, settings), _READ_SCOPES)
     # Select each BQ column aliased to its sanitized Postgres name.
     select_list = ", ".join(f"{_bq_ident(c.bq_name)} AS {c.name}" for c in REGISTRY)
     table = _bq_ident_table(table_id)
@@ -82,11 +99,10 @@ def fetch_rows(settings: Settings, table_id: str) -> list[dict[str, Any]]:
     try:
         rows = client.query(query).result()
         return [{c.name: row[c.name] for c in REGISTRY} for row in rows]
-    except Exception as exc:  # noqa: BLE001 — sanitize: surface the reason type, never raw provider text
+    except Exception as exc:  # noqa: BLE001 — sanitize to first line; admin-only endpoint
         log.warning("App Master BigQuery read failed: %s", type(exc).__name__)
         raise BigQueryReadError(
-            f"BigQuery read failed ({type(exc).__name__}) — check the table name "
-            f"({table_id!r}) and that its columns match."
+            f"BigQuery read failed ({type(exc).__name__}): {_error_reason(exc)}"
         ) from exc
 
 
@@ -102,7 +118,9 @@ def push_update(settings: Settings, table_id: str, key_value: str, changes: dict
     if not changes:
         return
     bigquery, _ = _bq_modules()
-    client = _client(settings.bq_writer_credentials_path, settings.bigquery_project, _WRITE_SCOPES)
+    client = _client(
+        settings.bq_writer_credentials_path, _query_project(table_id, settings), _WRITE_SCOPES
+    )
 
     set_fragments: list[str] = []
     params: list[Any] = []
@@ -121,9 +139,11 @@ def push_update(settings: Settings, table_id: str, key_value: str, changes: dict
     try:
         job = client.query(query, job_config=bigquery.QueryJobConfig(query_parameters=params))
         job.result()  # wait for completion / surface errors
-    except Exception as exc:  # noqa: BLE001 — sanitize: surface the reason type, never raw provider text
+    except Exception as exc:  # noqa: BLE001 — sanitize to first line; admin-only endpoint
         log.warning("App Master BigQuery write failed: %s", type(exc).__name__)
-        raise BigQueryWriteError(f"BigQuery write failed ({type(exc).__name__}).") from exc
+        raise BigQueryWriteError(
+            f"BigQuery write failed ({type(exc).__name__}): {_error_reason(exc)}"
+        ) from exc
     affected = job.num_dml_affected_rows
     if affected != 1:
         raise BigQueryWriteError(
