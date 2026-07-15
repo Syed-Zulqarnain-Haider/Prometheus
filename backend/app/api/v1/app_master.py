@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit
 from app.schemas.app_master import AppMasterListResponse, AppMasterUpdate
+from app.schemas.integration import SchemaDiff
 from app.services import app_master_service
 from app.services.app_master_bq import (
     BigQueryNotConfigured,
@@ -55,6 +56,12 @@ async def list_app_master(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/schema-diff", response_model=SchemaDiff)
+async def app_master_schema_diff(context: CurrentUser, db: DbSession) -> SchemaDiff:
+    """Read-only check that the configured BigQuery table's columns match the registry."""
+    return await app_master_service.schema_diff(db, get_settings())
 
 
 @router.patch("/{key}", response_model=dict)

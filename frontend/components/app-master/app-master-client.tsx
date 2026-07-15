@@ -19,6 +19,7 @@ import {
   type AppMasterColumnMeta,
   type AppMasterFilters,
   useAppMaster,
+  useAppMasterSchemaDiff,
   useMe,
   useRefreshAppMaster,
   useUpdateAppMaster,
@@ -159,6 +160,7 @@ export function AppMasterClient() {
 
   const query = useAppMaster(filters, PAGE_SIZE, page * PAGE_SIZE);
   const refresh = useRefreshAppMaster();
+  const schema = useAppMasterSchemaDiff();
 
   if (meLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (!me?.capabilities.includes("admin_panel")) {
@@ -255,6 +257,14 @@ export function AppMasterClient() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => schema.mutate()}
+            disabled={schema.isPending}
+          >
+            {schema.isPending ? "Checking…" : "Check schema"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             className="gap-2"
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending}
@@ -264,6 +274,51 @@ export function AppMasterClient() {
           </Button>
         </div>
       </div>
+
+      {/* Schema-match result: confirms the configured BigQuery table's columns line up. */}
+      {(schema.data || schema.isError) && (
+        <div className="rounded-lg border bg-card p-3 text-sm">
+          {schema.isError ? (
+            <p className="text-destructive">
+              {schema.error instanceof ApiError ? schema.error.message : "Schema check failed."}
+            </p>
+          ) : schema.data && !schema.data.configured ? (
+            <p className="text-muted-foreground">{schema.data.message}</p>
+          ) : schema.data?.message ? (
+            <p className="text-destructive">{schema.data.message}</p>
+          ) : schema.data?.in_sync ? (
+            <p className="font-medium text-[color:var(--color-positive)]">
+              ✓ Schema matches — all {columns.length} columns are present with the expected types.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <p className="font-medium text-[color:var(--color-negative)]">
+                Schema mismatch — this table won’t sync/edit correctly until it’s fixed:
+              </p>
+              {(schema.data?.missing_in_view.length ?? 0) > 0 && (
+                <p>
+                  <span className="text-muted-foreground">Missing columns:</span>{" "}
+                  {schema.data?.missing_in_view.join(", ")}
+                </p>
+              )}
+              {(schema.data?.type_mismatches.length ?? 0) > 0 && (
+                <p>
+                  <span className="text-muted-foreground">Type mismatches:</span>{" "}
+                  {schema.data?.type_mismatches
+                    .map((m) => `${m.column} (expected ${m.expected}, got ${m.actual})`)
+                    .join(", ")}
+                </p>
+              )}
+              {(schema.data?.unregistered_in_view.length ?? 0) > 0 && (
+                <p className="text-muted-foreground">
+                  Extra columns in BigQuery (ignored):{" "}
+                  {schema.data?.unregistered_in_view.map((u) => u.column).join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Wide, horizontally scrollable grid. */}
       <div className="rounded-lg border bg-card">

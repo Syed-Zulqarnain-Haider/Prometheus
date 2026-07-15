@@ -8,9 +8,9 @@ BigQuery read/write functions are monkeypatched; the Postgres + RBAC + audit pat
 from typing import Any
 
 import pytest
-from app.core.app_master_columns import ALL_COLUMNS, EDITABLE_SET
+from app.core.app_master_columns import ALL_COLUMNS, EDITABLE_SET, REGISTRY
 from app.models.app_master import APP_MASTER_TABLE
-from app.services import app_master_bq
+from app.services import app_master_bq, app_master_service, integration_service
 from sqlalchemy import insert, select
 
 from tests.conftest import MetricsEnv
@@ -107,7 +107,7 @@ async def test_edit_writes_bigquery_then_postgres_and_audits(
     await _seed(metrics_env)
     calls: list[tuple[str, dict[str, Any]]] = []
 
-    def fake_push(settings: Any, key: str, changes: dict[str, Any]) -> None:
+    def fake_push(settings: Any, table_id: str, key: str, changes: dict[str, Any]) -> None:
         calls.append((key, changes))
 
     monkeypatch.setattr(app_master_bq, "push_update", fake_push)
@@ -179,7 +179,7 @@ async def test_edit_leaves_postgres_untouched_when_bigquery_write_fails(
 ) -> None:
     await _seed(metrics_env)
 
-    def boom(settings: Any, key: str, changes: dict[str, Any]) -> None:
+    def boom(settings: Any, table_id: str, key: str, changes: dict[str, Any]) -> None:
         raise app_master_bq.BigQueryNotConfigured("no writer key")
 
     monkeypatch.setattr(app_master_bq, "push_update", boom)
@@ -208,7 +208,7 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
 ) -> None:
     await _seed(metrics_env)
 
-    def fake_fetch(settings: Any) -> list[dict[str, Any]]:
+    def fake_fetch(settings: Any, table_id: str) -> list[dict[str, Any]]:
         base = dict.fromkeys(ALL_COLUMNS)
         return [
             {**base, "canonical_key": "app-c", "app_name": "Gamma", "platform": "ios"},
@@ -224,3 +224,50 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
     # Full refresh: old rows gone, only the keyed fetched row remains.
     listing = (await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))).json()
     assert [r["canonical_key"] for r in listing["rows"]] == ["app-c"]
+
+
+# ── schema match (verify a configured BigQuery table's columns) ──────────────────
+async def test_schema_diff_reports_match(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_master_service, "_key_present", lambda _p: True)
+    exact = {c.bq_name: c.bq_type for c in REGISTRY}
+
+    def fake_run(key_path: str, project: str, table: str) -> tuple[dict[str, str] | None, None]:
+        return (exact, None)
+
+    monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
+    resp = await metrics_env.client.get("/api/v1/app-master/schema-diff", headers=_auth("admin"))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["configured"] is True
+    assert body["in_sync"] is True
+    assert body["missing_in_view"] == [] and body["type_mismatches"] == []
+
+
+async def test_schema_diff_flags_missing_and_mismatch(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_master_service, "_key_present", lambda _p: True)
+    actual = {c.bq_name: c.bq_type for c in REGISTRY}
+    actual.pop("hou")  # a column the registry expects is missing from the table
+    actual["publisher"] = "INT64"  # wrong type (registry says STRING)
+    actual["surprise_col"] = "STRING"  # an extra column the registry doesn't map
+
+    def fake_run(key_path: str, project: str, table: str) -> tuple[dict[str, str] | None, None]:
+        return (actual, None)
+
+    monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
+    body = (
+        await metrics_env.client.get("/api/v1/app-master/schema-diff", headers=_auth("admin"))
+    ).json()
+    assert body["in_sync"] is False
+    assert "hou" in body["missing_in_view"]
+    assert any(m["column"] == "publisher" for m in body["type_mismatches"])
+    assert any(u["column"] == "surprise_col" for u in body["unregistered_in_view"])
+
+
+async def test_schema_diff_requires_admin(metrics_env: MetricsEnv) -> None:
+    for role in ("viewer", "executive", "finance"):
+        resp = await metrics_env.client.get("/api/v1/app-master/schema-diff", headers=_auth(role))
+        assert resp.status_code == 403

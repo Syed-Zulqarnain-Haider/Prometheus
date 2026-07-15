@@ -52,8 +52,9 @@ class Settings(BaseSettings):
     # "BigQuery write-back not configured" error and nothing is changed.
     bq_writer_credentials_path: str = "/secrets/bq-writer.json"
 
-    # Fully-qualified BigQuery App Master table the admin page reads from and writes back to.
-    app_master_bq_table: str = "terafort.cross_platform.app_master_v2"
+    # NOTE: the App Master BigQuery table id is NOT an env var — it's the admin-editable,
+    # DB-backed ``app_master_bq_table`` setting (Integration tab), so it can be changed at
+    # runtime without a redeploy. See app/core/settings_registry.py.
 
     # libpq DSN the sync uses to write Postgres, e.g.
     # postgresql://sync_service:...@host:5432/db?sslmode=require. This is the SYNC's DB

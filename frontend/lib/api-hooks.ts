@@ -816,3 +816,10 @@ export function useRefreshAppMaster() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
   });
 }
+
+/** On-demand check that the configured BigQuery table's columns match the registry. */
+export function useAppMasterSchemaDiff() {
+  return useMutation({
+    mutationFn: () => apiFetch<SchemaDiff>("/api/v1/app-master/schema-diff"),
+  });
+}

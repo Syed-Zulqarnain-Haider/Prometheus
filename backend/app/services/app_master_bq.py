@@ -1,6 +1,6 @@
 """BigQuery access for the App Master feature.
 
-Two operations, both against ``settings.app_master_bq_table``:
+Two operations, both against the ``table_id`` passed in (the admin-editable setting):
   * ``fetch_rows``  — READ every row (reader key) for the BQ -> Postgres sync.
   * ``push_update`` — WRITE one row's editable columns (writer key) via parameterized DML.
 
@@ -70,12 +70,14 @@ def _bq_ident(name: str) -> str:
     return f"`{name.replace('`', '')}`"
 
 
-def fetch_rows(settings: Settings) -> list[dict[str, Any]]:
-    """Read ALL rows from the BigQuery App Master table, keyed by Postgres column names."""
+def fetch_rows(settings: Settings, table_id: str) -> list[dict[str, Any]]:
+    """Read ALL rows from the BigQuery App Master table, keyed by Postgres column names.
+
+    ``table_id`` is the fully-qualified ``project.dataset.table`` (from the admin setting)."""
     client = _client(settings.bq_credentials_path, settings.bigquery_project, _READ_SCOPES)
     # Select each BQ column aliased to its sanitized Postgres name.
     select_list = ", ".join(f"{_bq_ident(c.bq_name)} AS {c.name}" for c in REGISTRY)
-    table = _bq_ident_table(settings.app_master_bq_table)
+    table = _bq_ident_table(table_id)
     query = f"SELECT {select_list} FROM {table}"  # noqa: S608 — identifiers from the registry, not user input
     try:
         rows = client.query(query).result()
@@ -84,7 +86,7 @@ def fetch_rows(settings: Settings) -> list[dict[str, Any]]:
         log.warning("App Master BigQuery read failed: %s", type(exc).__name__)
         raise BigQueryReadError(
             f"BigQuery read failed ({type(exc).__name__}) — check the table name "
-            f"({settings.app_master_bq_table!r}) and that its columns match."
+            f"({table_id!r}) and that its columns match."
         ) from exc
 
 
@@ -93,10 +95,10 @@ def _bq_ident_table(fq_table: str) -> str:
     return "`" + fq_table.replace("`", "") + "`"
 
 
-def push_update(settings: Settings, key_value: str, changes: dict[str, Any]) -> None:
+def push_update(settings: Settings, table_id: str, key_value: str, changes: dict[str, Any]) -> None:
     """Apply ``changes`` (already validated to editable columns) to the single row whose
-    primary key == ``key_value``, via a parameterized UPDATE. Raises if the writer key is
-    missing or the statement doesn't affect exactly one row."""
+    primary key == ``key_value`` in ``table_id``, via a parameterized UPDATE. Raises if the
+    writer key is missing or the statement doesn't affect exactly one row."""
     if not changes:
         return
     bigquery, _ = _bq_modules()
@@ -112,7 +114,7 @@ def push_update(settings: Settings, key_value: str, changes: dict[str, Any]) -> 
 
     pk_col = BY_NAME[PRIMARY_KEY]
     params.append(bigquery.ScalarQueryParameter("pk", pk_col.bq_type, key_value))
-    table = _bq_ident_table(settings.app_master_bq_table)
+    table = _bq_ident_table(table_id)
     query = (  # noqa: S608 — all identifiers come from the registry; values are bound params
         f"UPDATE {table} SET {', '.join(set_fragments)} WHERE {_bq_ident(pk_col.bq_name)} = @pk"
     )

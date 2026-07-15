@@ -111,6 +111,18 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         group="integration",
         str_format="bq_view",
     ),
+    "app_master_bq_table": SettingSpec(
+        key="app_master_bq_table",
+        type="str",
+        default="terafort.cross_platform.app_master_v2",
+        label="App Master BigQuery table",
+        description="Fully-qualified BigQuery table (project.dataset.table) the admin App "
+        "Master page reads from and writes edits back to. Change this to point at a "
+        "different table, then use 'Check schema' on the App Master page to confirm its "
+        "columns match. Not a secret.",
+        group="integration",
+        str_format="bq_view",
+    ),
     "sync_enabled": SettingSpec(
         key="sync_enabled",
         type="bool",
