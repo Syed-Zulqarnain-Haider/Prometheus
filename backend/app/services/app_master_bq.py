@@ -26,7 +26,10 @@ from app.core.config import Settings
 
 log = logging.getLogger("app.services.app_master_bq")
 
-_READ_SCOPES = ["https://www.googleapis.com/auth/bigquery.readonly"]
+# Both read and write must run query JOBS (a SELECT / an UPDATE both create a job), which the
+# narrow ``bigquery.readonly`` scope forbids ("insufficient authentication scopes"). Use the
+# full BigQuery scope — the same capability the daily sync and schema check run with.
+_READ_SCOPES = ["https://www.googleapis.com/auth/bigquery"]
 _WRITE_SCOPES = ["https://www.googleapis.com/auth/bigquery"]
 
 
