@@ -21,6 +21,7 @@ sanitized record is the ``sync_runs`` row the job writes itself.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -91,7 +92,9 @@ def _local_run_configured(settings: Settings, gcp_project: str) -> bool:
         return False
 
 
-def _child_env(settings: Settings, gcp_project: str, bq_view: str) -> dict[str, str]:
+def _child_env(
+    settings: Settings, gcp_project: str, bq_view: str, mode: str, window_days: int
+) -> dict[str, str]:
     """Environment for the vendored sync subprocess. Overrides GOOGLE_APPLICATION_
     CREDENTIALS with the BigQuery reader key (NOT the backend's Firebase key)."""
     env = dict(os.environ)
@@ -100,12 +103,19 @@ def _child_env(settings: Settings, gcp_project: str, bq_view: str) -> dict[str, 
     env["BQ_VIEW"] = bq_view
     env["PG_DSN"] = settings.sync_pg_dsn or ""
     env["REDIS_URL"] = settings.redis_url
+    env["SYNC_MODE"] = mode
+    env["SYNC_WINDOW_DAYS"] = str(window_days)
     return env
 
 
-def _post_trigger(url: str, token: str | None) -> tuple[bool, str]:
-    """Blocking POST to the operator-configured sync-trigger URL (run in a thread)."""
-    request = urllib.request.Request(url, data=b"{}", method="POST")  # noqa: S310 — operator URL
+def _post_trigger(
+    url: str, token: str | None, mode: str = "incremental", window_days: int = 40
+) -> tuple[bool, str]:
+    """Blocking POST to the operator-configured sync-trigger URL (run in a thread). The mode
+    + window are sent in the body so a Cloud Run Job endpoint can honor them (forward-compat;
+    the vendored local job reads them from env)."""
+    body = json.dumps({"mode": mode, "window_days": window_days}).encode()
+    request = urllib.request.Request(url, data=body, method="POST")  # noqa: S310 — operator URL
     request.add_header("Content-Type", "application/json")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -119,14 +129,14 @@ def _post_trigger(url: str, token: str | None) -> tuple[bool, str]:
 
 
 async def _spawn_local(
-    settings: Settings, gcp_project: str, bq_view: str
+    settings: Settings, gcp_project: str, bq_view: str, mode: str, window_days: int
 ) -> asyncio.subprocess.Process:
     """Spawn the vendored sync subprocess. stdout/stderr are discarded so no DSN or
     credential can leak into the backend logs; the job records its own ``sync_runs`` row."""
     return await asyncio.create_subprocess_exec(
         sys.executable,
         str(_SYNC_JOB),
-        env=_child_env(settings, gcp_project, bq_view),
+        env=_child_env(settings, gcp_project, bq_view, mode, window_days),
         cwd=str(_SYNC_JOB.parent),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -159,6 +169,8 @@ async def run_sync(
     *,
     gcp_project: str,
     bq_view: str,
+    mode: str = "incremental",
+    window_days: int = 40,
     skip_if_ran_after: datetime | None = None,
 ) -> SyncTriggerResult:
     """Trigger the sync once, under a Postgres advisory lock. Returns as soon as the sync
@@ -195,7 +207,7 @@ async def run_sync(
                 )
         if trigger_url:  # delegate to the configured Cloud Run Job execution endpoint
             ok, detail = await anyio.to_thread.run_sync(
-                _post_trigger, trigger_url, settings.sync_trigger_token
+                _post_trigger, trigger_url, settings.sync_trigger_token, mode, window_days
             )
             if ok:
                 return SyncTriggerResult(triggered=True, configured=True, message="Sync triggered.")
@@ -204,7 +216,7 @@ async def run_sync(
             )
         # Local: kick off the subprocess and hand the lock to a background finalizer so
         # the request/scheduler tick returns immediately instead of blocking on the run.
-        proc = await _spawn_local(settings, gcp_project, bq_view)
+        proc = await _spawn_local(settings, gcp_project, bq_view, mode, window_days)
         task = asyncio.create_task(_finalize_local(proc, lock_db))
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_TASKS.discard)

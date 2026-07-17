@@ -444,24 +444,40 @@ export function IntegrationPanel() {
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <p className="text-sm text-muted-foreground">
-              Trigger the BigQuery → Postgres sync on demand. Runs once at a time and is
-              fully audited. Honest status if the data source isn&apos;t configured.
+              Trigger the BigQuery → Postgres sync on demand. Runs once at a time and is fully
+              audited. <strong>Daily sync</strong> re-pulls the recent window and overwrites it;
+              <strong> Full backfill</strong> (re)loads ALL history. Honest status if the data
+              source isn&apos;t configured.
             </p>
-            <Button
-              className="gap-2"
-              disabled={runSync.isPending}
-              onClick={() => {
-                setSyncResult(null); // drop any stale banner before a re-run
-                runSync.mutate(undefined, { onSuccess: (result) => setSyncResult(result) });
-              }}
-            >
-              {runSync.isPending ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}
-              Run sync now
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                disabled={runSync.isPending}
+                onClick={() => {
+                  setSyncResult(null);
+                  runSync.mutate("incremental", { onSuccess: (result) => setSyncResult(result) });
+                }}
+              >
+                {runSync.isPending ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                Run daily sync now
+              </Button>
+              <Button
+                className="gap-2"
+                disabled={runSync.isPending}
+                onClick={() => {
+                  setSyncResult(null);
+                  runSync.mutate("full", { onSuccess: (result) => setSyncResult(result) });
+                }}
+              >
+                <Database className="h-4 w-4" />
+                Full backfill (all history)
+              </Button>
+            </div>
           </CardContent>
           {syncResult && (
             <CardContent className="pt-0">

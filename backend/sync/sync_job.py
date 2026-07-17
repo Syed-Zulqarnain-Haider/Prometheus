@@ -15,9 +15,17 @@ and the dashboard keeps serving yesterday's data with a visible freshness banner
   7. bust Redis 'agg:*' keys
   8. record success + bq_built_at  (the UI's "data as of")
 
+Two modes (SYNC_MODE):
+  • 'incremental' (default, the daily job): pull only the last SYNC_WINDOW_DAYS days from the
+    view and OVERWRITE that window in Postgres (delete those dates + reload) — so revised
+    recent numbers get corrected and rows that disappeared are removed. Older data untouched.
+  • 'full' (the on-demand backfill button): pull ALL history and UPSERT/accumulate — never
+    deletes anything.
+
 Env vars (all injected from Secret Manager / job config — never hardcoded):
   GCP_PROJECT, BQ_VIEW (default terafort.api.daily_performance_v1),
   PG_DSN (postgresql://sync_service:...@<private-ip>:5432/terafort?sslmode=require),
+  SYNC_MODE ('incremental'|'full', default 'incremental'), SYNC_WINDOW_DAYS (default 40),
   REDIS_URL (optional), ALERT_WEBHOOK_URL (optional Slack/Chat webhook)
 """
 from __future__ import annotations
@@ -47,6 +55,7 @@ STAGING = f"{FACT}_staging"
 ROW_DELTA_TOLERANCE = 0.30
 FRESHNESS_MAX_LAG_DAYS = 3
 BATCH_ROWS = 20_000
+DEFAULT_WINDOW_DAYS = 40
 
 
 def env(name: str, default: str | None = None) -> str:
@@ -109,8 +118,11 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
 
 # ── Step 3: load into staging ────────────────────────────────────────────────
 def load_staging(
-    bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str]
+    bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str],
+    since: date | None = None,
 ) -> int:
+    """Stream the view into staging. ``since`` (incremental mode) restricts the pull to
+    ``date >= since`` so only the rolling window is fetched; ``None`` pulls all history."""
     cols_sql = ", ".join(COLUMN_NAMES)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
@@ -124,8 +136,11 @@ def load_staging(
         col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
         for col in COLUMN_NAMES
     ]
-    rows_iter = bq.query(f"SELECT {', '.join(select_terms)} FROM `{view}`").result(
-        page_size=BATCH_ROWS)
+    # ``since`` is a date the sync computes (never user input); DATE literal is safe here.
+    where_sql = f" WHERE date >= '{since.isoformat()}'" if since is not None else ""
+    rows_iter = bq.query(
+        f"SELECT {', '.join(select_terms)} FROM `{view}`{where_sql}"
+    ).result(page_size=BATCH_ROWS)
 
     total = 0
     copy_sql = f"COPY {STAGING} ({cols_sql}) FROM STDIN WITH (FORMAT csv, NULL '\\N')"
@@ -187,24 +202,34 @@ def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
     return problems
 
 
-# ── Steps 5–6: UPSERT into the live fact table + dim_app refresh ──────────────
-def upsert_and_refresh(pg: psycopg.Connection) -> None:
-    """Merge the validated staging table into the LIVE fact table by natural key, so
-    history accumulates (never a destructive swap/replace). On a fresh DB the live table
-    is created first; on an existing deploy it is updated in place. Everything runs in one
-    transaction — a failure here rolls back and leaves the live data untouched."""
+# ── Steps 5–6: merge staging into the live fact table + dim_app refresh ───────
+def merge_and_refresh(pg: psycopg.Connection, mode: str, since: date | None) -> None:
+    """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
+    Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
+
+    ``full``:        UPSERT by natural key — history accumulates, nothing is deleted.
+    ``incremental``: OVERWRITE the ``date >= since`` window — delete those dates in the fact
+                     table, then insert the freshly-pulled window. Older data is untouched;
+                     rows that vanished from the source within the window are removed too."""
     with pg.cursor() as cur:
         # First run / fresh DB: create the live table + indexes. We NEVER drop or replace
-        # it once it exists — the UPSERT below accumulates into it.
+        # the whole table once it exists.
         cur.execute("SELECT to_regclass(%s)", (FACT,))
         if cur.fetchone()[0] is None:
             cur.execute(generate_fact_ddl(FACT))
             for ddl in generate_indexes(FACT):
                 cur.execute(ddl)
 
-        # UPSERT by (date, platform, app_key): existing (date, app) rows update in place,
-        # new dates append, and rows absent from today's view are retained.
-        cur.execute(generate_upsert_sql(FACT, STAGING))
+        if mode == "incremental" and since is not None:
+            # Replace the rolling window atomically: delete the dates we re-pulled, then load
+            # the fresh copy. ``since`` matches the BigQuery WHERE, so the boundaries align.
+            cols_sql = ", ".join(COLUMN_NAMES)
+            cur.execute(f"DELETE FROM {FACT} WHERE date >= %s", (since,))
+            cur.execute(f"INSERT INTO {FACT} ({cols_sql}) SELECT {cols_sql} FROM {STAGING}")
+        else:
+            # Full backfill: UPSERT by (date, platform, app_key) — existing rows update in
+            # place, new dates append, and rows absent from the view are retained.
+            cur.execute(generate_upsert_sql(FACT, STAGING))
         cur.execute(f"GRANT SELECT ON {FACT} TO api_service")
 
         # dim_app: latest mapped attributes per app (read from the now-updated fact)
@@ -249,14 +274,27 @@ def bust_cache() -> None:
 def main() -> int:
     project = env("GCP_PROJECT")
     view = env("BQ_VIEW", "terafort.api.daily_performance_v1")
+    mode = os.environ.get("SYNC_MODE", "incremental").strip().lower()
+    if mode not in ("incremental", "full"):
+        mode = "incremental"
+    try:
+        window_days = max(1, int(os.environ.get("SYNC_WINDOW_DAYS", DEFAULT_WINDOW_DAYS)))
+    except ValueError:
+        window_days = DEFAULT_WINDOW_DAYS
+    # The rolling window's inclusive start; None for a full backfill.
+    since = date.today() - timedelta(days=window_days) if mode == "incremental" else None
+    log.info("sync mode=%s window_days=%s since=%s", mode, window_days, since)
+
     bq = bigquery.Client(project=project)
     pg = psycopg.connect(env("PG_DSN"))
 
     with pg.cursor() as cur:
-        cur.execute("INSERT INTO sync_runs DEFAULT VALUES RETURNING id")
+        cur.execute("INSERT INTO sync_runs (mode) VALUES (%s) RETURNING id", (mode,))
         run_id = cur.fetchone()[0]
+        # Compare row counts against the previous successful run OF THE SAME MODE — a full
+        # backfill's count must not be judged against a 40-day incremental's.
         cur.execute("SELECT rows_loaded FROM sync_runs "
-                    "WHERE status='success' ORDER BY id DESC LIMIT 1")
+                    "WHERE status='success' AND mode=%s ORDER BY id DESC LIMIT 1", (mode,))
         prev = cur.fetchone()
         rows_previous = prev[0] if prev else None
     pg.commit()
@@ -277,7 +315,7 @@ def main() -> int:
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
-        rows = load_staging(bq, pg, view, present)
+        rows = load_staging(bq, pg, view, present, since=since)
         log.info("staging loaded: %d rows", rows)
 
         problems = integrity_checks(bq, pg, view, rows, rows_previous)
@@ -290,7 +328,7 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        upsert_and_refresh(pg)
+        merge_and_refresh(pg, mode, since)
         bust_cache()
         finish("success", rows=rows, built_at=built_at)
         log.info("sync complete: %d rows, data as of %s", rows, built_at)

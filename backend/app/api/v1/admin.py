@@ -523,22 +523,30 @@ async def run_sync_now(
     context: CurrentUser,
     db: DbSession,
     audit: AuditDep,
+    mode: Annotated[str, Query(pattern="^(incremental|full)$")] = "incremental",
 ) -> SyncTriggerResult:
     """Trigger the data sync on demand (advisory-lock guarded; delegates to the configured
-    trigger URL or runs the vendored sync locally). Returns an honest 'not configured'
-    result when no execution path is wired — never a faked success."""
+    trigger URL or runs the vendored sync locally). ``mode=incremental`` (default) re-pulls
+    and overwrites the rolling window; ``mode=full`` backfills ALL history. Returns an honest
+    'not configured' result when no execution path is wired — never a faked success."""
     settings = get_settings()
     gcp_project = str(await settings_service.get_value(db, "gcp_project"))
     bq_view = str(await settings_service.get_value(db, "bq_view"))
+    window_days = int(await settings_service.get_value(db, "sync_window_days"))
     # The lock/run uses its own short-lived session (the request session is closing); the
     # app-state sessionmaker resolves to the test factory under dependency overrides.
     result = await sync_service.run_sync(
-        request.app.state.sessionmaker, settings, gcp_project=gcp_project, bq_view=bq_view
+        request.app.state.sessionmaker,
+        settings,
+        gcp_project=gcp_project,
+        bq_view=bq_view,
+        mode=mode,
+        window_days=window_days,
     )
     await audit.log_admin_action(
         user_id=context.user_id,
         action="admin_run_sync",
-        detail={"triggered": result.triggered, "configured": result.configured},
+        detail={"triggered": result.triggered, "configured": result.configured, "mode": mode},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )

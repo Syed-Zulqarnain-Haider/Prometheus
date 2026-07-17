@@ -131,6 +131,18 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         description="When on, the scheduler runs the BigQuery → Postgres sync once a day.",
         group="integration",
     ),
+    "sync_window_days": SettingSpec(
+        key="sync_window_days",
+        type="int",
+        default=40,
+        label="Daily sync window (days)",
+        description="The daily sync re-pulls this many recent days from BigQuery and "
+        "overwrites them in Postgres (so revised recent numbers get corrected). Older data "
+        "is untouched. Use the Full backfill button to (re)load all history.",
+        minimum=1,
+        maximum=365,
+        group="integration",
+    ),
     "sync_schedule_time": SettingSpec(
         key="sync_schedule_time",
         type="str",

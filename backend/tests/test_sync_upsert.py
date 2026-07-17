@@ -196,3 +196,43 @@ async def test_platform_and_app_grain_is_distinct(db_session: Any) -> None:
 
     rows = await _fact(db_session)
     assert len(rows) == 3
+
+
+# ── incremental mode OVERWRITES the rolling window; older history is retained ───
+async def _overwrite_window(db: Any, reg: ModuleType, since: date) -> None:
+    """Replicates sync_job.merge_and_refresh's incremental path: delete the re-pulled
+    window, then reload it from staging (so revised rows update and vanished rows drop)."""
+    cols = ", ".join(reg.COLUMN_NAMES)
+    await db.execute(text(f"DELETE FROM {_FACT} WHERE date >= :since"), {"since": since})
+    await db.execute(text(f"INSERT INTO {_FACT} ({cols}) SELECT {cols} FROM {_STG}"))
+    await db.commit()
+
+
+async def test_incremental_overwrites_window_and_retains_older(db_session: Any) -> None:
+    reg = _load_sync_registry()
+    await _setup(db_session, reg)
+    since = date(2026, 6, 10)
+    # Fact: one row BEFORE the window (must survive) + two IN the window.
+    await _insert(db_session, _FACT, date=date(2026, 6, 1), platform="ios",
+                  canonical_key="old", app_name="Old", total_revenue_usd=10)
+    await _insert(db_session, _FACT, date=date(2026, 6, 12), platform="ios",
+                  canonical_key="appA", app_name="Stale", total_revenue_usd=1)
+    await _insert(db_session, _FACT, date=date(2026, 6, 12), platform="ios",
+                  canonical_key="gone", app_name="Vanished", total_revenue_usd=5)
+    # Staging = a fresh window pull: appA revised, 'gone' absent, a brand-new row.
+    await _insert(db_session, _STG, date=date(2026, 6, 12), platform="ios",
+                  canonical_key="appA", app_name="Fresh", total_revenue_usd=777)
+    await _insert(db_session, _STG, date=date(2026, 6, 15), platform="android",
+                  canonical_key="appB", app_name="New", total_revenue_usd=50)
+
+    await _overwrite_window(db_session, reg, since)
+
+    rows = await _fact(db_session)
+    keys = {r.canonical_key for r in rows}
+    assert "old" in keys  # older-than-window row RETAINED
+    assert "gone" not in keys  # in-window row absent from the fresh pull is REMOVED
+    appA = next(r for r in rows if r.canonical_key == "appA")
+    assert appA.app_name == "Fresh" and float(appA.total_revenue_usd) == 777.0  # overwritten
+    assert "appB" in keys  # new in-window row loaded
+    old = next(r for r in rows if r.canonical_key == "old")
+    assert float(old.total_revenue_usd) == 10.0  # untouched

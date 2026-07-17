@@ -655,8 +655,11 @@ export function useUpdateSetting() {
 export function useRunSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", { method: "POST" }),
+    // mode: "incremental" (default, rolling-window overwrite) or "full" (backfill all history).
+    mutationFn: (mode?: "incremental" | "full") =>
+      apiFetch<SyncTriggerResult>(`/api/v1/admin/system/sync?mode=${mode ?? "incremental"}`, {
+        method: "POST",
+      }),
     onSuccess: () => {
       // A completed run (local path) updates history/status; refresh both surfaces.
       queryClient.invalidateQueries({ queryKey: ["integration-status"] });

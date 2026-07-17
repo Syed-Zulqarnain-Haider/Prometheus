@@ -74,25 +74,27 @@ async def test_run_sync_not_configured(metrics_env: MetricsEnv) -> None:
 
 # ── run_sync: delegate to the trigger URL (stubbed) ───────────────────────────
 async def test_run_sync_delegates_to_trigger_url(metrics_env: MetricsEnv, monkeypatch) -> None:
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str | None, str, int]] = []
 
-    def fake_post(url: str, token: str | None) -> tuple[bool, str]:
-        calls.append((url, token))
+    def fake_post(
+        url: str, token: str | None, mode: str = "incremental", window_days: int = 40
+    ) -> tuple[bool, str]:
+        calls.append((url, token, mode, window_days))
         return (True, "HTTP 200")
 
     monkeypatch.setattr(sync_service, "_post_trigger", fake_post)
     settings = _settings(sync_trigger_url="https://trigger.example/run", sync_trigger_token="tok")
     result = await sync_service.run_sync(
-        metrics_env.sessionmaker, settings, gcp_project="proj", bq_view="proj.ds.v1"
+        metrics_env.sessionmaker, settings, gcp_project="proj", bq_view="proj.ds.v1", mode="full"
     )
     assert result.triggered is True
     assert result.message == "Sync triggered."
-    assert calls == [("https://trigger.example/run", "tok")]
+    assert calls == [("https://trigger.example/run", "tok", "full", 40)]
 
 
 # ── run_sync: advisory lock prevents concurrent runs ──────────────────────────
 async def test_run_sync_respects_advisory_lock(metrics_env: MetricsEnv, monkeypatch) -> None:
-    monkeypatch.setattr(sync_service, "_post_trigger", lambda url, token: (True, "HTTP 200"))
+    monkeypatch.setattr(sync_service, "_post_trigger", lambda *a, **k: (True, "HTTP 200"))
     settings = _settings(sync_trigger_url="https://trigger.example/run")
 
     # Hold the same advisory lock on a separate connection; run_sync opens its own.
@@ -115,7 +117,7 @@ async def test_run_sync_respects_advisory_lock(metrics_env: MetricsEnv, monkeypa
 async def test_run_sync_skips_when_a_run_already_started(
     metrics_env: MetricsEnv, monkeypatch
 ) -> None:
-    monkeypatch.setattr(sync_service, "_post_trigger", lambda url, token: (True, "HTTP 200"))
+    monkeypatch.setattr(sync_service, "_post_trigger", lambda *a, **k: (True, "HTTP 200"))
     settings = _settings(sync_trigger_url="https://trigger.example/run")
     # The fixture seeded a sync_run "today"; a skip cutoff in the past finds it → skip.
     skipped = await sync_service.run_sync(
@@ -155,7 +157,9 @@ async def test_run_sync_local_fire_and_forget(
         async def wait(self) -> int:
             return 0
 
-    async def fake_spawn(s: object, gcp: str, view: str) -> FakeProc:
+    async def fake_spawn(
+        s: object, gcp: str, view: str, mode: str, window_days: int
+    ) -> FakeProc:
         return FakeProc()
 
     monkeypatch.setattr(sync_service, "_spawn_local", fake_spawn)
@@ -201,6 +205,8 @@ async def test_scheduler_tick_fires_when_enabled_and_due(
         *,
         gcp_project: str,
         bq_view: str,
+        mode: str = "incremental",
+        window_days: int = 40,
         skip_if_ran_after: datetime | None = None,
     ) -> SyncTriggerResult:
         captured.append({"gcp_project": gcp_project, "bq_view": bq_view, "skip": skip_if_ran_after})

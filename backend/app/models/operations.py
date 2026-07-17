@@ -64,10 +64,14 @@ class SyncRun(Base):
     rows_previous: Mapped[int | None] = mapped_column(BigInteger)
     bq_built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_detail: Mapped[str | None] = mapped_column(Text)
+    # 'full' = backfill all history (UPSERT/accumulate); 'incremental' = re-pull the last
+    # N days and OVERWRITE that window (delete + reload). The daily scheduler runs incremental.
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'full'"))
 
     __table_args__ = (
         CheckConstraint(
             "status IN ('running','success','schema_mismatch','failed')",
             name="status_valid",
         ),
+        CheckConstraint("mode IN ('full','incremental')", name="mode_valid"),
     )

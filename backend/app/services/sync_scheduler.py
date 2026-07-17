@@ -36,16 +36,20 @@ async def _tick(sessionmaker: async_sessionmaker[Any], settings: Settings) -> No
         tz_name = str(await settings_service.get_value(db, "sync_timezone"))
         gcp_project = str(await settings_service.get_value(db, "gcp_project"))
         bq_view = str(await settings_service.get_value(db, "bq_view"))
+        window_days = int(await settings_service.get_value(db, "sync_window_days"))
 
     due, scheduled_utc = sync_service.is_due(datetime.now(UTC), hhmm, tz_name)
     if not due:
         return
 
+    # The scheduled daily run is always the rolling-window incremental overwrite.
     result = await sync_service.run_sync(
         sessionmaker,
         settings,
         gcp_project=gcp_project,
         bq_view=bq_view,
+        mode="incremental",
+        window_days=window_days,
         skip_if_ran_after=scheduled_utc,
     )
     if result.triggered:
