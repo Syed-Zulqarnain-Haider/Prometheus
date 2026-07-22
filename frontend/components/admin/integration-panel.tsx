@@ -341,6 +341,8 @@ export function IntegrationPanel() {
   const testBq = useTestBigQuery();
   const runSync = useRunSync();
   const [syncResult, setSyncResult] = useState<SyncTriggerResult | null>(null);
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
 
   const integrationSettings = (settings.data ?? []).filter((s) => s.group === "integration");
 
@@ -456,7 +458,7 @@ export function IntegrationPanel() {
                 disabled={runSync.isPending}
                 onClick={() => {
                   setSyncResult(null);
-                  runSync.mutate("incremental", { onSuccess: (result) => setSyncResult(result) });
+                  runSync.mutate({ mode: "incremental" }, { onSuccess: (result) => setSyncResult(result) });
                 }}
               >
                 {runSync.isPending ? (
@@ -471,13 +473,52 @@ export function IntegrationPanel() {
                 disabled={runSync.isPending}
                 onClick={() => {
                   setSyncResult(null);
-                  runSync.mutate("full", { onSuccess: (result) => setSyncResult(result) });
+                  runSync.mutate({ mode: "full" }, { onSuccess: (result) => setSyncResult(result) });
                 }}
               >
                 <Database className="h-4 w-4" />
                 Full backfill (all history)
               </Button>
             </div>
+          </CardContent>
+          {/* Custom date-range sync — overwrites exactly the chosen dates (no duplication). */}
+          <CardContent className="flex flex-wrap items-end gap-3 border-t pt-4">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">From</label>
+              <Input
+                type="date"
+                className="h-9 w-40"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">To (optional)</label>
+              <Input
+                type="date"
+                className="h-9 w-40"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={!rangeStart || runSync.isPending}
+              onClick={() => {
+                setSyncResult(null);
+                runSync.mutate(
+                  { mode: "range", start: rangeStart, end: rangeEnd || undefined },
+                  { onSuccess: (result) => setSyncResult(result) },
+                );
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${runSync.isPending ? "animate-spin" : ""}`} />
+              Sync this date range
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Re-pulls &amp; overwrites exactly these dates from BigQuery — never duplicates.
+            </p>
           </CardContent>
           {syncResult && (
             <CardContent className="pt-0">

@@ -652,14 +652,25 @@ export function useUpdateSetting() {
   });
 }
 
+export interface RunSyncOpts {
+  mode?: "incremental" | "full" | "range";
+  start?: string; // YYYY-MM-DD (range mode)
+  end?: string; // YYYY-MM-DD (range mode)
+}
+
 export function useRunSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    // mode: "incremental" (default, rolling-window overwrite) or "full" (backfill all history).
-    mutationFn: (mode?: "incremental" | "full") =>
-      apiFetch<SyncTriggerResult>(`/api/v1/admin/system/sync?mode=${mode ?? "incremental"}`, {
+    // incremental (default) = rolling-window overwrite; full = backfill all history;
+    // range = overwrite an explicit start..end window.
+    mutationFn: (opts?: RunSyncOpts) => {
+      const params = new URLSearchParams({ mode: opts?.mode ?? "incremental" });
+      if (opts?.start) params.set("start", opts.start);
+      if (opts?.end) params.set("end", opts.end);
+      return apiFetch<SyncTriggerResult>(`/api/v1/admin/system/sync?${params.toString()}`, {
         method: "POST",
-      }),
+      });
+    },
     onSuccess: () => {
       // A completed run (local path) updates history/status; refresh both surfaces.
       queryClient.invalidateQueries({ queryKey: ["integration-status"] });

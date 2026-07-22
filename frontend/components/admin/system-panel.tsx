@@ -145,7 +145,7 @@ export function SystemPanel() {
             <Button
               className="gap-2"
               disabled={runSync.isPending}
-              onClick={() => runSync.mutate(undefined, { onSuccess: setSyncResult })}
+              onClick={() => runSync.mutate({}, { onSuccess: setSyncResult })}
             >
               {runSync.isPending ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />

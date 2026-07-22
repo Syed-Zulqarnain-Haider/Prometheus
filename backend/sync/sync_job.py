@@ -117,12 +117,23 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
 
 
 # ── Step 3: load into staging ────────────────────────────────────────────────
+def _window_sql(since: date | None, until: date | None) -> str:
+    """A ``WHERE date …`` clause for the load window (``since``/``until`` are sync-computed
+    dates, never user input, so DATE literals are safe). Empty string = full table."""
+    conds = []
+    if since is not None:
+        conds.append(f"date >= '{since.isoformat()}'")
+    if until is not None:
+        conds.append(f"date <= '{until.isoformat()}'")
+    return (" WHERE " + " AND ".join(conds)) if conds else ""
+
+
 def load_staging(
     bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str],
-    since: date | None = None,
+    since: date | None = None, until: date | None = None,
 ) -> int:
-    """Stream the view into staging. ``since`` (incremental mode) restricts the pull to
-    ``date >= since`` so only the rolling window is fetched; ``None`` pulls all history."""
+    """Stream the view into staging. ``since``/``until`` restrict the pull to that date window
+    (incremental = rolling window; range = explicit start..end); both ``None`` pulls all."""
     cols_sql = ", ".join(COLUMN_NAMES)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
@@ -136,10 +147,8 @@ def load_staging(
         col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
         for col in COLUMN_NAMES
     ]
-    # ``since`` is a date the sync computes (never user input); DATE literal is safe here.
-    where_sql = f" WHERE date >= '{since.isoformat()}'" if since is not None else ""
     rows_iter = bq.query(
-        f"SELECT {', '.join(select_terms)} FROM `{view}`{where_sql}"
+        f"SELECT {', '.join(select_terms)} FROM `{view}`{_window_sql(since, until)}"
     ).result(page_size=BATCH_ROWS)
 
     total = 0
@@ -167,8 +176,11 @@ def load_staging(
 
 
 # ── Step 4: integrity checks ─────────────────────────────────────────────────
-def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
-                     view: str, rows_loaded: int, rows_previous: int | None) -> list[str]:
+def integrity_checks(
+    bq: bigquery.Client, pg: psycopg.Connection, view: str, rows_loaded: int,
+    rows_previous: int | None, since: date | None, until: date | None,
+    check_freshness: bool,
+) -> list[str]:
     problems: list[str] = []
 
     if rows_loaded == 0:
@@ -181,36 +193,50 @@ def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
                 f"row count {rows_loaded} deviates {delta:.0%} from previous "
                 f"{rows_previous} (tolerance {ROW_DELTA_TOLERANCE:.0%})")
 
-    with pg.cursor() as cur:
-        cur.execute(f"SELECT MAX(date) FROM {STAGING}")
-        max_date: date | None = cur.fetchone()[0]
-    if max_date is None or (date.today() - max_date).days > FRESHNESS_MAX_LAG_DAYS:
-        problems.append(f"stale data: max(date)={max_date}")
+    # Freshness: skipped for an explicit historical range (its data is deliberately old).
+    if check_freshness:
+        with pg.cursor() as cur:
+            cur.execute(f"SELECT MAX(date) FROM {STAGING}")
+            max_date: date | None = cur.fetchone()[0]
+        if max_date is None or (date.today() - max_date).days > FRESHNESS_MAX_LAG_DAYS:
+            problems.append(f"stale data: max(date)={max_date}")
 
-    # Penny-exact 7-day revenue match between what BQ says and what we loaded.
-    since = (date.today() - timedelta(days=7)).isoformat()
+    # Penny-exact revenue match over exactly what we loaded (the window for a windowed load,
+    # else the last 7 days for a full backfill) — proves the load fetched every row.
+    if since is not None:
+        bq_where = _window_sql(since, until)
+        pg_where, pg_params = " WHERE date >= %s", [since]
+        if until is not None:
+            pg_where, pg_params = " WHERE date >= %s AND date <= %s", [since, until]
+    else:
+        seven = (date.today() - timedelta(days=7)).isoformat()
+        bq_where = f" WHERE date >= '{seven}'"
+        pg_where, pg_params = " WHERE date >= %s", [seven]
     bq_sum = list(bq.query(
-        f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) "
-        f"FROM `{view}` WHERE date >= '{since}'").result())[0][0]
+        f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) FROM `{view}`{bq_where}"
+    ).result())[0][0]
     with pg.cursor() as cur:
-        cur.execute(f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) "
-                    f"FROM {STAGING} WHERE date >= %s", (since,))
+        cur.execute(
+            f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) FROM {STAGING}{pg_where}",
+            tuple(pg_params))
         pg_sum = cur.fetchone()[0]
     if float(bq_sum) != float(pg_sum):
-        problems.append(f"7-day revenue mismatch: BQ={bq_sum} PG={pg_sum}")
+        problems.append(f"revenue mismatch over window: BQ={bq_sum} PG={pg_sum}")
 
     return problems
 
 
 # ── Steps 5–6: merge staging into the live fact table + dim_app refresh ───────
-def merge_and_refresh(pg: psycopg.Connection, mode: str, since: date | None) -> None:
+def merge_and_refresh(
+    pg: psycopg.Connection, mode: str, since: date | None, until: date | None
+) -> None:
     """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
     Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
 
-    ``full``:        UPSERT by natural key — history accumulates, nothing is deleted.
-    ``incremental``: OVERWRITE the ``date >= since`` window — delete those dates in the fact
-                     table, then insert the freshly-pulled window. Older data is untouched;
-                     rows that vanished from the source within the window are removed too."""
+    ``full``:                UPSERT by natural key — history accumulates, nothing is deleted.
+    ``incremental``/``range``: OVERWRITE the loaded date window — delete those dates in the
+                     fact table, then insert the freshly-pulled window. Data outside the window
+                     is untouched; rows that vanished from the source within it are removed too."""
     with pg.cursor() as cur:
         # First run / fresh DB: create the live table + indexes. We NEVER drop or replace
         # the whole table once it exists.
@@ -220,11 +246,14 @@ def merge_and_refresh(pg: psycopg.Connection, mode: str, since: date | None) -> 
             for ddl in generate_indexes(FACT):
                 cur.execute(ddl)
 
-        if mode == "incremental" and since is not None:
-            # Replace the rolling window atomically: delete the dates we re-pulled, then load
-            # the fresh copy. ``since`` matches the BigQuery WHERE, so the boundaries align.
+        if mode in ("incremental", "range") and since is not None:
+            # Replace the window atomically: delete the dates we re-pulled, then load the fresh
+            # copy. The DELETE bounds match the BigQuery WHERE, so the boundaries align exactly.
             cols_sql = ", ".join(COLUMN_NAMES)
-            cur.execute(f"DELETE FROM {FACT} WHERE date >= %s", (since,))
+            if until is not None:
+                cur.execute(f"DELETE FROM {FACT} WHERE date >= %s AND date <= %s", (since, until))
+            else:
+                cur.execute(f"DELETE FROM {FACT} WHERE date >= %s", (since,))
             cur.execute(f"INSERT INTO {FACT} ({cols_sql}) SELECT {cols_sql} FROM {STAGING}")
         else:
             # Full backfill: UPSERT by (date, platform, app_key) — existing rows update in
@@ -275,15 +304,33 @@ def main() -> int:
     project = env("GCP_PROJECT")
     view = env("BQ_VIEW", "terafort.api.daily_performance_v1")
     mode = os.environ.get("SYNC_MODE", "incremental").strip().lower()
-    if mode not in ("incremental", "full"):
+    if mode not in ("incremental", "full", "range"):
         mode = "incremental"
     try:
         window_days = max(1, int(os.environ.get("SYNC_WINDOW_DAYS", DEFAULT_WINDOW_DAYS)))
     except ValueError:
         window_days = DEFAULT_WINDOW_DAYS
-    # The rolling window's inclusive start; None for a full backfill.
-    since = date.today() - timedelta(days=window_days) if mode == "incremental" else None
-    log.info("sync mode=%s window_days=%s since=%s", mode, window_days, since)
+
+    # Resolve the load window [since, until] (inclusive). full = whole table; incremental =
+    # rolling last-N-days; range = an explicit start..end the admin chose.
+    since: date | None = None
+    until: date | None = None
+    if mode == "incremental":
+        since = date.today() - timedelta(days=window_days)
+    elif mode == "range":
+        start_raw = os.environ.get("SYNC_START_DATE", "").strip()
+        end_raw = os.environ.get("SYNC_END_DATE", "").strip()
+        try:
+            since = date.fromisoformat(start_raw) if start_raw else None
+            until = date.fromisoformat(end_raw) if end_raw else None
+        except ValueError:
+            since = until = None
+        if since is None:
+            log.error("range sync requires a valid SYNC_START_DATE; aborting")
+            return 2
+        if until is not None and until < since:
+            since, until = until, since  # tolerate a swapped range
+    log.info("sync mode=%s window_days=%s since=%s until=%s", mode, window_days, since, until)
 
     bq = bigquery.Client(project=project)
     pg = psycopg.connect(env("PG_DSN"))
@@ -315,10 +362,14 @@ def main() -> int:
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
-        rows = load_staging(bq, pg, view, present, since=since)
+        rows = load_staging(bq, pg, view, present, since=since, until=until)
         log.info("staging loaded: %d rows", rows)
 
-        problems = integrity_checks(bq, pg, view, rows, rows_previous)
+        # A row-count delta check needs a comparable baseline; an arbitrary range has none.
+        rows_prev_for_check = None if mode == "range" else rows_previous
+        problems = integrity_checks(
+            bq, pg, view, rows, rows_prev_for_check, since, until,
+            check_freshness=(mode != "range"))
         if problems:
             msg = "integrity check failed — serving yesterday's data. " + "; ".join(problems)
             finish("failed", rows=rows, error=msg); alert(msg)
@@ -328,7 +379,7 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        merge_and_refresh(pg, mode, since)
+        merge_and_refresh(pg, mode, since, until)
         bust_cache()
         finish("success", rows=rows, built_at=built_at)
         log.info("sync complete: %d rows, data as of %s", rows, built_at)

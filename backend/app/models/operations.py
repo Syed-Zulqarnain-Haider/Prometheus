@@ -73,5 +73,5 @@ class SyncRun(Base):
             "status IN ('running','success','schema_mismatch','failed')",
             name="status_valid",
         ),
-        CheckConstraint("mode IN ('full','incremental')", name="mode_valid"),
+        CheckConstraint("mode IN ('full','incremental','range')", name="mode_valid"),
     )

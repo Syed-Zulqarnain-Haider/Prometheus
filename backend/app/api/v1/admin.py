@@ -523,12 +523,19 @@ async def run_sync_now(
     context: CurrentUser,
     db: DbSession,
     audit: AuditDep,
-    mode: Annotated[str, Query(pattern="^(incremental|full)$")] = "incremental",
+    mode: Annotated[str, Query(pattern="^(incremental|full|range)$")] = "incremental",
+    start: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
+    end: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
 ) -> SyncTriggerResult:
     """Trigger the data sync on demand (advisory-lock guarded; delegates to the configured
-    trigger URL or runs the vendored sync locally). ``mode=incremental`` (default) re-pulls
-    and overwrites the rolling window; ``mode=full`` backfills ALL history. Returns an honest
-    'not configured' result when no execution path is wired — never a faked success."""
+    trigger URL or runs the vendored sync locally). ``incremental`` (default) re-pulls and
+    overwrites the rolling window; ``full`` backfills ALL history; ``range`` overwrites the
+    explicit ``start``..``end`` window (both YYYY-MM-DD). Honest 'not configured' when no
+    execution path is wired — never a faked success."""
+    if mode == "range" and not start:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "A start date is required for a range sync"
+        )
     settings = get_settings()
     gcp_project = str(await settings_service.get_value(db, "gcp_project"))
     bq_view = str(await settings_service.get_value(db, "bq_view"))
@@ -542,11 +549,19 @@ async def run_sync_now(
         bq_view=bq_view,
         mode=mode,
         window_days=window_days,
+        start_date=start,
+        end_date=end,
     )
     await audit.log_admin_action(
         user_id=context.user_id,
         action="admin_run_sync",
-        detail={"triggered": result.triggered, "configured": result.configured, "mode": mode},
+        detail={
+            "triggered": result.triggered,
+            "configured": result.configured,
+            "mode": mode,
+            "start": start,
+            "end": end,
+        },
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )

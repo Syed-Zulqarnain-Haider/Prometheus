@@ -158,7 +158,8 @@ async def test_run_sync_local_fire_and_forget(
             return 0
 
     async def fake_spawn(
-        s: object, gcp: str, view: str, mode: str, window_days: int
+        s: object, gcp: str, view: str, mode: str, window_days: int,
+        start_date: str | None, end_date: str | None,
     ) -> FakeProc:
         return FakeProc()
 

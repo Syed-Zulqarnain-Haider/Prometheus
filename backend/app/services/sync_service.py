@@ -93,7 +93,13 @@ def _local_run_configured(settings: Settings, gcp_project: str) -> bool:
 
 
 def _child_env(
-    settings: Settings, gcp_project: str, bq_view: str, mode: str, window_days: int
+    settings: Settings,
+    gcp_project: str,
+    bq_view: str,
+    mode: str,
+    window_days: int,
+    start_date: str | None,
+    end_date: str | None,
 ) -> dict[str, str]:
     """Environment for the vendored sync subprocess. Overrides GOOGLE_APPLICATION_
     CREDENTIALS with the BigQuery reader key (NOT the backend's Firebase key)."""
@@ -105,6 +111,8 @@ def _child_env(
     env["REDIS_URL"] = settings.redis_url
     env["SYNC_MODE"] = mode
     env["SYNC_WINDOW_DAYS"] = str(window_days)
+    env["SYNC_START_DATE"] = start_date or ""
+    env["SYNC_END_DATE"] = end_date or ""
     return env
 
 
@@ -129,14 +137,20 @@ def _post_trigger(
 
 
 async def _spawn_local(
-    settings: Settings, gcp_project: str, bq_view: str, mode: str, window_days: int
+    settings: Settings,
+    gcp_project: str,
+    bq_view: str,
+    mode: str,
+    window_days: int,
+    start_date: str | None,
+    end_date: str | None,
 ) -> asyncio.subprocess.Process:
     """Spawn the vendored sync subprocess. stdout/stderr are discarded so no DSN or
     credential can leak into the backend logs; the job records its own ``sync_runs`` row."""
     return await asyncio.create_subprocess_exec(
         sys.executable,
         str(_SYNC_JOB),
-        env=_child_env(settings, gcp_project, bq_view, mode, window_days),
+        env=_child_env(settings, gcp_project, bq_view, mode, window_days, start_date, end_date),
         cwd=str(_SYNC_JOB.parent),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -171,6 +185,8 @@ async def run_sync(
     bq_view: str,
     mode: str = "incremental",
     window_days: int = 40,
+    start_date: str | None = None,
+    end_date: str | None = None,
     skip_if_ran_after: datetime | None = None,
 ) -> SyncTriggerResult:
     """Trigger the sync once, under a Postgres advisory lock. Returns as soon as the sync
@@ -216,7 +232,9 @@ async def run_sync(
             )
         # Local: kick off the subprocess and hand the lock to a background finalizer so
         # the request/scheduler tick returns immediately instead of blocking on the run.
-        proc = await _spawn_local(settings, gcp_project, bq_view, mode, window_days)
+        proc = await _spawn_local(
+            settings, gcp_project, bq_view, mode, window_days, start_date, end_date
+        )
         task = asyncio.create_task(_finalize_local(proc, lock_db))
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_TASKS.discard)
