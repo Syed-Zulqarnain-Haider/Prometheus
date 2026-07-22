@@ -13,6 +13,10 @@ import {
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+// Widget ids that sit in a row and should render at the SAME height (tallest wins) — so the
+// two target donuts match the Monthly Revenue Trend between them.
+const EQUAL_HEIGHT_GROUPS: string[][] = [["donut-year", "trend", "donut-month"]];
+
 /** Rows needed for `px` of content, given the grid's row height + vertical margin. */
 function rowsForHeight(px: number): number {
   const [, marginY] = GRID_MARGIN;
@@ -79,12 +83,25 @@ export function DashboardGrid({
 
   // Inject a content-fitting minH per item so no widget is clipped. Grow-only: a
   // user can still make a cell taller than its content, never shorter than it.
+  // Row groups are equalized to the group's tallest member so cards that sit side by side
+  // (the two target donuts + the Monthly Revenue Trend) render at the SAME height.
   const sized = useMemo<Layouts>(() => {
     const out: Layouts = {};
     for (const bp of Object.keys(layouts) as (keyof Layouts)[]) {
-      out[bp] = (layouts[bp] ?? []).map((it: Layout) => {
-        const needed = heights[it.i] ? rowsForHeight(heights[it.i]) : (it.minH ?? 1);
-        const minH = Math.max(it.minH ?? 1, needed);
+      const list = layouts[bp] ?? [];
+      const needed: Record<string, number> = {};
+      for (const it of list) {
+        needed[it.i] = heights[it.i] ? rowsForHeight(heights[it.i]) : (it.minH ?? 1);
+      }
+      for (const group of EQUAL_HEIGHT_GROUPS) {
+        const present = group.filter((id) => id in needed);
+        if (present.length > 1) {
+          const max = Math.max(...present.map((id) => needed[id]));
+          for (const id of present) needed[id] = max;
+        }
+      }
+      out[bp] = list.map((it: Layout) => {
+        const minH = Math.max(it.minH ?? 1, needed[it.i] ?? 1);
         return { ...it, minH, h: Math.max(it.h, minH) };
       });
     }
