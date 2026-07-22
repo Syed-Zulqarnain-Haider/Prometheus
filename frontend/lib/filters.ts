@@ -34,6 +34,7 @@ export interface Filters {
   pods: string[];
   publishers: string[];
   apps: string[];
+  hou: string[]; // set only by the HOU drill-down page (not the global filter bar)
 }
 
 const DEFAULT_PRESET: Exclude<DatePreset, "custom"> = "30D";
@@ -83,6 +84,7 @@ export function defaultFilters(): Filters {
     pods: [],
     publishers: [],
     apps: [],
+    hou: [],
   };
 }
 
@@ -107,6 +109,7 @@ export function parseFilters(params: URLSearchParams): Filters {
     pods: splitList(params.get("pods")),
     publishers: splitList(params.get("publishers")),
     apps: splitList(params.get("apps")),
+    hou: [], // not a global-bar filter; set by the HOU drill-down page only
   };
 }
 
@@ -133,5 +136,6 @@ export function filtersToApiQuery(filters: Filters): Record<string, string | boo
     pods: filters.pods,
     publishers: filters.publishers,
     apps: filters.apps,
+    ...(filters.hou.length ? { hou: filters.hou } : {}),
   };
 }

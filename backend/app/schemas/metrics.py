@@ -15,7 +15,9 @@ Platform = Literal["ios", "android"]
 # Server-side guards against query-amplification abuse (RT-M1). Generous enough that
 # the dashboard's own queries (default 30D, max 90D preset; a handful of filter
 # values) are unaffected, but they bound a hostile request's cost.
-MAX_RANGE_DAYS = 400
+# Generous enough for the "All time" preset (data starts ~2020) yet still an amplification
+# guard against absurd multi-decade spans. Aggregates use the date covering index.
+MAX_RANGE_DAYS = 4200
 MAX_FILTER_VALUES = 100
 
 
@@ -33,6 +35,7 @@ class MetricFilters(BaseModel):
     pods: list[str] = []
     publishers: list[str] = []
     apps: list[str] = []
+    hou: list[str] = []
 
     @model_validator(mode="after")
     def _validate_bounds(self) -> MetricFilters:
@@ -41,7 +44,12 @@ class MetricFilters(BaseModel):
         span_days = (self.date_to - self.date_from).days + 1  # inclusive
         if span_days > MAX_RANGE_DAYS:
             raise ValueError(f"date range too large: {span_days} days (max {MAX_RANGE_DAYS})")
-        dimensions = (("pods", self.pods), ("publishers", self.publishers), ("apps", self.apps))
+        dimensions = (
+            ("pods", self.pods),
+            ("publishers", self.publishers),
+            ("apps", self.apps),
+            ("hou", self.hou),
+        )
         for name, values in dimensions:
             if len(values) > MAX_FILTER_VALUES:
                 raise ValueError(

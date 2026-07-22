@@ -215,7 +215,7 @@ async def test_invalid_date_range_returns_400(metrics_env: MetricsEnv) -> None:
 async def test_oversized_date_range_rejected(metrics_env: MetricsEnv) -> None:
     response = await metrics_env.client.get(
         "/api/v1/metrics/summary",
-        params={"date_from": "2020-01-01", "date_to": "2025-12-31"},  # ~6 years
+        params={"date_from": "2005-01-01", "date_to": "2025-12-31"},  # ~21 years
         headers=_auth("admin"),
     )
     assert response.status_code == 400

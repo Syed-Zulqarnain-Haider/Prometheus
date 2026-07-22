@@ -34,6 +34,7 @@ def get_filters(
     pods: Annotated[list[str] | None, Query()] = None,
     publishers: Annotated[list[str] | None, Query()] = None,
     apps: Annotated[list[str] | None, Query()] = None,
+    hou: Annotated[list[str] | None, Query()] = None,
 ) -> MetricFilters:
     try:
         return MetricFilters(
@@ -44,6 +45,7 @@ def get_filters(
             pods=pods or [],
             publishers=publishers or [],
             apps=apps or [],
+            hou=hou or [],
         )
     except ValidationError as exc:
         # Surface the specific guard that failed (date order, range span, or filter

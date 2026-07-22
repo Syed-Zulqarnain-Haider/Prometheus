@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 
 import {
@@ -22,7 +23,8 @@ function houKey(row: Row): string {
   return h == null || String(h).trim() === "" ? UNASSIGNED : String(h);
 }
 
-/** Single identity column — the HOU value. No Publisher / per-app column; one row per HOU. */
+/** Single identity column — the HOU value, linked to its drill-down analytics page (a real
+ *  HOU only; the "Unassigned" bucket has no page). One row per HOU. */
 const HOU_IDENTITY: ColumnDef = {
   id: "hou",
   label: "HOU",
@@ -30,6 +32,18 @@ const HOU_IDENTITY: ColumnDef = {
   align: "left",
   fmt: "text",
   value: houKey,
+  render: (r) => {
+    const key = houKey(r);
+    if (key === UNASSIGNED) return <span className="text-muted-foreground">{UNASSIGNED}</span>;
+    return (
+      <Link
+        href={`/hou/${encodeURIComponent(key)}`}
+        className="font-medium text-[color:var(--color-accent)] hover:underline"
+      >
+        {key}
+      </Link>
+    );
+  },
 };
 
 /** Combine any rows sharing a HOU key (notably NULL + blank → one "Unassigned") by SUMMING

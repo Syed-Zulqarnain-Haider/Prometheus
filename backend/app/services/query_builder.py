@@ -103,6 +103,8 @@ class QueryBuilder:
             conditions.append(FACT_TABLE.c.publisher.in_(params.publishers))
         if params.apps:
             conditions.append(FACT_TABLE.c.canonical_key.in_(params.apps))
+        if params.hou:
+            conditions.append(FACT_TABLE.c.hou.in_(params.hou))
         return conditions
 
     def _windowed_filters(self, params: MetricFilters, date_from: Any, date_to: Any) -> list[Any]:
