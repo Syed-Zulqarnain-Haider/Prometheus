@@ -4,6 +4,8 @@ from app.models import Base
 
 EXPECTED_TABLES = {
     "app_master",
+    "app_master_edits",
+    "app_master_config",
     "dim_app",
     "users",
     "roles",

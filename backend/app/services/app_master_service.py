@@ -9,6 +9,8 @@ succeeds — so the serving copy never diverges from the source of truth on a fa
 from __future__ import annotations
 
 import asyncio
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import anyio
@@ -17,8 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_master_columns import ALL_COLUMNS, EDITABLE_SET, PRIMARY_KEY, REGISTRY
 from app.core.config import Settings
+from app.models import AppMasterConfig, AppMasterEdit, User
 from app.models.app_master import APP_MASTER_TABLE
-from app.schemas.app_master import AppMasterColumnMeta, AppMasterListResponse
+from app.schemas.app_master import (
+    AppMasterColumnMeta,
+    AppMasterEditOut,
+    AppMasterFilterValues,
+    AppMasterListResponse,
+)
 from app.schemas.integration import BigQueryColumn, SchemaColumnDiff, SchemaDiff
 from app.services import app_master_bq, integration_service, settings_service
 
@@ -46,6 +54,10 @@ class AppMasterRowNotFound(Exception):
     """No editable row with the given primary key exists in the serving copy."""
 
 
+class NoEditToUndo(Exception):
+    """There is no prior edit on this row to undo."""
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
     return {name: row._mapping[name] for name in ALL_COLUMNS}
 
@@ -54,66 +66,139 @@ def _apply_filters(
     stmt: Any,
     *,
     search: str | None,
-    platform: str | None,
-    hou: str | None,
+    platform: list[str],
+    hou: list[str],
+    publisher: list[str],
     pod: int | None,
     needs_review: bool | None,
+    package: str | None,
+    app_id: str | None,
 ) -> Any:
+    """Apply the App Master filters. ``platform``/``hou``/``publisher`` are multi-select
+    (IN lists); ``package``/``app_id`` are substring matches across the relevant columns."""
     if search:
         like = f"%{search}%"
         stmt = stmt.where(or_(*[_TABLE.c[col].cast(String).ilike(like) for col in _SEARCH_COLUMNS]))
     if platform:
-        stmt = stmt.where(_TABLE.c.platform == platform)
+        stmt = stmt.where(_TABLE.c.platform.in_(platform))
     if hou:
-        stmt = stmt.where(_TABLE.c.hou == hou)
+        stmt = stmt.where(_TABLE.c.hou.in_(hou))
+    if publisher:
+        stmt = stmt.where(_TABLE.c.publisher.in_(publisher))
     if pod is not None:
         stmt = stmt.where(_TABLE.c.pod == pod)
     if needs_review is not None:
         stmt = stmt.where(_TABLE.c.needs_review.is_(needs_review))
+    if package:
+        like = f"%{package}%"
+        stmt = stmt.where(
+            or_(_TABLE.c.android_package.ilike(like), _TABLE.c.ios_bundle_id.ilike(like))
+        )
+    if app_id:
+        like = f"%{app_id}%"
+        stmt = stmt.where(
+            or_(_TABLE.c.canonical_key.ilike(like), _TABLE.c.apple_id.cast(String).ilike(like))
+        )
     return stmt
+
+
+def _ordered_columns(order: list[str]) -> list[AppMasterColumnMeta]:
+    """Column metadata reordered by ``order`` (unknown names dropped, missing ones appended)."""
+    by_name = {c.name: c for c in _COLUMN_META}
+    ordered = [by_name[n] for n in order if n in by_name]
+    ordered += [c for c in _COLUMN_META if c.name not in set(order)]
+    return ordered
 
 
 async def list_rows(
     session: AsyncSession,
     *,
     search: str | None = None,
-    platform: str | None = None,
-    hou: str | None = None,
+    platform: list[str] | None = None,
+    hou: list[str] | None = None,
+    publisher: list[str] | None = None,
     pod: int | None = None,
     needs_review: bool | None = None,
+    package: str | None = None,
+    app_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> AppMasterListResponse:
-    """One page of rows matching the (separate) App Master filters, plus the total."""
-    base = _apply_filters(
-        select(_TABLE),
-        search=search,
-        platform=platform,
-        hou=hou,
-        pod=pod,
-        needs_review=needs_review,
-    )
-    total_stmt = _apply_filters(
-        select(func.count()).select_from(_TABLE),
-        search=search,
-        platform=platform,
-        hou=hou,
-        pod=pod,
-        needs_review=needs_review,
-    )
+    """One page of rows matching the (separate) App Master filters, plus the total. Columns
+    come back already ordered by the admin-set global column order."""
+    flt: dict[str, Any] = {
+        "search": search,
+        "platform": platform or [],
+        "hou": hou or [],
+        "publisher": publisher or [],
+        "pod": pod,
+        "needs_review": needs_review,
+        "package": package,
+        "app_id": app_id,
+    }
+    total_stmt = _apply_filters(select(func.count()).select_from(_TABLE), **flt)
     total = int((await session.execute(total_stmt)).scalar_one())
     page = (
-        base.order_by(_TABLE.c.app_name.asc().nullslast(), _PK_COL.asc())
+        _apply_filters(select(_TABLE), **flt)
+        .order_by(_TABLE.c.app_name.asc().nullslast(), _PK_COL.asc())
         .limit(limit)
         .offset(offset)
     )
     rows = (await session.execute(page)).all()
+    order = await get_column_order(session)
     return AppMasterListResponse(
         rows=[_row_to_dict(r) for r in rows],
         total=total,
-        columns=_COLUMN_META,
+        columns=_ordered_columns(order),
+        column_order=order,
         primary_key=PRIMARY_KEY,
     )
+
+
+async def filter_values(session: AsyncSession) -> AppMasterFilterValues:
+    """Distinct values for the filter dropdowns (platforms / HOU / publishers / pods)."""
+
+    async def _distinct(col: Any) -> list[Any]:
+        stmt = select(col).distinct().where(col.isnot(None)).order_by(col)
+        return list((await session.execute(stmt)).scalars().all())
+
+    return AppMasterFilterValues(
+        platforms=[str(v) for v in await _distinct(_TABLE.c.platform)],
+        hou=[str(v) for v in await _distinct(_TABLE.c.hou)],
+        publishers=[str(v) for v in await _distinct(_TABLE.c.publisher)],
+        pods=[int(v) for v in await _distinct(_TABLE.c.pod)],
+    )
+
+
+# ── Global column order (admin-set, shared by all users) ─────────────────────────
+async def get_column_order(session: AsyncSession) -> list[str]:
+    """The admin-set global column order, sanitized: only known columns, with any columns
+    missing from the saved order appended (so a newly-added registry column still appears)."""
+    cfg = await session.get(AppMasterConfig, 1)
+    saved = list(cfg.column_order) if cfg and cfg.column_order else []
+    known = set(ALL_COLUMNS)
+    order = [c for c in saved if c in known]
+    order += [c for c in ALL_COLUMNS if c not in set(order)]
+    return order
+
+
+async def set_column_order(
+    session: AsyncSession, order: list[str], admin_id: uuid.UUID | None
+) -> list[str]:
+    """Persist the global column order (admin-only). Unknown names are dropped; any omitted
+    columns are appended so the order always covers every column."""
+    known = set(ALL_COLUMNS)
+    clean = [c for c in order if c in known]
+    clean += [c for c in ALL_COLUMNS if c not in set(clean)]
+    cfg = await session.get(AppMasterConfig, 1)
+    if cfg is None:
+        cfg = AppMasterConfig(id=1)
+        session.add(cfg)
+    cfg.column_order = clean
+    cfg.updated_at = datetime.now(UTC)
+    cfg.updated_by = admin_id
+    await session.commit()
+    return clean
 
 
 async def get_row(session: AsyncSession, key: str) -> dict[str, Any] | None:
@@ -121,40 +206,111 @@ async def get_row(session: AsyncSession, key: str) -> dict[str, Any] | None:
     return _row_to_dict(row) if row else None
 
 
+async def _write_change(
+    session: AsyncSession, settings: Settings, key: str, changes: dict[str, Any]
+) -> None:
+    """BigQuery write-back FIRST (source of truth), then the Postgres serving copy. The
+    caller records history + commits."""
+    table_id = await _bq_table_id(session)
+    # If BigQuery rejects the write, Postgres is untouched and the error propagates.
+    await asyncio.to_thread(app_master_bq.push_update, settings, table_id, key, changes)
+    await session.execute(update(_TABLE).where(key == _PK_COL).values(**changes))
+
+
 async def update_row(
     session: AsyncSession,
     settings: Settings,
     key: str,
     changes: dict[str, Any],
+    editor_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """Apply ``changes`` (already narrowed to editable columns) to the row.
-
-    Order: BigQuery write-back FIRST (source of truth), then the Postgres serving copy.
-    Raises ``AppMasterRowNotFound`` for an unknown key; propagates
-    ``app_master_bq.BigQuery*`` errors on write-back problems (the caller maps them to HTTP).
-    """
-    # Only known editable columns survive (defence in depth over the schema's extra=forbid).
+    """Apply ``changes`` (already narrowed to editable columns), recording the before/after in
+    the change history so the edit can be undone. BigQuery first, then Postgres + history in
+    one transaction. Raises ``AppMasterRowNotFound`` for an unknown key; propagates
+    ``app_master_bq.BigQuery*`` errors on write-back problems."""
     changes = {k: v for k, v in changes.items() if k in EDITABLE_SET}
-    if not changes:
-        current = await get_row(session, key)
-        if current is None:
-            raise AppMasterRowNotFound(key)
-        return current
-
     existing = await get_row(session, key)
     if existing is None:
         raise AppMasterRowNotFound(key)
+    if not changes:
+        return existing
 
-    table_id = await _bq_table_id(session)
-    # 1) BigQuery first — if this fails, Postgres is untouched and the caller sees an error.
-    await asyncio.to_thread(app_master_bq.push_update, settings, table_id, key, changes)
-
-    # 2) Serving copy — only reached when the source of truth already accepted the change.
-    await session.execute(update(_TABLE).where(key == _PK_COL).values(**changes))
+    before = {k: existing.get(k) for k in changes}
+    await _write_change(session, settings, key, changes)
+    session.add(
+        AppMasterEdit(
+            canonical_key=key, editor_user_id=editor_id, action="edit", before=before, after=changes
+        )
+    )
     await session.commit()
     updated = await get_row(session, key)
     assert updated is not None  # noqa: S101 — just updated it in the same txn
     return updated
+
+
+async def undo_last_edit(
+    session: AsyncSession, settings: Settings, key: str, editor_id: uuid.UUID | None = None
+) -> dict[str, Any]:
+    """Revert the most recent (not-yet-undone) edit on ``key`` — restore its ``before`` values
+    to BigQuery + Postgres, mark that edit undone, and record the undo itself in the history."""
+    last = (
+        await session.execute(
+            select(AppMasterEdit)
+            .where(
+                AppMasterEdit.canonical_key == key,
+                AppMasterEdit.action == "edit",
+                AppMasterEdit.undone.is_(False),
+            )
+            .order_by(AppMasterEdit.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if last is None:
+        raise NoEditToUndo(key)
+
+    restore = {k: v for k, v in (last.before or {}).items() if k in EDITABLE_SET}
+    if restore:
+        await _write_change(session, settings, key, restore)
+    last.undone = True
+    session.add(
+        AppMasterEdit(
+            canonical_key=key,
+            editor_user_id=editor_id,
+            action="undo",
+            before=last.after,
+            after=restore,
+        )
+    )
+    await session.commit()
+    updated = await get_row(session, key)
+    assert updated is not None  # noqa: S101
+    return updated
+
+
+async def list_history(session: AsyncSession, key: str, limit: int = 20) -> list[AppMasterEditOut]:
+    """The change history for one app (newest first) — for the audit/undo panel."""
+    rows = (
+        await session.execute(
+            select(AppMasterEdit, User.email)
+            .outerjoin(User, AppMasterEdit.editor_user_id == User.id)
+            .where(AppMasterEdit.canonical_key == key)
+            .order_by(AppMasterEdit.id.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        AppMasterEditOut(
+            id=e.id,
+            canonical_key=e.canonical_key,
+            edited_at=e.edited_at,
+            editor_email=email,
+            action=e.action,
+            before=e.before,
+            after=e.after,
+            undone=e.undone,
+        )
+        for e, email in rows
+    ]
 
 
 async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> dict[str, int]:

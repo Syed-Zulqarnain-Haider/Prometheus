@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from app.models.access import AccessRequest
 from app.models.app_master import APP_MASTER_TABLE
+from app.models.app_master_edit import AppMasterConfig, AppMasterEdit
 from app.models.base import Base
 from app.models.dim import DimApp
 from app.models.identity import Role, User, UserRole
@@ -25,6 +26,8 @@ __all__ = [
     "Base",
     "AccessRequest",
     "APP_MASTER_TABLE",
+    "AppMasterConfig",
+    "AppMasterEdit",
     "DimApp",
     "User",
     "Role",

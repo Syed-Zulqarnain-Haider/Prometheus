@@ -16,12 +16,42 @@ class AppMasterColumnMeta(BaseModel):
 
 
 class AppMasterListResponse(BaseModel):
-    """A page of rows plus the total (for the admin grid + pagination)."""
+    """A page of rows plus the total (for the admin grid + pagination). ``columns`` is
+    already ordered by the admin-set global ``column_order``."""
 
     rows: list[dict[str, Any]]
     total: int
     columns: list[AppMasterColumnMeta]
+    column_order: list[str]
     primary_key: str
+
+
+class AppMasterFilterValues(BaseModel):
+    """Distinct values for the App Master filter dropdowns."""
+
+    platforms: list[str]
+    hou: list[str]
+    publishers: list[str]
+    pods: list[int]
+
+
+class ColumnOrderUpdate(BaseModel):
+    """Admin-set global column order (must be exactly the known columns, any order)."""
+
+    order: list[str]
+
+
+class AppMasterEditOut(BaseModel):
+    """One entry in a row's change history (newest first)."""
+
+    id: int
+    canonical_key: str
+    edited_at: Any
+    editor_email: str | None
+    action: str  # edit | undo
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    undone: bool
 
 
 class AppMasterUpdate(BaseModel):

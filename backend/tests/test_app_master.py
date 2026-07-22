@@ -271,3 +271,115 @@ async def test_schema_diff_requires_admin(metrics_env: MetricsEnv) -> None:
     for role in ("viewer", "executive", "finance"):
         resp = await metrics_env.client.get("/api/v1/app-master/schema-diff", headers=_auth(role))
         assert resp.status_code == 403
+
+
+# ── new filters: publisher (multi), package, app_id ──────────────────────────────
+async def test_list_new_filters(metrics_env: MetricsEnv) -> None:
+    await _seed(metrics_env)
+    async with metrics_env.sessionmaker() as s:
+        await s.execute(
+            insert(APP_MASTER_TABLE),
+            [
+                {
+                    "canonical_key": "app-c",
+                    "app_name": "Gamma",
+                    "platform": "ios",
+                    "publisher": "PubA",
+                    "android_package": "com.acme.gamma",
+                    "apple_id": 12345,
+                }
+            ],
+        )
+        await s.commit()
+    c = metrics_env.client
+    # publisher multi-select (repeated param) → PubA matches app-a + app-c
+    r = (
+        await c.get("/api/v1/app-master?publisher=PubA&publisher=PubB", headers=_auth("admin"))
+    ).json()
+    assert {row["canonical_key"] for row in r["rows"]} == {"app-a", "app-b", "app-c"}
+    r = (await c.get("/api/v1/app-master?publisher=PubA", headers=_auth("admin"))).json()
+    assert {row["canonical_key"] for row in r["rows"]} == {"app-a", "app-c"}
+    # package substring
+    r = (await c.get("/api/v1/app-master?package=acme", headers=_auth("admin"))).json()
+    assert [row["canonical_key"] for row in r["rows"]] == ["app-c"]
+    # app_id substring (matches apple_id or canonical_key)
+    r = (await c.get("/api/v1/app-master?app_id=12345", headers=_auth("admin"))).json()
+    assert [row["canonical_key"] for row in r["rows"]] == ["app-c"]
+
+
+async def test_filter_values(metrics_env: MetricsEnv) -> None:
+    await _seed(metrics_env)
+    body = (
+        await metrics_env.client.get("/api/v1/app-master/filter-values", headers=_auth("admin"))
+    ).json()
+    assert set(body["platforms"]) == {"ios", "android"}
+    assert set(body["publishers"]) == {"PubA", "PubB"}
+    assert set(body["pods"]) == {1, 2}
+
+
+# ── global column order (admin-set, everyone sees it) ────────────────────────────
+async def test_column_order_is_global_and_admin_only(metrics_env: MetricsEnv) -> None:
+    await _seed(metrics_env)
+    c = metrics_env.client
+    new_order = ["hou", "publisher", "app_name"]  # partial; the rest append
+    # non-admin cannot set it
+    assert (
+        await c.put(
+            "/api/v1/app-master/column-order", json={"order": new_order}, headers=_auth("viewer")
+        )
+    ).status_code == 403
+    # admin sets it
+    resp = await c.put(
+        "/api/v1/app-master/column-order", json={"order": new_order}, headers=_auth("admin")
+    )
+    assert resp.status_code == 200
+    assert resp.json()[:3] == new_order
+    assert set(resp.json()) == set(ALL_COLUMNS)  # covers every column
+    # it now drives the list response's column order (global)
+    listing = (await c.get("/api/v1/app-master", headers=_auth("admin"))).json()
+    assert [col["name"] for col in listing["columns"]][:3] == new_order
+    assert listing["column_order"][:3] == new_order
+
+
+# ── undo + change history ────────────────────────────────────────────────────────
+async def test_edit_records_history_and_undo_restores(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed(metrics_env)
+    monkeypatch.setattr(app_master_bq, "push_update", lambda *a, **k: None)
+    c = metrics_env.client
+
+    # edit hou H1 -> H9
+    await c.patch("/api/v1/app-master/app-a", json={"hou": "H9"}, headers=_auth("admin"))
+    hist = (await c.get("/api/v1/app-master/app-a/history", headers=_auth("admin"))).json()
+    assert hist[0]["action"] == "edit"
+    assert hist[0]["before"] == {"hou": "H1"} and hist[0]["after"] == {"hou": "H9"}
+    assert hist[0]["editor_email"]  # attributed to the admin
+
+    # undo -> back to H1
+    undo = await c.post("/api/v1/app-master/app-a/undo", headers=_auth("admin"))
+    assert undo.status_code == 200
+    assert undo.json()["hou"] == "H1"
+    async with metrics_env.sessionmaker() as s:
+        row = (
+            (
+                await s.execute(
+                    select(APP_MASTER_TABLE).where(APP_MASTER_TABLE.c.canonical_key == "app-a")
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert row["hou"] == "H1"
+    # history now shows the undo on top; a second undo finds nothing
+    hist = (await c.get("/api/v1/app-master/app-a/history", headers=_auth("admin"))).json()
+    assert hist[0]["action"] == "undo"
+    assert (
+        await c.post("/api/v1/app-master/app-a/undo", headers=_auth("admin"))
+    ).status_code == 404
+
+
+async def test_undo_requires_admin(metrics_env: MetricsEnv) -> None:
+    assert (
+        await metrics_env.client.post("/api/v1/app-master/app-a/undo", headers=_auth("viewer"))
+    ).status_code == 403
