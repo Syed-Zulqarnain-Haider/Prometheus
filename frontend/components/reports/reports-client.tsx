@@ -23,7 +23,7 @@ import type { ExportFormat, ReportRunResult, SavedReport } from "@/lib/types";
 type Tab = "builder" | "mine" | "shared" | "approvals";
 
 function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "";
   if (typeof value === "number") return new Intl.NumberFormat("en-US").format(value);
   return String(value);
 }

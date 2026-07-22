@@ -31,7 +31,7 @@ const GROUP_BY_OPTIONS: { value: ReportGroupBy; label: string }[] = [
 ];
 
 function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "";
   if (typeof value === "number") return new Intl.NumberFormat("en-US").format(value);
   return String(value);
 }

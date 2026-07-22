@@ -3,6 +3,7 @@
 import { LogOut } from "lucide-react";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { FontControl } from "@/components/layout/font-control";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { ThemeSelector } from "@/components/layout/theme-selector";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ export function Header() {
           </span>
         )}
         <NotificationBell />
+        <FontControl />
         <ThemeSelector />
         <Button
           variant="ghost"

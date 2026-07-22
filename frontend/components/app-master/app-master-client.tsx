@@ -41,7 +41,7 @@ const EMPTY_FILTERS: AppMasterFilters = {
 };
 
 function formatCell(value: unknown, type: AppMasterColumnMeta["type"]): string {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "";
   if (type === "boolean") return value ? "Yes" : "No";
   if (type === "timestamptz") return String(value).slice(0, 10);
   return String(value);

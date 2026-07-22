@@ -122,7 +122,7 @@ export function RevenueProgress({ period }: { period: Period }) {
           />
           <Figure
             label="Remaining to Target"
-            value={targetSet ? formatUSD(remaining, { compact: true }) : "—"}
+            value={targetSet ? formatUSD(remaining, { compact: true }) : ""}
           />
           <Figure label="Target Date" value={targetDate} />
           {!targetSet && (

@@ -123,7 +123,7 @@ export function DataHealthClient() {
                       {formatNumber(run.rows_loaded)}
                     </td>
                     <td className="max-w-xs truncate px-3 py-1.5 text-muted-foreground">
-                      {run.error_detail ?? "—"}
+                      {run.error_detail ?? ""}
                     </td>
                   </tr>
                 ))}
@@ -154,9 +154,9 @@ export function DataHealthClient() {
                   {data.unmapped_apps.map((app) => (
                     <tr key={app.canonical_key} className="border-t">
                       <td className="px-3 py-1.5 font-mono text-xs">{app.canonical_key}</td>
-                      <td className="px-3 py-1.5">{app.app_name ?? "—"}</td>
-                      <td className="px-3 py-1.5">{app.publisher ?? "—"}</td>
-                      <td className="px-3 py-1.5">{app.platform_keys ?? "—"}</td>
+                      <td className="px-3 py-1.5">{app.app_name ?? ""}</td>
+                      <td className="px-3 py-1.5">{app.publisher ?? ""}</td>
+                      <td className="px-3 py-1.5">{app.platform_keys ?? ""}</td>
                     </tr>
                   ))}
                 </tbody>

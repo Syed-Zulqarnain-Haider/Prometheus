@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import { MonthlyTrend } from "@/components/overview/monthly-trend";
 import { RevenueVsSpend } from "@/components/overview/revenue-vs-spend";
 import { Card, CardContent } from "@/components/ui/card";
-import { useSummary } from "@/lib/api-hooks";
+import { useApps, useSummary } from "@/lib/api-hooks";
 import { useFilters } from "@/lib/use-filters";
 
 function fmtUsd(v: number | null | undefined): string {
@@ -32,6 +32,16 @@ export default function HouDetailPage() {
   const scoped = useMemo(() => ({ ...filters, hou: [hou] }), [filters, hou]);
   const summary = useSummary(scoped);
   const cur = summary.data?.current ?? {};
+
+  // Apps assigned to this HOU (RBAC-scoped by the apps endpoint).
+  const apps = useApps();
+  const houApps = useMemo(
+    () =>
+      (apps.data?.apps ?? [])
+        .filter((a) => (a.hou ?? "") === hou)
+        .sort((x, y) => (x.app_name ?? x.canonical_key).localeCompare(y.app_name ?? y.canonical_key)),
+    [apps.data, hou],
+  );
 
   const grossRev =
     cur.total_iap_gross_usd == null && cur.total_ad_revenue_usd == null
@@ -92,6 +102,35 @@ export default function HouDetailPage() {
         <MonthlyTrend filters={scoped} />
         <RevenueVsSpend filters={scoped} />
       </div>
+
+      {/* Apps assigned to this HOU */}
+      <Card>
+        <CardContent className="py-4">
+          <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+            Apps in this HOU ({houApps.length})
+          </p>
+          {apps.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : houApps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No apps assigned to this HOU.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {houApps.map((a) => (
+                <Link
+                  key={a.canonical_key}
+                  href={`/apps/${encodeURIComponent(a.canonical_key)}`}
+                  className="rounded-full border px-3 py-1 text-sm hover:bg-accent"
+                >
+                  {a.app_name ?? a.canonical_key}
+                  {a.publisher && (
+                    <span className="ml-1 text-xs text-muted-foreground">{a.publisher}</span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

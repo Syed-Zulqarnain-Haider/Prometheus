@@ -42,7 +42,7 @@ function HealthCard({ id, status }: { id: keyof typeof ICONS; status: Connection
         {status.latency_ms != null ? (
           <span className="tabular-nums">{status.latency_ms} ms</span>
         ) : (
-          <span>{status.detail ?? "—"}</span>
+          <span>{status.detail ?? ""}</span>
         )}
       </CardContent>
     </Card>

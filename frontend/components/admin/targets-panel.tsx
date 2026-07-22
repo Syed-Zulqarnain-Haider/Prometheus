@@ -109,7 +109,7 @@ export function TargetsPanel() {
                   onChange={(event) =>
                     setMonths((current) => ({ ...current, [month]: event.target.value }))
                   }
-                  placeholder="—"
+                  placeholder=""
                 />
               </div>
             );

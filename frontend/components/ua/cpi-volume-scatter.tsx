@@ -28,7 +28,7 @@ export function CpiVolumeScatter({ filters }: { filters: Filters }) {
       const cpi = installs > 0 ? spend / installs : 0;
       return {
         value: [installs, Number(cpi.toFixed(2))] as [number, number],
-        name: String(row.app_name ?? row.app ?? "—"),
+        name: String(row.app_name ?? row.app ?? ""),
         symbolSize: Math.max(8, Math.min(42, Math.sqrt(spend) / 4)),
       };
     })

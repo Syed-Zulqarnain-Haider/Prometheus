@@ -47,7 +47,7 @@ export function RevenueDrill({ filters }: { filters: Filters }) {
   rows.sort((a, b) => num(b[METRIC]) - num(a[METRIC]));
   rows = rows.slice(0, TOP_N);
 
-  const labels = rows.map((r) => String(r[labelKey] ?? r[groupBy] ?? "—"));
+  const labels = rows.map((r) => String(r[labelKey] ?? r[groupBy] ?? ""));
   const values = rows.map((r) => num(r[METRIC]));
 
   const option: EChartsOption = {

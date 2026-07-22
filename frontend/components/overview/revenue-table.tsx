@@ -62,10 +62,10 @@ export const METRIC_COLUMNS: ColumnDef[] = [
 /** Identity columns for the per-app Publisher table: Publisher + the (linked) Game. */
 const PUBLISHER_IDENTITY: ColumnDef[] = [
   { id: "publisher", label: "Publisher", requires: [], align: "left", fmt: "text",
-    value: (r) => (r.publisher == null ? "—" : String(r.publisher)) },
+    value: (r) => (r.publisher == null ? "" : String(r.publisher)) },
   {
     id: "game", label: "Game", requires: [], align: "left", fmt: "text",
-    value: (r) => String(r.app_name ?? r.canonical_key ?? "—"),
+    value: (r) => String(r.app_name ?? r.canonical_key ?? ""),
     render: (r) => {
       const ck = String(r.canonical_key ?? r.app_name ?? "");
       return (
@@ -87,7 +87,7 @@ const PUBLISHER_IDENTITY: ColumnDef[] = [
 ];
 
 export function formatCell(col: ColumnDef, v: number | string | null): string {
-  if (v == null) return "—";
+  if (v == null) return "";
   if (col.fmt === "text") return String(v);
   if (col.fmt === "usd") return formatUSD(v as number, { compact: true });
   if (col.fmt === "count") return formatCompact(v as number);

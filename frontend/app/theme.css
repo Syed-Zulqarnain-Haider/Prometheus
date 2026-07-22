@@ -338,3 +338,42 @@
   --shadow-card:0 12px 30px -12px rgba(0,0,0,.58),0 3px 10px -3px rgba(0,0,0,.4);
   --shadow-pop:0 18px 40px -10px rgba(0,0,0,.58);
 }
+
+/* ============================================================================
+   USER FONT PREFERENCES — size + family (data-font-size / data-font on <html>).
+   Persisted per-browser; set by the header font control. Size scales BOTH the
+   rem-based Tailwind text (via the root font-size) and the --fs-* tokens.
+   ============================================================================ */
+:root[data-font-size="sm"] {
+  font-size: 14px;
+  --fs-display:26px; --fs-kpi:26px; --fs-stat:21px; --fs-stat-sm:17px;
+  --fs-body:12px; --fs-label:10px; --fs-micro:9px;
+}
+:root[data-font-size="lg"] {
+  font-size: 17px;
+  --fs-display:34px; --fs-kpi:34px; --fs-stat:27px; --fs-stat-sm:21px;
+  --fs-body:15px; --fs-label:12px; --fs-micro:11px;
+}
+:root[data-font-size="xl"] {
+  font-size: 19px;
+  --fs-display:38px; --fs-kpi:38px; --fs-stat:30px; --fs-stat-sm:24px;
+  --fs-body:16px; --fs-label:13px; --fs-micro:12px;
+}
+
+/* Font family — overrides both the body and display faces. */
+:root[data-font="system"] {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+:root[data-font="serif"] {
+  --font-sans: Georgia, "Times New Roman", serif;
+  --font-display: "Spectral", Georgia, serif;
+}
+:root[data-font="mono"] {
+  --font-sans: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --font-display: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+:root[data-font="rounded"] {
+  --font-sans: "Nunito", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --font-display: "Nunito", ui-rounded, "Segoe UI", sans-serif;
+}

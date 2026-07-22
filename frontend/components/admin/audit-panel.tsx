@@ -114,10 +114,10 @@ export function AuditPanel() {
                   <td className="whitespace-nowrap px-3 py-1.5">
                     {formatDateTime(entry.created_at)}
                   </td>
-                  <td className="px-3 py-1.5">{entry.user_email ?? "—"}</td>
+                  <td className="px-3 py-1.5">{entry.user_email ?? ""}</td>
                   <td className="px-3 py-1.5 font-medium">{entry.action}</td>
-                  <td className="max-w-xs truncate px-3 py-1.5">{entry.resource ?? "—"}</td>
-                  <td className="px-3 py-1.5">{entry.ip_address ?? "—"}</td>
+                  <td className="max-w-xs truncate px-3 py-1.5">{entry.resource ?? ""}</td>
+                  <td className="px-3 py-1.5">{entry.ip_address ?? ""}</td>
                 </tr>
               ))
             )}

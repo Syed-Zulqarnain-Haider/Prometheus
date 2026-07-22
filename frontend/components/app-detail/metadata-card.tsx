@@ -11,7 +11,7 @@ function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-sm">{value ?? "—"}</div>
+      <div className="text-sm">{value ?? ""}</div>
     </div>
   );
 }
