@@ -159,7 +159,7 @@ export function SystemPanel() {
             <CardContent className="pt-0">
               <p
                 className={`text-sm ${
-                  syncResult.triggered ? "text-primary" : "text-muted-foreground"
+                  syncResult.triggered ? "text-positive" : "text-muted-foreground"
                 }`}
               >
                 {syncResult.message}

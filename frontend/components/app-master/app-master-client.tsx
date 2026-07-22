@@ -314,8 +314,8 @@ export function AppMasterClient() {
         </Button>
         <div className="ml-auto flex items-center gap-2">
           {refresh.isSuccess && (
-            <span className="text-xs text-muted-foreground">
-              Synced {refresh.data.synced}
+            <span className="text-xs text-positive">
+              ✓ Synced {refresh.data.synced}
               {refresh.data.skipped ? ` · skipped ${refresh.data.skipped}` : ""}
             </span>
           )}

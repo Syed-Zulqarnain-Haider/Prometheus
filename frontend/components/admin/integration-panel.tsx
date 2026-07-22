@@ -217,7 +217,7 @@ function SchemaDiffSection() {
             {!result.configured || result.message ? (
               <p className="text-muted-foreground">{result.message}</p>
             ) : result.in_sync ? (
-              <p className="text-primary">The view matches the registry.</p>
+              <p className="text-positive">The view matches the registry.</p>
             ) : (
               <SchemaDiffLists diff={result} />
             )}
@@ -388,7 +388,7 @@ export function IntegrationPanel() {
           </CardContent>
           {testBq.data && (
             <CardContent className="pt-0">
-              <p className={`text-sm ${testBq.data.ok ? "text-primary" : "text-destructive"}`}>
+              <p className={`text-sm ${testBq.data.ok ? "text-positive" : "text-destructive"}`}>
                 {testBq.data.message}
               </p>
             </CardContent>
@@ -483,7 +483,7 @@ export function IntegrationPanel() {
             <CardContent className="pt-0">
               <p
                 className={`text-sm ${
-                  syncResult.triggered ? "text-primary" : "text-muted-foreground"
+                  syncResult.triggered ? "text-positive" : "text-muted-foreground"
                 }`}
               >
                 {syncResult.message}

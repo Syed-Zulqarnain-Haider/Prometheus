@@ -97,11 +97,11 @@
   --section-gap:     clamp(28px, 2.8vw, 42px);
   --sidebar-width:   clamp(208px, 17vw, 252px);
 
-  /* ---- RADIUS — sharp / precise (editorial, technical) ---------------- */
-  --radius-card:  3px;
-  --radius-inner: 2px;
-  --radius-chip:  2px;
-  --radius-pill:  2px;
+  /* ---- RADIUS — softened (less rigid, still editorial) ---------------- */
+  --radius-card:  10px;
+  --radius-inner: 8px;
+  --radius-chip:  6px;
+  --radius-pill:  9999px;
 
   /* ---- ELEVATION ------------------------------------------------------ */
   --shadow-card: 0 12px 30px -12px rgba(0, 0, 0, 0.62), 0 3px 10px -3px rgba(0, 0, 0, 0.42);
