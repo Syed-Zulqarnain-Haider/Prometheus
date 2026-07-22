@@ -30,7 +30,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ThemeProvider attribute="data-theme" defaultTheme="light" enableSystem={false}>
+    <ThemeProvider
+      attribute="data-theme"
+      defaultTheme="light"
+      enableSystem={false}
+      themes={["light", "dark", "ocean", "forest", "contrast", "colorblind"]}
+    >
       <QueryClientProvider client={queryClient}>
         <AuthProvider>{children}</AuthProvider>
       </QueryClientProvider>

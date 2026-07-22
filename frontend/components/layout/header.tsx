@@ -3,7 +3,7 @@
 import { LogOut } from "lucide-react";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
-import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { ThemeSelector } from "@/components/layout/theme-selector";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 
@@ -24,7 +24,7 @@ export function Header() {
             {user.email}
           </span>
         )}
-        <ThemeToggle />
+        <ThemeSelector />
         <Button
           variant="ghost"
           size="icon"

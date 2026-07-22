@@ -163,3 +163,94 @@
   --shadow-card: 0 8px 22px -10px rgba(60, 50, 30, 0.16), 0 2px 6px -2px rgba(60, 50, 30, 0.08);
   --shadow-pop:  0 16px 36px -10px rgba(60, 50, 30, 0.20);
 }
+
+/* ============================================================================
+   ADDITIONAL THEMES (data-theme="…"). Each defines the full COLOR set; radius,
+   type, spacing and motion are shared from :root. Charts read these vars, so
+   they re-skin automatically. Selected via the header theme picker (next-themes).
+   ============================================================================ */
+
+/* ---- OCEAN — cool deep-blue dark ------------------------------------------ */
+:root[data-theme="ocean"] {
+  --color-bg-app:#0d1522; --color-bg-sidebar:#0a1019; --color-bg-card:#14202f;
+  --color-bg-card-sunken:#0f1926; --color-bg-elevated:#1c2c40;
+  --color-border:#22344a; --color-border-strong:#33496a; --color-border-faint:#1a2839;
+  --color-text-primary:#e6eef7; --color-text-secondary:#9fb2c8; --color-text-muted:#6b7f96;
+  --color-accent:#4a9ed8; --color-accent-strong:#3a86bd; --color-accent-soft:rgba(74,158,216,.16);
+  --color-accent-foreground:#0d1522; --color-brand:#4a9ed8;
+  --color-positive:#4ec9a3; --color-positive-soft:rgba(78,201,163,.15);
+  --color-negative:#e5736b; --color-negative-soft:rgba(229,115,107,.15);
+  --color-purple:#9b8cf0; --color-purple-soft:rgba(155,140,240,.16);
+  --color-amber:#e0b64e; --color-amber-soft:rgba(224,182,78,.15);
+  --color-orange:#e0925a; --color-orange-soft:rgba(224,146,90,.15);
+  --color-cat-game:#5aa9e0; --color-cat-health:#4ec9a3; --color-cat-finance:#9b8cf0; --color-cat-lifestyle:#e0b64e;
+  --chart-bar:#4a9ed8; --chart-bar-2:#22344a; --chart-spark:#4ec9a3; --chart-spark-cash:#9b8cf0;
+  --chart-target:#6b7f96; --chart-grid:#1a2839; --chart-line-cpi:#e0b64e;
+  --chart-grad-from:#4a9ed8; --chart-grad-to:#9b8cf0;
+  --shadow-card:0 12px 30px -12px rgba(0,0,0,.6),0 3px 10px -3px rgba(0,0,0,.4);
+  --shadow-pop:0 18px 40px -10px rgba(0,0,0,.6);
+}
+
+/* ---- FOREST — warm green dark --------------------------------------------- */
+:root[data-theme="forest"] {
+  --color-bg-app:#12180f; --color-bg-sidebar:#0f140c; --color-bg-card:#1a2114;
+  --color-bg-card-sunken:#141a0f; --color-bg-elevated:#26301c;
+  --color-border:#2b3620; --color-border-strong:#3d4a2c; --color-border-faint:#212a18;
+  --color-text-primary:#eaf0e0; --color-text-secondary:#a8b598; --color-text-muted:#74805f;
+  --color-accent:#7aa34e; --color-accent-strong:#688f3f; --color-accent-soft:rgba(122,163,78,.16);
+  --color-accent-foreground:#12180f; --color-brand:#7aa34e;
+  --color-positive:#6faa7e; --color-positive-soft:rgba(111,170,126,.15);
+  --color-negative:#d4795a; --color-negative-soft:rgba(212,121,90,.15);
+  --color-purple:#a888c0; --color-purple-soft:rgba(168,136,192,.16);
+  --color-amber:#d4b04e; --color-amber-soft:rgba(212,176,78,.15);
+  --color-orange:#cf8551; --color-orange-soft:rgba(207,133,81,.15);
+  --color-cat-game:#8fb35a; --color-cat-health:#6faa7e; --color-cat-finance:#a888c0; --color-cat-lifestyle:#d4b04e;
+  --chart-bar:#7aa34e; --chart-bar-2:#2b3620; --chart-spark:#6faa7e; --chart-spark-cash:#a888c0;
+  --chart-target:#74805f; --chart-grid:#212a18; --chart-line-cpi:#d4b04e;
+  --chart-grad-from:#7aa34e; --chart-grad-to:#d4b04e;
+  --shadow-card:0 12px 30px -12px rgba(0,0,0,.55),0 3px 10px -3px rgba(0,0,0,.38);
+  --shadow-pop:0 18px 40px -10px rgba(0,0,0,.55);
+}
+
+/* ---- HIGH CONTRAST — max legibility (accessibility) ----------------------- */
+:root[data-theme="contrast"] {
+  --color-bg-app:#000000; --color-bg-sidebar:#000000; --color-bg-card:#0b0b0b;
+  --color-bg-card-sunken:#000000; --color-bg-elevated:#1a1a1a;
+  --color-border:#4a4a4a; --color-border-strong:#6e6e6e; --color-border-faint:#2a2a2a;
+  --color-text-primary:#ffffff; --color-text-secondary:#e0e0e0; --color-text-muted:#b3b3b3;
+  --color-accent:#ffd400; --color-accent-strong:#ffe14d; --color-accent-soft:rgba(255,212,0,.18);
+  --color-accent-foreground:#000000; --color-brand:#ffd400;
+  --color-positive:#37e07a; --color-positive-soft:rgba(55,224,122,.2);
+  --color-negative:#ff5a4d; --color-negative-soft:rgba(255,90,77,.2);
+  --color-purple:#c08cff; --color-purple-soft:rgba(192,140,255,.2);
+  --color-amber:#ffd400; --color-amber-soft:rgba(255,212,0,.2);
+  --color-orange:#ff9a3c; --color-orange-soft:rgba(255,154,60,.2);
+  --color-cat-game:#ff9a3c; --color-cat-health:#37e07a; --color-cat-finance:#c08cff; --color-cat-lifestyle:#ffd400;
+  --chart-bar:#ffd400; --chart-bar-2:#333333; --chart-spark:#37e07a; --chart-spark-cash:#c08cff;
+  --chart-target:#b3b3b3; --chart-grid:#333333; --chart-line-cpi:#ff9a3c;
+  --chart-grad-from:#ffd400; --chart-grad-to:#c08cff;
+  --shadow-card:0 0 0 1px #4a4a4a; --shadow-pop:0 0 0 1px #6e6e6e,0 18px 40px -10px rgba(0,0,0,.8);
+}
+
+/* ---- COLORBLIND-SAFE — Okabe–Ito palette (deuteranopia/protanopia) --------- */
+:root[data-theme="colorblind"] {
+  --color-bg-app:#f4f4f1; --color-bg-sidebar:#fbfbf9; --color-bg-card:#ffffff;
+  --color-bg-card-sunken:#eeeeea; --color-bg-elevated:#e7e7e2;
+  --color-border:#d5d5cf; --color-border-strong:#b8b8b0; --color-border-faint:#e6e6e0;
+  --color-text-primary:#1a1a1a; --color-text-secondary:#4d4d4d; --color-text-muted:#767670;
+  /* Okabe–Ito: blue #0072B2, bluish-green #009E73, vermillion #D55E00, orange #E69F00,
+     reddish-purple #CC79A7, sky #56B4E9 — chosen to stay distinct for red-green CVD. */
+  --color-accent:#0072b2; --color-accent-strong:#005b8f; --color-accent-soft:rgba(0,114,178,.12);
+  --color-accent-foreground:#ffffff; --color-brand:#0072b2;
+  --color-positive:#009e73; --color-positive-soft:rgba(0,158,115,.13);
+  --color-negative:#d55e00; --color-negative-soft:rgba(213,94,0,.12);
+  --color-purple:#cc79a7; --color-purple-soft:rgba(204,121,167,.14);
+  --color-amber:#e69f00; --color-amber-soft:rgba(230,159,0,.13);
+  --color-orange:#d55e00; --color-orange-soft:rgba(213,94,0,.12);
+  --color-cat-game:#e69f00; --color-cat-health:#009e73; --color-cat-finance:#cc79a7; --color-cat-lifestyle:#56b4e9;
+  --chart-bar:#0072b2; --chart-bar-2:#d8d8d2; --chart-spark:#009e73; --chart-spark-cash:#cc79a7;
+  --chart-target:#767670; --chart-grid:#e6e6e0; --chart-line-cpi:#e69f00;
+  --chart-grad-from:#0072b2; --chart-grad-to:#56b4e9;
+  --shadow-card:0 8px 22px -10px rgba(30,40,60,.16),0 2px 6px -2px rgba(30,40,60,.08);
+  --shadow-pop:0 16px 36px -10px rgba(30,40,60,.2);
+}
