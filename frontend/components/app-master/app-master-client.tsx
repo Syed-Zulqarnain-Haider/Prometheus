@@ -1,7 +1,7 @@
 "use client";
 
-import { RefreshCw, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, Undo2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,14 +19,26 @@ import {
   type AppMasterColumnMeta,
   type AppMasterFilters,
   useAppMaster,
+  useAppMasterFilterValues,
   useAppMasterSchemaDiff,
   useMe,
   useRefreshAppMaster,
+  useSetAppMasterColumnOrder,
+  useUndoAppMaster,
   useUpdateAppMaster,
 } from "@/lib/api-hooks";
 
 const PAGE_SIZE = 50;
-const EMPTY_FILTERS: AppMasterFilters = { search: "", platform: "", hou: "", pod: "", needsReview: "" };
+const EMPTY_FILTERS: AppMasterFilters = {
+  search: "",
+  platform: "",
+  hou: "",
+  publisher: "",
+  pod: "",
+  needsReview: "",
+  package: "",
+  appId: "",
+};
 
 function formatCell(value: unknown, type: AppMasterColumnMeta["type"]): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -57,6 +69,7 @@ function EditDrawer({
   onClose: () => void;
 }) {
   const update = useUpdateAppMaster();
+  const undo = useUndoAppMaster();
   const editable = useMemo(() => columns.filter((c) => c.editable), [columns]);
   const key = String(row[primaryKey] ?? "");
 
@@ -71,7 +84,6 @@ function EditDrawer({
   });
 
   function onSave() {
-    // Only send columns whose value actually changed.
     const body: Record<string, unknown> = {};
     for (const c of editable) {
       const next = parseField(form[c.name], c.type);
@@ -86,9 +98,16 @@ function EditDrawer({
     update.mutate({ key, body }, { onSuccess: onClose });
   }
 
+  const busy = update.isPending || undo.isPending;
+
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
-      <button aria-label="Close" tabIndex={-1} onClick={onClose} className="absolute inset-0 bg-black/50" />
+      <button
+        aria-label="Close"
+        tabIndex={-1}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50"
+      />
       <div className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l bg-card shadow-xl">
         <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
           <div className="min-w-0">
@@ -135,13 +154,31 @@ function EditDrawer({
                 : "Could not save — please try again."}
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={update.isPending}>
-              Cancel
+          {undo.isError && (
+            <p className="text-xs text-destructive" role="alert">
+              {undo.error instanceof ApiError ? undo.error.message : "Nothing to undo."}
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-muted-foreground"
+              disabled={busy}
+              title="Revert the most recent edit on this app"
+              onClick={() => undo.mutate(key, { onSuccess: onClose })}
+            >
+              <Undo2 className="h-4 w-4" />
+              Undo last edit
             </Button>
-            <Button onClick={onSave} disabled={update.isPending}>
-              {update.isPending ? "Saving…" : "Save changes"}
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={onSave} disabled={busy}>
+                {update.isPending ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -155,12 +192,18 @@ export function AppMasterClient() {
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
 
-  // Reset to the first page whenever a filter changes.
+  // Column-reorder mode (admin): drag headers, then Save applies it globally.
+  const [reordering, setReordering] = useState(false);
+  const [localOrder, setLocalOrder] = useState<string[]>([]);
+  const dragCol = useRef<string | null>(null);
+
   useEffect(() => setPage(0), [filters]);
 
   const query = useAppMaster(filters, PAGE_SIZE, page * PAGE_SIZE);
+  const values = useAppMasterFilterValues();
   const refresh = useRefreshAppMaster();
   const schema = useAppMasterSchemaDiff();
+  const saveOrder = useSetAppMasterColumnOrder();
 
   if (meLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (!me?.capabilities.includes("admin_panel")) {
@@ -169,49 +212,76 @@ export function AppMasterClient() {
 
   const data = query.data;
   const columns = data?.columns ?? [];
+  const colByName = new Map(columns.map((c) => [c.name, c]));
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const hasFilters = Boolean(
-    filters.search || filters.platform || filters.hou || filters.pod || filters.needsReview,
-  );
+  const hasFilters = Object.values(filters).some(Boolean);
+
+  // Columns to render: the dragged local order while reordering, else the server order.
+  const shownColumns = reordering
+    ? localOrder.map((n) => colByName.get(n)).filter((c): c is AppMasterColumnMeta => Boolean(c))
+    : columns;
+
+  function startReorder() {
+    setLocalOrder(columns.map((c) => c.name));
+    setReordering(true);
+  }
+  function dropOn(target: string) {
+    const from = dragCol.current;
+    dragCol.current = null;
+    if (!from || from === target) return;
+    setLocalOrder((prev) => {
+      const next = prev.filter((n) => n !== from);
+      next.splice(next.indexOf(target), 0, from);
+      return next;
+    });
+  }
+
+  const platformOpts = values.data?.platforms ?? ["ios", "android"];
+  const houOpts = values.data?.hou ?? [];
+  const publisherOpts = values.data?.publishers ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Separate filter bar for this page only. */}
+      {/* Filter bar (this page only). */}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Search</Label>
-          <Input
-            className="h-8 w-48"
-            placeholder="app, key, publisher…"
-            value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Platform</Label>
-          <Select
-            value={filters.platform || "all"}
-            onValueChange={(v) => setFilters((f) => ({ ...f, platform: v === "all" ? "" : v }))}
-          >
-            <SelectTrigger className="h-8 w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="ios">iOS</SelectItem>
-              <SelectItem value="android">Android</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">HOU</Label>
-          <Input
-            className="h-8 w-28"
-            value={filters.hou}
-            onChange={(e) => setFilters((f) => ({ ...f, hou: e.target.value }))}
-          />
-        </div>
+        <FilterText
+          label="Search"
+          width="w-44"
+          placeholder="app, key, publisher…"
+          value={filters.search}
+          onChange={(v) => setFilters((f) => ({ ...f, search: v }))}
+        />
+        <FilterSelect
+          label="Platform"
+          value={filters.platform}
+          options={platformOpts}
+          onChange={(v) => setFilters((f) => ({ ...f, platform: v }))}
+        />
+        <FilterSelect
+          label="Publisher"
+          value={filters.publisher}
+          options={publisherOpts}
+          onChange={(v) => setFilters((f) => ({ ...f, publisher: v }))}
+        />
+        <FilterSelect
+          label="HOU"
+          value={filters.hou}
+          options={houOpts}
+          onChange={(v) => setFilters((f) => ({ ...f, hou: v }))}
+        />
+        <FilterText
+          label="Package"
+          width="w-40"
+          value={filters.package}
+          onChange={(v) => setFilters((f) => ({ ...f, package: v }))}
+        />
+        <FilterText
+          label="App ID"
+          width="w-32"
+          value={filters.appId}
+          onChange={(v) => setFilters((f) => ({ ...f, appId: v }))}
+        />
         <div className="space-y-1">
           <Label className="text-xs">Pod</Label>
           <Input
@@ -229,7 +299,7 @@ export function AppMasterClient() {
               setFilters((f) => ({ ...f, needsReview: v === "any" ? "" : (v as "true" | "false") }))
             }
           >
-            <SelectTrigger className="h-8 w-28">
+            <SelectTrigger className="h-8 w-24">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -254,12 +324,7 @@ export function AppMasterClient() {
               {refresh.error instanceof ApiError ? refresh.error.message : "Refresh failed."}
             </span>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => schema.mutate()}
-            disabled={schema.isPending}
-          >
+          <Button variant="outline" size="sm" onClick={() => schema.mutate()} disabled={schema.isPending}>
             {schema.isPending ? "Checking…" : "Check schema"}
           </Button>
           <Button
@@ -275,7 +340,7 @@ export function AppMasterClient() {
         </div>
       </div>
 
-      {/* Schema-match result: confirms the configured BigQuery table's columns line up. */}
+      {/* Schema-match result. */}
       {(schema.data || schema.isError) && (
         <div className="rounded-lg border bg-card p-3 text-sm">
           {schema.isError ? (
@@ -288,16 +353,16 @@ export function AppMasterClient() {
             <p className="text-destructive">{schema.data.message}</p>
           ) : schema.data?.in_sync ? (
             <p className="font-medium text-[color:var(--color-positive)]">
-              ✓ Schema matches — all {columns.length} columns are present with the expected types.
+              ✓ Schema matches — all {columns.length} columns present with the expected types.
             </p>
           ) : (
             <div className="space-y-1">
               <p className="font-medium text-[color:var(--color-negative)]">
-                Schema mismatch — this table won’t sync/edit correctly until it’s fixed:
+                Schema mismatch — fix before syncing/editing:
               </p>
               {(schema.data?.missing_in_view.length ?? 0) > 0 && (
                 <p>
-                  <span className="text-muted-foreground">Missing columns:</span>{" "}
+                  <span className="text-muted-foreground">Missing:</span>{" "}
                   {schema.data?.missing_in_view.join(", ")}
                 </p>
               )}
@@ -311,7 +376,7 @@ export function AppMasterClient() {
               )}
               {(schema.data?.unregistered_in_view.length ?? 0) > 0 && (
                 <p className="text-muted-foreground">
-                  Extra columns in BigQuery (ignored):{" "}
+                  Extra in BigQuery (ignored):{" "}
                   {schema.data?.unregistered_in_view.map((u) => u.column).join(", ")}
                 </p>
               )}
@@ -320,15 +385,51 @@ export function AppMasterClient() {
         </div>
       )}
 
-      {/* Wide, horizontally scrollable grid. */}
+      {/* Reorder controls. */}
+      <div className="flex items-center gap-2 text-sm">
+        {reordering ? (
+          <>
+            <span className="text-xs text-muted-foreground">
+              Drag column headers to reorder — this applies to <strong>all users</strong>.
+            </span>
+            <Button
+              size="sm"
+              disabled={saveOrder.isPending}
+              onClick={() => saveOrder.mutate(localOrder, { onSuccess: () => setReordering(false) })}
+            >
+              {saveOrder.isPending ? "Saving…" : "Save order"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setReordering(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" size="sm" onClick={startReorder} disabled={columns.length === 0}>
+            Reorder columns
+          </Button>
+        )}
+      </div>
+
+      {/* Grid — sticky header (top) + sticky Edit column (left). */}
       <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
+        <div className="max-h-[68vh] overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left">Edit</th>
-                {columns.map((c) => (
-                  <th key={c.name} className="whitespace-nowrap px-3 py-2 text-left font-medium">
+              <tr className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="sticky left-0 top-0 z-30 border-b bg-card px-3 py-2 text-left">
+                  Edit
+                </th>
+                {shownColumns.map((c) => (
+                  <th
+                    key={c.name}
+                    draggable={reordering}
+                    onDragStart={() => (dragCol.current = c.name)}
+                    onDragOver={(e) => reordering && e.preventDefault()}
+                    onDrop={() => dropOn(c.name)}
+                    className={`sticky top-0 z-20 whitespace-nowrap border-b bg-card px-3 py-2 text-left font-medium ${
+                      reordering ? "cursor-move hover:bg-accent" : ""
+                    }`}
+                  >
                     {c.name}
                     {c.editable && <span className="ml-1 text-[color:var(--color-accent)]">•</span>}
                   </th>
@@ -338,7 +439,7 @@ export function AppMasterClient() {
             <tbody>
               {query.isLoading && (
                 <tr>
-                  <td className="px-3 py-6 text-center text-muted-foreground" colSpan={columns.length + 1}>
+                  <td className="px-3 py-6 text-center text-muted-foreground" colSpan={shownColumns.length + 1}>
                     Loading…
                   </td>
                 </tr>
@@ -347,7 +448,7 @@ export function AppMasterClient() {
                 <tr>
                   <td
                     className="px-3 py-6 text-center text-[color:var(--color-negative)]"
-                    colSpan={columns.length + 1}
+                    colSpan={shownColumns.length + 1}
                   >
                     Couldn&apos;t load App Master — please retry.
                   </td>
@@ -355,7 +456,7 @@ export function AppMasterClient() {
               )}
               {!query.isLoading && !query.isError && (data?.rows.length ?? 0) === 0 && (
                 <tr>
-                  <td className="px-3 py-6 text-center text-muted-foreground" colSpan={columns.length + 1}>
+                  <td className="px-3 py-6 text-center text-muted-foreground" colSpan={shownColumns.length + 1}>
                     {hasFilters
                       ? "No apps match these filters."
                       : "No apps loaded yet — click “Refresh from BigQuery” to pull the master list."}
@@ -363,13 +464,16 @@ export function AppMasterClient() {
                 </tr>
               )}
               {data?.rows.map((row, i) => (
-                <tr key={String(row[data.primary_key] ?? i)} className="border-b border-border-faint hover:bg-accent">
+                <tr
+                  key={String(row[data.primary_key] ?? i)}
+                  className="border-b border-border-faint hover:bg-accent"
+                >
                   <td className="sticky left-0 z-10 bg-card px-3 py-1.5">
                     <Button variant="outline" size="sm" onClick={() => setEditing(row)}>
                       Edit
                     </Button>
                   </td>
-                  {columns.map((c) => (
+                  {shownColumns.map((c) => (
                     <td key={c.name} className="whitespace-nowrap px-3 py-1.5">
                       {formatCell(row[c.name], c.type)}
                     </td>
@@ -411,6 +515,64 @@ export function AppMasterClient() {
           onClose={() => setEditing(null)}
         />
       )}
+    </div>
+  );
+}
+
+function FilterText({
+  label,
+  value,
+  onChange,
+  width,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  width: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        className={`h-8 ${width}`}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+/** Single-select dropdown populated from real values ("" = All). */
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Select value={value || "all"} onValueChange={(v) => onChange(v === "all" ? "" : v)}>
+        <SelectTrigger className="h-8 w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o} value={o}>
+              {o}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

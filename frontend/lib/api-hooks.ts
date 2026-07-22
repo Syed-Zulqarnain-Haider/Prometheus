@@ -769,15 +769,19 @@ export interface AppMasterListResponse {
   rows: Record<string, unknown>[];
   total: number;
   columns: AppMasterColumnMeta[];
+  column_order: string[];
   primary_key: string;
 }
 
 export interface AppMasterFilters {
   search: string;
   platform: string; // "" = all
-  hou: string;
+  hou: string; // "" = all
+  publisher: string; // "" = all
   pod: string; // raw input; sent as int when numeric
   needsReview: "" | "true" | "false";
+  package: string;
+  appId: string;
 }
 
 export function useAppMaster(filters: AppMasterFilters, limit: number, offset: number) {
@@ -785,13 +789,59 @@ export function useAppMaster(filters: AppMasterFilters, limit: number, offset: n
   const params: Record<string, string | number | boolean> = { limit, offset };
   if (filters.search.trim()) params.search = filters.search.trim();
   if (filters.platform) params.platform = filters.platform;
-  if (filters.hou.trim()) params.hou = filters.hou.trim();
+  if (filters.hou) params.hou = filters.hou;
+  if (filters.publisher) params.publisher = filters.publisher;
   if (filters.pod.trim() && Number.isInteger(Number(filters.pod))) params.pod = Number(filters.pod);
   if (filters.needsReview) params.needs_review = filters.needsReview;
+  if (filters.package.trim()) params.package = filters.package.trim();
+  if (filters.appId.trim()) params.app_id = filters.appId.trim();
   return useQuery({
     queryKey: ["app-master", params],
     queryFn: () => apiFetch<AppMasterListResponse>(`/api/v1/app-master${buildQuery(params)}`),
     enabled: Boolean(user),
+  });
+}
+
+export interface AppMasterFilterValues {
+  platforms: string[];
+  hou: string[];
+  publishers: string[];
+  pods: number[];
+}
+
+/** Distinct values for the App Master filter dropdowns. */
+export function useAppMasterFilterValues() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["app-master-filter-values"],
+    queryFn: () => apiFetch<AppMasterFilterValues>("/api/v1/app-master/filter-values"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Set the GLOBAL column order (admin) — applies to every user's grid. */
+export function useSetAppMasterColumnOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      apiFetch<string[]>("/api/v1/app-master/column-order", {
+        method: "PUT",
+        body: JSON.stringify({ order }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+/** Undo the most recent edit on a row (restores prior values in BigQuery + Postgres). */
+export function useUndoAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}/undo`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
   });
 }
 
