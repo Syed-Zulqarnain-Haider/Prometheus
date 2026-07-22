@@ -138,6 +138,14 @@ async def approve(
     req.decided_by = actor_id
     req.decided_at = datetime.now(UTC)
     await db.commit()
+    # Welcome the newly-provisioned user (visible next time they load the app).
+    await notification_service.notify_user(
+        summary.id,
+        type="access_approved",
+        title="Your access was approved",
+        body="Welcome to Prometheus — your account is now active.",
+        actor_id=actor_id,
+    )
     return summary, req.firebase_uid
 
 

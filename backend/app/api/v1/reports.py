@@ -35,7 +35,7 @@ from app.schemas.reports import (
     ShareCreate,
     ShareOut,
 )
-from app.services import reports_service
+from app.services import notification_service, reports_service
 from app.services.audit import AuditDep
 from app.services.query_builder import QueryBuilder
 
@@ -366,6 +366,15 @@ async def share_report(
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
+    if new_status == "pending":
+        # A non-admin share needs approval — let the admins know.
+        await notification_service.notify_admins(
+            type="share_request",
+            title="Report share awaiting approval",
+            body=f"{context.email} shared “{report.name}” — needs an admin's approval.",
+            actor_id=context.user_id,
+            resource=str(report_id),
+        )
     return _share_out(share, report.name)
 
 
@@ -395,6 +404,14 @@ async def _decide_share(
         detail={"share_id": str(share.id), "shared_with": str(share.shared_with)},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
+    )
+    # Tell the person who requested the share how it was decided.
+    await notification_service.notify_user(
+        share.shared_by,
+        type="share_decision",
+        title=f"Your report share was {new_status}",
+        actor_id=context.user_id,
+        resource=str(share.report_id),
     )
     return _share_out(share)
 

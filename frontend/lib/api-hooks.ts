@@ -904,14 +904,16 @@ export interface NotificationList {
   unread: number;
 }
 
-/** Polls every 20s so notifications (and cross-user changes) appear without a refresh. */
+/** Near-real-time: polls every 15s AND refetches the moment the tab regains focus, so
+ *  notifications (and cross-user changes) surface without a manual refresh. */
 export function useNotifications() {
   const { user } = useAuth();
   return useQuery({
     queryKey: ["notifications"],
     queryFn: () => apiFetch<NotificationList>("/api/v1/notifications"),
     enabled: Boolean(user),
-    refetchInterval: 20000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 }
 
