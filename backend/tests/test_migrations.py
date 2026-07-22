@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from tests.conftest import TEST_DATABASE_URL
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-_HEAD = "a7b8c9d0e1f2"  # sync mode range (current head)
+_HEAD = "b8c9d0e1f2a3"  # notifications (current head)
 _BEFORE_EXPIRY = "f4a1c9d2e7b3"  # revision just before the access_expires_at migration
 
 

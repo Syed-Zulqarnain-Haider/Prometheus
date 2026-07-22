@@ -23,7 +23,7 @@ from app.schemas.app_master import (
     ColumnOrderUpdate,
 )
 from app.schemas.integration import SchemaDiff
-from app.services import app_master_service
+from app.services import app_master_service, notification_service
 from app.services.app_master_bq import (
     BigQueryNotConfigured,
     BigQueryReadError,
@@ -179,6 +179,13 @@ async def update_app_master(
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
+    await notification_service.notify_admins(
+        type="app_master_edit",
+        title="App Master row edited",
+        body=f"{context.email} edited {key}: {', '.join(changes) or '—'}",
+        actor_id=context.user_id,
+        resource=key,
+    )
     return updated
 
 
@@ -211,5 +218,13 @@ async def refresh_app_master(
         detail=result,
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
+    )
+    await notification_service.notify_admins(
+        type="app_master_refresh",
+        title="App Master refreshed from BigQuery",
+        body=f"Synced {result.get('synced', 0)} apps"
+        + (f" · skipped {result['skipped']}" if result.get("skipped") else ""),
+        actor_id=context.user_id,
+        resource="app_master",
     )
     return result

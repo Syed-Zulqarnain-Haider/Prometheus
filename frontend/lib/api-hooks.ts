@@ -887,3 +887,47 @@ export function useAppMasterSchemaDiff() {
     mutationFn: () => apiFetch<SchemaDiff>("/api/v1/app-master/schema-diff"),
   });
 }
+
+// ── Notifications (RBAC-scoped) + real-time polling ──────────────────────────────
+export interface NotificationItem {
+  id: number;
+  created_at: string;
+  type: string;
+  title: string;
+  body: string | null;
+  resource: string | null;
+  read: boolean;
+}
+
+export interface NotificationList {
+  items: NotificationItem[];
+  unread: number;
+}
+
+/** Polls every 20s so notifications (and cross-user changes) appear without a refresh. */
+export function useNotifications() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => apiFetch<NotificationList>("/api/v1/notifications"),
+    enabled: Boolean(user),
+    refetchInterval: 20000,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/api/v1/notifications/${id}/read`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>("/api/v1/notifications/read-all", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}

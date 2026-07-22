@@ -3,6 +3,7 @@
 import { LogOut } from "lucide-react";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { ThemeSelector } from "@/components/layout/theme-selector";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -24,6 +25,7 @@ export function Header() {
             {user.email}
           </span>
         )}
+        <NotificationBell />
         <ThemeSelector />
         <Button
           variant="ghost"

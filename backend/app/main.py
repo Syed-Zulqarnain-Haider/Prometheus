@@ -28,6 +28,7 @@ from app.api.v1 import export as export_routes
 from app.api.v1 import layouts as layouts_routes
 from app.api.v1 import meta as meta_routes
 from app.api.v1 import metrics as metrics_routes
+from app.api.v1 import notifications as notifications_routes
 from app.api.v1 import reports as reports_routes
 from app.api.v1 import views as views_routes
 from app.core.config import get_settings
@@ -177,6 +178,7 @@ app.include_router(auth_routes.public_router, prefix=settings.api_v1_prefix)
 app.include_router(metrics_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(apps_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(meta_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(notifications_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(views_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(layouts_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(reports_routes.router, prefix=settings.api_v1_prefix)

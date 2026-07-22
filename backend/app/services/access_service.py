@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import AccessRequest, User
 from app.schemas.access import AccessRequestOut
 from app.schemas.admin import ScopeIn, UserSummary
-from app.services import admin_service
+from app.services import admin_service, notification_service
 
 
 class RequestAlreadyDecided(Exception):
@@ -66,6 +66,12 @@ async def record_request(
     await db.commit()
     row = await db.scalar(select(AccessRequest).where(AccessRequest.firebase_uid == firebase_uid))
     assert row is not None  # just upserted
+    await notification_service.notify_admins(
+        type="access_request",
+        title="New access request",
+        body=f"{email} is requesting access.",
+        resource=str(row.id),
+    )
     return _out(row)
 
 
