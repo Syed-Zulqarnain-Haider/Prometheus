@@ -83,6 +83,19 @@ def _query_project(table_id: str, settings: Settings) -> str | None:
     return settings.bigquery_project or None
 
 
+def _writer_key_path(settings: Settings) -> str:
+    """Key used for edit write-back. Prefer a dedicated writer key; if none is mounted, fall
+    back to the reader key — so once that reader service account is granted BigQuery Data
+    Editor, edits work with NO extra config (just a redeploy). Read/write scopes still differ,
+    and if a separate writer key IS mounted it takes precedence (clean read/write separation)."""
+    import os
+
+    writer = settings.bq_writer_credentials_path
+    if writer and os.path.exists(writer):
+        return writer
+    return settings.bq_credentials_path
+
+
 def _error_reason(exc: Exception) -> str:
     """First line of the provider error (admin-only diagnostic — names the missing
     permission / resource, e.g. table-access vs project jobs.create)."""
@@ -121,9 +134,7 @@ def push_update(settings: Settings, table_id: str, key_value: str, changes: dict
     if not changes:
         return
     bigquery, _ = _bq_modules()
-    client = _client(
-        settings.bq_writer_credentials_path, _query_project(table_id, settings), _WRITE_SCOPES
-    )
+    client = _client(_writer_key_path(settings), _query_project(table_id, settings), _WRITE_SCOPES)
 
     set_fragments: list[str] = []
     params: list[Any] = []
