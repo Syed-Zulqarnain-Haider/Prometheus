@@ -34,7 +34,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
       attribute="data-theme"
       defaultTheme="light"
       enableSystem={false}
-      themes={["light", "dark", "ocean", "forest", "contrast", "colorblind"]}
+      themes={[
+        "light",
+        "dark",
+        "ocean",
+        "forest",
+        "slate",
+        "rose",
+        "amber",
+        "grape",
+        "contrast",
+        "colorblind",
+      ]}
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider>{children}</AuthProvider>

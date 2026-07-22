@@ -254,3 +254,87 @@
   --shadow-card:0 8px 22px -10px rgba(30,40,60,.16),0 2px 6px -2px rgba(30,40,60,.08);
   --shadow-pop:0 16px 36px -10px rgba(30,40,60,.2);
 }
+
+/* ---- SLATE — cool neutral gray dark --------------------------------------- */
+:root[data-theme="slate"] {
+  --color-bg-app:#14171c; --color-bg-sidebar:#101318; --color-bg-card:#1b1f26;
+  --color-bg-card-sunken:#15181e; --color-bg-elevated:#262b34;
+  --color-border:#2c313a; --color-border-strong:#3d434e; --color-border-faint:#202530;
+  --color-text-primary:#e8eaed; --color-text-secondary:#a3a9b3; --color-text-muted:#6e747e;
+  --color-accent:#6d9dc5; --color-accent-strong:#5885ad; --color-accent-soft:rgba(109,157,197,.16);
+  --color-accent-foreground:#14171c; --color-brand:#6d9dc5;
+  --color-positive:#63b389; --color-positive-soft:rgba(99,179,137,.15);
+  --color-negative:#d47a70; --color-negative-soft:rgba(212,122,112,.15);
+  --color-purple:#9b8cc9; --color-purple-soft:rgba(155,140,201,.16);
+  --color-amber:#d4b45e; --color-amber-soft:rgba(212,180,94,.15);
+  --color-orange:#d18a5c; --color-orange-soft:rgba(209,138,92,.15);
+  --color-cat-game:#7fabce; --color-cat-health:#63b389; --color-cat-finance:#9b8cc9; --color-cat-lifestyle:#d4b45e;
+  --chart-bar:#6d9dc5; --chart-bar-2:#2c313a; --chart-spark:#63b389; --chart-spark-cash:#9b8cc9;
+  --chart-target:#6e747e; --chart-grid:#202530; --chart-line-cpi:#d4b45e;
+  --chart-grad-from:#6d9dc5; --chart-grad-to:#9b8cc9;
+  --shadow-card:0 12px 30px -12px rgba(0,0,0,.55),0 3px 10px -3px rgba(0,0,0,.38);
+  --shadow-pop:0 18px 40px -10px rgba(0,0,0,.55);
+}
+
+/* ---- ROSE — soft rose light ----------------------------------------------- */
+:root[data-theme="rose"] {
+  --color-bg-app:#fbf5f5; --color-bg-sidebar:#fdf8f8; --color-bg-card:#fffcfc;
+  --color-bg-card-sunken:#f5ecec; --color-bg-elevated:#f0e4e4;
+  --color-border:#ecdada; --color-border-strong:#d8bcbc; --color-border-faint:#f2e5e5;
+  --color-text-primary:#2a1e1e; --color-text-secondary:#6b5555; --color-text-muted:#9a8383;
+  --color-accent:#c14d6b; --color-accent-strong:#a63d58; --color-accent-soft:rgba(193,77,107,.10);
+  --color-accent-foreground:#fffcfc; --color-brand:#c14d6b;
+  --color-positive:#3d8a63; --color-positive-soft:rgba(61,138,99,.12);
+  --color-negative:#b8433a; --color-negative-soft:rgba(184,67,58,.11);
+  --color-purple:#8a5a9c; --color-purple-soft:rgba(138,90,156,.14);
+  --color-amber:#a67a2e; --color-amber-soft:rgba(166,122,46,.13);
+  --color-orange:#b0602f; --color-orange-soft:rgba(176,96,47,.12);
+  --color-cat-game:#b06a4e; --color-cat-health:#3d8a63; --color-cat-finance:#8a5a9c; --color-cat-lifestyle:#a67a2e;
+  --chart-bar:#c14d6b; --chart-bar-2:#eed6d6; --chart-spark:#3d8a63; --chart-spark-cash:#8a5a9c;
+  --chart-target:#9a8383; --chart-grid:#f0e0e0; --chart-line-cpi:#a67a2e;
+  --chart-grad-from:#c14d6b; --chart-grad-to:#8a5a9c;
+  --shadow-card:0 8px 22px -10px rgba(80,40,50,.14),0 2px 6px -2px rgba(80,40,50,.07);
+  --shadow-pop:0 16px 36px -10px rgba(80,40,50,.18);
+}
+
+/* ---- AMBER — warm amber/gold dark ----------------------------------------- */
+:root[data-theme="amber"] {
+  --color-bg-app:#1a1509; --color-bg-sidebar:#151006; --color-bg-card:#221b0d;
+  --color-bg-card-sunken:#1a1408; --color-bg-elevated:#2e2513;
+  --color-border:#3a2f16; --color-border-strong:#4d3f1f; --color-border-faint:#2a2210;
+  --color-text-primary:#f2ecdb; --color-text-secondary:#b8ab8a; --color-text-muted:#82785d;
+  --color-accent:#e0a93c; --color-accent-strong:#c8922c; --color-accent-soft:rgba(224,169,60,.16);
+  --color-accent-foreground:#1a1509; --color-brand:#e0a93c;
+  --color-positive:#6faa7e; --color-positive-soft:rgba(111,170,126,.15);
+  --color-negative:#d47a5a; --color-negative-soft:rgba(212,122,90,.15);
+  --color-purple:#b088c0; --color-purple-soft:rgba(176,136,192,.16);
+  --color-amber:#e0a93c; --color-amber-soft:rgba(224,169,60,.15);
+  --color-orange:#d88b4e; --color-orange-soft:rgba(216,139,78,.15);
+  --color-cat-game:#d0a05a; --color-cat-health:#6faa7e; --color-cat-finance:#b088c0; --color-cat-lifestyle:#e0a93c;
+  --chart-bar:#e0a93c; --chart-bar-2:#3a2f16; --chart-spark:#6faa7e; --chart-spark-cash:#b088c0;
+  --chart-target:#82785d; --chart-grid:#2a2210; --chart-line-cpi:#d88b4e;
+  --chart-grad-from:#e0a93c; --chart-grad-to:#d88b4e;
+  --shadow-card:0 12px 30px -12px rgba(0,0,0,.55),0 3px 10px -3px rgba(0,0,0,.38);
+  --shadow-pop:0 18px 40px -10px rgba(0,0,0,.55);
+}
+
+/* ---- GRAPE — deep purple dark --------------------------------------------- */
+:root[data-theme="grape"] {
+  --color-bg-app:#16121f; --color-bg-sidebar:#120e1a; --color-bg-card:#1e1829;
+  --color-bg-card-sunken:#171122; --color-bg-elevated:#2a2138;
+  --color-border:#332a45; --color-border-strong:#473a5e; --color-border-faint:#241d33;
+  --color-text-primary:#ece7f4; --color-text-secondary:#afa4c4; --color-text-muted:#7a6f92;
+  --color-accent:#a06ce0; --color-accent-strong:#8a54c8; --color-accent-soft:rgba(160,108,224,.16);
+  --color-accent-foreground:#16121f; --color-brand:#a06ce0;
+  --color-positive:#5fc0a0; --color-positive-soft:rgba(95,192,160,.15);
+  --color-negative:#e0736b; --color-negative-soft:rgba(224,115,107,.15);
+  --color-purple:#a06ce0; --color-purple-soft:rgba(160,108,224,.16);
+  --color-amber:#d8b04e; --color-amber-soft:rgba(216,176,78,.15);
+  --color-orange:#d8865a; --color-orange-soft:rgba(216,134,90,.15);
+  --color-cat-game:#b98ae0; --color-cat-health:#5fc0a0; --color-cat-finance:#a06ce0; --color-cat-lifestyle:#d8b04e;
+  --chart-bar:#a06ce0; --chart-bar-2:#332a45; --chart-spark:#5fc0a0; --chart-spark-cash:#d8865a;
+  --chart-target:#7a6f92; --chart-grid:#241d33; --chart-line-cpi:#d8b04e;
+  --chart-grad-from:#a06ce0; --chart-grad-to:#d8865a;
+  --shadow-card:0 12px 30px -12px rgba(0,0,0,.58),0 3px 10px -3px rgba(0,0,0,.4);
+  --shadow-pop:0 18px 40px -10px rgba(0,0,0,.58);
+}

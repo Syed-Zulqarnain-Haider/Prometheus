@@ -13,6 +13,10 @@ const THEMES: { key: string; label: string; note?: string; swatches: [string, st
   { key: "dark", label: "Night Ledger", note: "Dark", swatches: ["#1c1810", "#cb5d50", "#6faa7e"] },
   { key: "ocean", label: "Ocean", note: "Blue dark", swatches: ["#14202f", "#4a9ed8", "#4ec9a3"] },
   { key: "forest", label: "Forest", note: "Green dark", swatches: ["#1a2114", "#7aa34e", "#6faa7e"] },
+  { key: "slate", label: "Slate", note: "Gray dark", swatches: ["#1b1f26", "#6d9dc5", "#63b389"] },
+  { key: "rose", label: "Rose", note: "Light", swatches: ["#fffcfc", "#c14d6b", "#3d8a63"] },
+  { key: "amber", label: "Amber", note: "Gold dark", swatches: ["#221b0d", "#e0a93c", "#6faa7e"] },
+  { key: "grape", label: "Grape", note: "Purple dark", swatches: ["#1e1829", "#a06ce0", "#5fc0a0"] },
   {
     key: "contrast",
     label: "High Contrast",
