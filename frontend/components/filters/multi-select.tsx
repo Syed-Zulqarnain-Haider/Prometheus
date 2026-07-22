@@ -75,16 +75,26 @@ export function MultiSelect({
             <p className="text-xs text-muted-foreground">No options</p>
           )}
           {options.map((option) => (
-            <label
+            <div
               key={option.value}
-              className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent"
+              className="group flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent"
             >
-              <Checkbox
-                checked={selected.includes(option.value)}
-                onCheckedChange={() => toggle(option.value)}
-              />
-              <span className="truncate">{option.label}</span>
-            </label>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={selected.includes(option.value)}
+                  onCheckedChange={() => toggle(option.value)}
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+              {/* "only" quick-pick: select just this one (like Looker/Tableau). */}
+              <button
+                type="button"
+                className="shrink-0 rounded px-1 text-xs text-muted-foreground opacity-0 hover:underline group-hover:opacity-100"
+                onClick={() => onChange([option.value])}
+              >
+                only
+              </button>
+            </div>
           ))}
         </div>
       </PopoverContent>

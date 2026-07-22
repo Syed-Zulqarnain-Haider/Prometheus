@@ -19,8 +19,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  // Pages with their OWN filter bar (App Master) don't use the global metric filters.
-  const hideGlobalFilters = pathname?.startsWith("/app-master") ?? false;
+  // The global metric filter bar belongs only on the analytics pages. Admin/utility pages
+  // (and App Master, which has its own filters) don't use it, so hide it there.
+  const HIDE_FILTERS_ON = ["/app-master", "/admin", "/data-health"];
+  const hideGlobalFilters = HIDE_FILTERS_ON.some((p) => pathname?.startsWith(p));
   // Provisioning gate: Firebase auth alone is NOT access. We resolve /auth/me, and
   // an authenticated-but-unprovisioned user (any provider, incl. Google) is rejected
   // server-side — we show a friendly screen instead of a broken dashboard.

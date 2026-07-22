@@ -1,8 +1,29 @@
-import { format, subDays } from "date-fns";
+import { endOfMonth, format, startOfMonth, subDays, subMonths } from "date-fns";
 
 import type { Platform } from "@/lib/types";
 
-export type DatePreset = "7D" | "30D" | "90D" | "custom";
+export type DatePreset =
+  | "today"
+  | "yesterday"
+  | "7D"
+  | "30D"
+  | "mtd" // this month so far
+  | "lastmonth"
+  | "all"
+  | "custom";
+
+/** Preset menu, in display order (labels match the AdMob/Looker date picker). */
+export const PRESET_LABELS: { key: Exclude<DatePreset, "custom">; label: string }[] = [
+  { key: "today", label: "Today so far" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "7D", label: "Last 7 days" },
+  { key: "30D", label: "Last 30 days" },
+  { key: "mtd", label: "This month so far" },
+  { key: "lastmonth", label: "Last month" },
+  { key: "all", label: "All time" },
+];
+
+const VALID_PRESETS = new Set<string>([...PRESET_LABELS.map((p) => p.key), "custom"]);
 
 export interface Filters {
   preset: DatePreset;
@@ -15,26 +36,40 @@ export interface Filters {
   apps: string[];
 }
 
-const PRESET_DAYS: Record<Exclude<DatePreset, "custom">, number> = {
-  "7D": 7,
-  "30D": 30,
-  "90D": 90,
-};
-
 const DEFAULT_PRESET: Exclude<DatePreset, "custom"> = "30D";
+// Earliest date "All time" reaches back to (well before any data).
+const ALL_TIME_START = "2020-01-01";
 
 function isoDate(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-/** Inclusive [from, to] range for a preset, ending today. */
+/** Inclusive [from, to] range for a preset. */
 export function presetRange(preset: Exclude<DatePreset, "custom">): {
   from: string;
   to: string;
 } {
-  const to = new Date();
-  const from = subDays(to, PRESET_DAYS[preset] - 1);
-  return { from: isoDate(from), to: isoDate(to) };
+  const today = new Date();
+  switch (preset) {
+    case "today":
+      return { from: isoDate(today), to: isoDate(today) };
+    case "yesterday": {
+      const y = subDays(today, 1);
+      return { from: isoDate(y), to: isoDate(y) };
+    }
+    case "7D":
+      return { from: isoDate(subDays(today, 6)), to: isoDate(today) };
+    case "30D":
+      return { from: isoDate(subDays(today, 29)), to: isoDate(today) };
+    case "mtd":
+      return { from: isoDate(startOfMonth(today)), to: isoDate(today) };
+    case "lastmonth": {
+      const prev = subMonths(today, 1);
+      return { from: isoDate(startOfMonth(prev)), to: isoDate(endOfMonth(prev)) };
+    }
+    case "all":
+      return { from: ALL_TIME_START, to: isoDate(today) };
+  }
 }
 
 export function defaultFilters(): Filters {
@@ -64,7 +99,7 @@ export function parseFilters(params: URLSearchParams): Filters {
     platformParam === "ios" || platformParam === "android" ? platformParam : null;
 
   return {
-    preset: preset === "custom" || preset in PRESET_DAYS ? preset : base.preset,
+    preset: VALID_PRESETS.has(preset) ? preset : base.preset,
     dateFrom: params.get("from") ?? base.dateFrom,
     dateTo: params.get("to") ?? base.dateTo,
     compare: params.get("compare") === "1",
