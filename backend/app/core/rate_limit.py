@@ -20,7 +20,10 @@ from app.core.redis import get_redis
 
 RATE_LIMIT = 300
 EXPORT_RATE_LIMIT = 10
-SYNC_RATE_LIMIT = 3
+SYNC_RATE_LIMIT = 6
+# Read-only / idempotent BigQuery admin actions (Test Connection, schema diff, schema
+# match). Kept on their OWN bucket so they can't starve the heavy sync trigger's budget.
+DIAGNOSTICS_RATE_LIMIT = 20
 ACCESS_REQUEST_RATE_LIMIT = 5
 WINDOW_SECONDS = 60
 
@@ -64,8 +67,20 @@ async def enforce_sync_rate_limit(
     context: CurrentUser,
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> None:
-    """Very tight limit for the on-demand sync trigger (3/min) to prevent abuse."""
+    """Tight limit for the heavy on-demand sync trigger (and Clear Data) to prevent abuse.
+    Its own bucket — read-only diagnostics use ``enforce_diagnostics_rate_limit`` so they
+    can't consume this budget."""
     await _enforce(redis, f"rl:sync:{context.user_id}", SYNC_RATE_LIMIT)
+
+
+async def enforce_diagnostics_rate_limit(
+    context: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> None:
+    """Limit for read-only / idempotent BigQuery admin actions (Test Connection, schema
+    diff, schema match). Separate from the sync-trigger budget so running diagnostics
+    never blocks the actual sync."""
+    await _enforce(redis, f"rl:diag:{context.user_id}", DIAGNOSTICS_RATE_LIMIT)
 
 
 async def enforce_access_request_rate_limit(

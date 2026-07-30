@@ -159,7 +159,7 @@ async def test_run_sync_not_configured_is_honest(metrics_env: MetricsEnv) -> Non
 
 async def test_run_sync_is_rate_limited(metrics_env: MetricsEnv) -> None:
     c = metrics_env.client
-    for _ in range(3):  # SYNC_RATE_LIMIT = 3 / min
+    for _ in range(6):  # SYNC_RATE_LIMIT = 6 / min
         ok = await c.post("/api/v1/admin/system/sync", headers=_auth("admin"))
         assert ok.status_code == 200
     blocked = await c.post("/api/v1/admin/system/sync", headers=_auth("admin"))

@@ -178,7 +178,7 @@ async def test_test_bigquery_honest_when_no_key(metrics_env: MetricsEnv) -> None
 
 async def test_test_bigquery_is_rate_limited(metrics_env: MetricsEnv) -> None:
     c = metrics_env.client
-    for _ in range(3):  # SYNC_RATE_LIMIT = 3 / min (shared tight bucket)
+    for _ in range(20):  # DIAGNOSTICS_RATE_LIMIT = 20 / min (its own bucket, not the sync one)
         ok = await c.post("/api/v1/admin/integration/test-bigquery", headers=_auth("admin"))
         assert ok.status_code == 200
     blocked = await c.post("/api/v1/admin/integration/test-bigquery", headers=_auth("admin"))
@@ -260,7 +260,7 @@ async def test_clear_data_wipes_only_analytics_and_is_audited(metrics_env: Metri
 async def test_clear_data_is_rate_limited(metrics_env: MetricsEnv) -> None:
     c = metrics_env.client
     body = {"confirmation": "DELETE ALL DATA"}
-    for _ in range(3):  # SYNC_RATE_LIMIT = 3 / min
+    for _ in range(6):  # SYNC_RATE_LIMIT = 6 / min (Clear Data shares the sync bucket)
         ok = await c.post("/api/v1/admin/integration/clear-data", json=body, headers=_auth("admin"))
         assert ok.status_code == 200
     blocked = await c.post(

@@ -21,7 +21,11 @@ from app.api.deps import CurrentUser, DbSession, RedisClient, require_capability
 from app.core.cache import AGG_PREFIX
 from app.core.config import get_settings
 from app.core.http import client_ip
-from app.core.rate_limit import enforce_rate_limit, enforce_sync_rate_limit
+from app.core.rate_limit import (
+    enforce_diagnostics_rate_limit,
+    enforce_rate_limit,
+    enforce_sync_rate_limit,
+)
 from app.models import User
 from app.schemas.access import AccessRequestApprove, AccessRequestOut
 from app.schemas.admin import (
@@ -588,7 +592,7 @@ async def get_integration_status(db: DbSession, redis: RedisClient) -> Integrati
 @router.post(
     "/integration/test-bigquery",
     response_model=BigQueryTestResult,
-    dependencies=[Depends(enforce_sync_rate_limit)],
+    dependencies=[Depends(enforce_diagnostics_rate_limit)],
 )
 async def test_bigquery_connection(
     request: Request,
@@ -616,7 +620,7 @@ async def test_bigquery_connection(
 @router.get(
     "/integration/schema-diff",
     response_model=SchemaDiff,
-    dependencies=[Depends(enforce_sync_rate_limit)],
+    dependencies=[Depends(enforce_diagnostics_rate_limit)],
 )
 async def get_schema_diff(db: DbSession) -> SchemaDiff:
     """Compare the live BigQuery view's columns against the metric registry. READ-ONLY
@@ -632,7 +636,7 @@ async def get_schema_diff(db: DbSession) -> SchemaDiff:
 @router.post(
     "/integration/schema-sync",
     response_model=SchemaSyncResult,
-    dependencies=[Depends(enforce_sync_rate_limit)],
+    dependencies=[Depends(enforce_diagnostics_rate_limit)],
 )
 async def integration_schema_sync(
     request: Request,
