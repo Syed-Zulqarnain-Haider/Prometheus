@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AppIcon } from "@/components/ui/app-icon";
 import { StoreLinkIcon } from "@/components/ui/store-link-icon";
 import { useTableInfinite } from "@/lib/api-hooks";
 import type { Filters } from "@/lib/filters";
@@ -75,6 +76,10 @@ function buildColumns(available: Set<string>): ColumnDef<AppRow>[] {
       if (c.kind === "app") {
         return (
           <span className="inline-flex items-center gap-1.5">
+            <AppIcon
+              name={String(value ?? "")}
+              iconUrl={row.original.icon_url as string | null | undefined}
+            />
             <span className="font-medium text-[color:var(--color-accent)]">
               {String(value ?? "")}
             </span>
