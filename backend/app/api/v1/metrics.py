@@ -47,6 +47,13 @@ def get_filters(
     publishers: Annotated[list[str] | None, Query()] = None,
     apps: Annotated[list[str] | None, Query()] = None,
     hou: Annotated[list[str] | None, Query()] = None,
+    pod_owners: Annotated[list[str] | None, Query()] = None,
+    consoles: Annotated[list[str] | None, Query()] = None,
+    developers: Annotated[list[str] | None, Query()] = None,
+    google_play_accounts: Annotated[list[str] | None, Query()] = None,
+    apple_accounts: Annotated[list[str] | None, Query()] = None,
+    packages: Annotated[list[str] | None, Query()] = None,
+    bundles: Annotated[list[str] | None, Query()] = None,
 ) -> MetricFilters:
     try:
         return MetricFilters(
@@ -58,6 +65,13 @@ def get_filters(
             publishers=publishers or [],
             apps=apps or [],
             hou=hou or [],
+            pod_owners=pod_owners or [],
+            consoles=consoles or [],
+            developers=developers or [],
+            google_play_accounts=google_play_accounts or [],
+            apple_accounts=apple_accounts or [],
+            packages=packages or [],
+            bundles=bundles or [],
         )
     except ValidationError as exc:
         # Surface the specific guard that failed (date order, range span, or filter

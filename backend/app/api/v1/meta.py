@@ -2,19 +2,57 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.api.v1.metrics import get_filters
 from app.core.rate_limit import enforce_rate_limit
 from app.models import SyncRun
 from app.schemas.admin import TargetsResponse
+from app.schemas.metrics import AppOption, FilterOptions, MetricFilters
 from app.schemas.system import ClientSettings
 from app.services import admin_service, settings_service
+from app.services.query_builder import QueryBuilder
 
 router = APIRouter(prefix="/meta", tags=["meta"], dependencies=[Depends(enforce_rate_limit)])
+
+# (column on the fact table, the filter key to clear when computing its own options)
+_OPTION_DIMS: list[tuple[str, str, str]] = [
+    ("platforms", "platform", "platform"),
+    ("consoles", "rpt_console", "consoles"),
+    ("pod_owners", "pod_owner", "pod_owners"),
+    ("publishers", "publisher", "publishers"),
+    ("developers", "developer", "developers"),
+    ("google_play_accounts", "google_play_account", "google_play_accounts"),
+    ("apple_accounts", "apple_account", "apple_accounts"),
+    ("packages", "android_package", "packages"),
+    ("bundles", "ios_bundle_id", "bundles"),
+    ("hous", "hou", "hou"),
+]
+
+
+@router.get("/filter-options", response_model=FilterOptions)
+async def filter_options(
+    context: CurrentUser,
+    db: DbSession,
+    filters: Annotated[MetricFilters, Depends(get_filters)],
+) -> FilterOptions:
+    """Cascading options for every filter dropdown — each dimension's values reflect the
+    other active filters + the caller's scope + the date window. Fixes 'platform=iOS still
+    lists non-iOS HOUs': each list is computed with its OWN selection cleared."""
+    qb = QueryBuilder(context)
+    result = FilterOptions()
+    for field, column, self_key in _OPTION_DIMS:
+        rows = (await db.execute(qb.distinct_values(filters, column, self_key))).all()
+        setattr(result, field, [r.value for r in rows if r.value is not None])
+    app_rows = (
+        await db.execute(qb.distinct_values(filters, "canonical_key", "apps", label="app_name"))
+    ).all()
+    result.apps = [AppOption(value=r.value, label=r.label) for r in app_rows if r.value is not None]
+    return result
 
 
 @router.get("/freshness")

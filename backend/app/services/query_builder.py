@@ -110,6 +110,20 @@ class QueryBuilder:
             conditions.append(FACT_TABLE.c.canonical_key.in_(params.apps))
         if params.hou:
             conditions.append(FACT_TABLE.c.hou.in_(params.hou))
+        if params.pod_owners:
+            conditions.append(FACT_TABLE.c.pod_owner.in_(params.pod_owners))
+        if params.consoles:
+            conditions.append(FACT_TABLE.c.rpt_console.in_(params.consoles))
+        if params.developers:
+            conditions.append(FACT_TABLE.c.developer.in_(params.developers))
+        if params.google_play_accounts:
+            conditions.append(FACT_TABLE.c.google_play_account.in_(params.google_play_accounts))
+        if params.apple_accounts:
+            conditions.append(FACT_TABLE.c.apple_account.in_(params.apple_accounts))
+        if params.packages:
+            conditions.append(FACT_TABLE.c.android_package.in_(params.packages))
+        if params.bundles:
+            conditions.append(FACT_TABLE.c.ios_bundle_id.in_(params.bundles))
         return conditions
 
     def _windowed_filters(self, params: MetricFilters, date_from: Any, date_to: Any) -> list[Any]:
@@ -136,6 +150,35 @@ class QueryBuilder:
         prev_to = params.date_from - timedelta(days=1)
         prev_from = prev_to - timedelta(days=length - 1)
         return prev_from, prev_to
+
+    # ── cascading filter options ─────────────────────────────────────────────
+    def distinct_values(
+        self, params: MetricFilters, column: str, self_key: str, *, label: str | None = None
+    ) -> Select[Any]:
+        """Distinct values of ``column`` available under the caller's scope + date window +
+        every OTHER active filter (its own selection is cleared, so a dimension never filters
+        itself out). This is what makes the dropdowns cascade — e.g. platform=ios narrows the
+        HOU options to HOUs that actually have iOS rows in the window."""
+        cleared: Any = None if self_key == "platform" else []
+        narrowed = params.model_copy(update={self_key: cleared})
+        col = FACT_TABLE.c[column]
+        where = self._windowed_filters(narrowed, narrowed.date_from, narrowed.date_to)
+        if label is not None:
+            label_col = FACT_TABLE.c[label]
+            return (
+                select(col.label("value"), func.max(label_col).label("label"))
+                .where(and_(*where, col.isnot(None)))
+                .group_by(col)
+                .order_by(func.max(label_col))
+                .limit(2000)
+            )
+        return (
+            select(col.label("value"))
+            .where(and_(*where, col.isnot(None)))
+            .distinct()
+            .order_by(col)
+            .limit(2000)
+        )
 
     # ── summary ──────────────────────────────────────────────────────────────
     def summary(self, params: MetricFilters) -> Select[Any]:
