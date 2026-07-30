@@ -23,12 +23,14 @@ import {
   type AppSetting,
   type ConnectionStatus,
   type SchemaDiff,
+  type SchemaSyncResult,
   type SyncTriggerResult,
   useAppSettings,
   useClearData,
   useIntegrationStatus,
   useRunSync,
   useSchemaDiff,
+  useSchemaSync,
   useTestBigQuery,
   useUpdateSetting,
 } from "@/lib/api-hooks";
@@ -189,8 +191,57 @@ function SchemaDiffLists({ diff }: { diff: SchemaDiff }) {
   );
 }
 
+function SchemaSyncResultLists({ result }: { result: SchemaSyncResult }) {
+  const nothing =
+    result.added.length === 0 &&
+    result.deactivated.length === 0 &&
+    result.healed_static.length === 0;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium text-positive">✓ Schema matched to BigQuery.</p>
+      {result.added.length > 0 && (
+        <p>
+          <span className="text-muted-foreground">Added (admin-only until classified):</span>{" "}
+          {result.added.map((c) => `${c.name} (${c.type})`).join(", ")}
+        </p>
+      )}
+      {result.healed_static.length > 0 && (
+        <p>
+          <span className="text-muted-foreground">Restored missing:</span>{" "}
+          {result.healed_static.join(", ")}
+        </p>
+      )}
+      {result.deactivated.length > 0 && (
+        <p>
+          <span className="text-muted-foreground">Removed from BigQuery (kept + flagged):</span>{" "}
+          {result.deactivated.join(", ")}
+        </p>
+      )}
+      {result.missing_in_bigquery.length > 0 && (
+        <p className="text-muted-foreground">
+          Not in BigQuery: {result.missing_in_bigquery.join(", ")}
+        </p>
+      )}
+      {result.unsupported_types.length > 0 && (
+        <p className="text-muted-foreground">
+          Skipped (unsupported):{" "}
+          {result.unsupported_types.map((c) => `${c.name} (${c.type})`).join(", ")}
+        </p>
+      )}
+      {nothing && <p className="text-muted-foreground">Already in sync — no changes.</p>}
+      {result.added.length > 0 && (
+        <p className="pt-1 text-xs text-muted-foreground">
+          New columns show for admins now. To share one with other roles, give it a metric
+          group in the registry. The next sync populates its values.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SchemaDiffSection() {
   const diff = useSchemaDiff();
+  const sync = useSchemaSync();
   const result = diff.data;
   return (
     <section className="space-y-3">
@@ -200,17 +251,38 @@ function SchemaDiffSection() {
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-muted-foreground">
-            Compare the BigQuery view&apos;s columns to the metric registry. Read-only — this
-            never alters any schema; adopting a new column stays a deliberate registry change.
+            Compare the BigQuery view&apos;s columns to the metric registry, or match them:
+            new columns are added to Postgres (shown to admins only) and removed ones are
+            flagged, never dropped.
           </p>
-          <Button className="gap-2" disabled={diff.isPending} onClick={() => diff.mutate()}>
-            {diff.isPending ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileSearch className="h-4 w-4" />
-            )}
-            Check schema
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={diff.isPending}
+              onClick={() => diff.mutate()}
+            >
+              {diff.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSearch className="h-4 w-4" />
+              )}
+              Check schema
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={sync.isPending}
+              onClick={() => sync.mutate()}
+              title="Add new BigQuery columns to Postgres (admin-only) and flag removed ones. Never drops data."
+            >
+              {sync.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+              Match DB &amp; BigQuery Schema
+            </Button>
+          </div>
         </CardContent>
         {result && (
           <CardContent className="space-y-3 pt-0 text-sm">
@@ -223,12 +295,26 @@ function SchemaDiffSection() {
             )}
           </CardContent>
         )}
-        {diff.isError && (
+        {sync.data && (
+          <CardContent className="space-y-3 pt-0 text-sm">
+            {!sync.data.configured || !sync.data.ok ? (
+              <p className={sync.data.configured ? "text-destructive" : "text-muted-foreground"}>
+                {sync.data.message}
+              </p>
+            ) : (
+              <SchemaSyncResultLists result={sync.data} />
+            )}
+          </CardContent>
+        )}
+        {(diff.isError || sync.isError) && (
           <CardContent className="pt-0 text-sm">
             <p className="text-destructive">
-              {diff.error instanceof ApiError
-                ? diff.error.message
-                : "Schema check failed. Please try again."}
+              {(() => {
+                const err = diff.error ?? sync.error;
+                return err instanceof ApiError
+                  ? err.message
+                  : "Schema action failed. Please try again.";
+              })()}
             </p>
           </CardContent>
         )}

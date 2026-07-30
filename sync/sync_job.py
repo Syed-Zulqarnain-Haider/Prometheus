@@ -35,6 +35,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import urllib.request
 from datetime import date, timedelta
@@ -116,6 +117,30 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
     return problems, set(actual)
 
 
+# Guard for dynamic (BigQuery-discovered) column names before they touch any DDL/SQL.
+_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+def fact_dynamic_columns(pg: psycopg.Connection) -> list[tuple[str, str]]:
+    """Active BigQuery-discovered fact columns as ``(name, pg_type)`` from the serving DB,
+    or ``[]`` if the ``dynamic_columns`` table doesn't exist yet (fresh DB / pre-migration).
+
+    These were adopted by the admin "Match Database & BigQuery Schema" button; the sync
+    loads their values so the columns aren't left NULL. Names are identifier-safe (validated
+    on insert by the API and re-checked here)."""
+    try:
+        with pg.cursor() as cur:
+            cur.execute(
+                "SELECT name, pg_type FROM dynamic_columns "
+                "WHERE table_kind = 'fact' AND active = true ORDER BY id"
+            )
+            rows = cur.fetchall()
+    except psycopg.Error:
+        pg.rollback()  # table absent or unreadable — proceed with registry columns only
+        return []
+    return [(r[0], r[1]) for r in rows if _IDENT_RE.match(r[0])]
+
+
 # ── Step 3: load into staging ────────────────────────────────────────────────
 def _window_sql(since: date | None, until: date | None) -> str:
     """A ``WHERE date …`` clause for the load window (``since``/``until`` are sync-computed
@@ -131,22 +156,31 @@ def _window_sql(since: date | None, until: date | None) -> str:
 def load_staging(
     bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str],
     since: date | None = None, until: date | None = None,
+    dyn: list[tuple[str, str]] | None = None,
 ) -> int:
     """Stream the view into staging. ``since``/``until`` restrict the pull to that date window
-    (incremental = rolling window; range = explicit start..end); both ``None`` pulls all."""
-    cols_sql = ", ".join(COLUMN_NAMES)
+    (incremental = rolling window; range = explicit start..end); both ``None`` pulls all.
+    ``dyn`` are BigQuery-discovered dynamic columns (name, pg_type) to also load."""
+    dyn = dyn or []
+    all_cols = [*COLUMN_NAMES, *[n for n, _ in dyn]]
+    cols_sql = ", ".join(all_cols)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
         cur.execute(generate_fact_ddl(STAGING))
+        # Add the dynamic columns to staging so its shape matches the SELECT + COPY below.
+        for name, pg_type in dyn:
+            cur.execute(f'ALTER TABLE {STAGING} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
     pg.commit()
 
     # Select every registry column from the view; for optional columns the view
     # doesn't expose yet (e.g. tech_cost_usd) substitute a literal 0 so the column
-    # order/shape still matches the staging table.
+    # order/shape still matches the staging table. Dynamic columns are selected by name
+    # (BigQuery resolves column references case-insensitively).
     select_terms = [
         col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
         for col in COLUMN_NAMES
     ]
+    select_terms += [name for name, _ in dyn]
     rows_iter = bq.query(
         f"SELECT {', '.join(select_terms)} FROM `{view}`{_window_sql(since, until)}"
     ).result(page_size=BATCH_ROWS)
@@ -228,7 +262,8 @@ def integrity_checks(
 
 # ── Steps 5–6: merge staging into the live fact table + dim_app refresh ───────
 def merge_and_refresh(
-    pg: psycopg.Connection, mode: str, since: date | None, until: date | None
+    pg: psycopg.Connection, mode: str, since: date | None, until: date | None,
+    dyn: list[tuple[str, str]] | None = None,
 ) -> None:
     """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
     Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
@@ -236,7 +271,12 @@ def merge_and_refresh(
     ``full``:                UPSERT by natural key — history accumulates, nothing is deleted.
     ``incremental``/``range``: OVERWRITE the loaded date window — delete those dates in the
                      fact table, then insert the freshly-pulled window. Data outside the window
-                     is untouched; rows that vanished from the source within it are removed too."""
+                     is untouched; rows that vanished from the source within it are removed too.
+    ``dyn`` are the BigQuery-discovered dynamic columns loaded into staging this run; they are
+    ensured on the live fact table and merged alongside the registry columns."""
+    dyn = dyn or []
+    dyn_names = [n for n, _ in dyn]
+    all_cols = [*COLUMN_NAMES, *dyn_names]
     with pg.cursor() as cur:
         # First run / fresh DB: create the live table + indexes. We NEVER drop or replace
         # the whole table once it exists.
@@ -245,11 +285,15 @@ def merge_and_refresh(
             cur.execute(generate_fact_ddl(FACT))
             for ddl in generate_indexes(FACT):
                 cur.execute(ddl)
+        # Ensure dynamic columns exist on the live table (reconcile adds them too, but the
+        # sync must be self-sufficient so it never inserts into a missing column).
+        for name, pg_type in dyn:
+            cur.execute(f'ALTER TABLE {FACT} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
 
         if mode in ("incremental", "range") and since is not None:
             # Replace the window atomically: delete the dates we re-pulled, then load the fresh
             # copy. The DELETE bounds match the BigQuery WHERE, so the boundaries align exactly.
-            cols_sql = ", ".join(COLUMN_NAMES)
+            cols_sql = ", ".join(all_cols)
             if until is not None:
                 cur.execute(f"DELETE FROM {FACT} WHERE date >= %s AND date <= %s", (since, until))
             else:
@@ -258,7 +302,7 @@ def merge_and_refresh(
         else:
             # Full backfill: UPSERT by (date, platform, app_key) — existing rows update in
             # place, new dates append, and rows absent from the view are retained.
-            cur.execute(generate_upsert_sql(FACT, STAGING))
+            cur.execute(generate_upsert_sql(FACT, STAGING, dyn_names))
         cur.execute(f"GRANT SELECT ON {FACT} TO api_service")
 
         # dim_app: latest mapped attributes per app (read from the now-updated fact)
@@ -400,7 +444,15 @@ def main() -> int:
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
-        rows = load_staging(bq, pg, view, present, since=since, until=until)
+        # BigQuery-discovered dynamic columns adopted by the admin schema-reconcile. Only load
+        # ones the view actually still exposes (compared case-insensitively) so a column that
+        # vanished before reconcile flagged it can't break the SELECT.
+        present_lower = {c.lower() for c in present}
+        dyn = [(n, t) for n, t in fact_dynamic_columns(pg) if n in present_lower]
+        if dyn:
+            log.info("loading %d dynamic column(s): %s", len(dyn), ", ".join(n for n, _ in dyn))
+
+        rows = load_staging(bq, pg, view, present, since=since, until=until, dyn=dyn)
         log.info("staging loaded: %d rows", rows)
 
         # A row-count delta check needs a comparable baseline; an arbitrary range has none.
@@ -417,7 +469,7 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        merge_and_refresh(pg, mode, since, until)
+        merge_and_refresh(pg, mode, since, until, dyn=dyn)
         finish("success", rows=rows, built_at=built_at)
         housekeeping(pg)  # reclaim space AFTER the run is recorded (best-effort)
         bust_cache()

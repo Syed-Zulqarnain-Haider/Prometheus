@@ -208,7 +208,9 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
 ) -> None:
     await _seed(metrics_env)
 
-    def fake_fetch(settings: Any, table_id: str) -> list[dict[str, Any]]:
+    def fake_fetch(
+        settings: Any, table_id: str, extra_columns: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         base = dict.fromkeys(ALL_COLUMNS)
         return [
             {**base, "canonical_key": "app-c", "app_name": "Gamma", "platform": "ios"},

@@ -63,6 +63,35 @@ class SchemaDiff(BaseModel):
     unregistered_in_view: list[BigQueryColumn] = []
 
 
+class SchemaSyncColumn(BaseModel):
+    """A column touched (or skipped) by a schema reconcile."""
+
+    name: str
+    type: str  # pg DDL type for added columns; BigQuery type for unsupported ones
+    reason: str | None = None  # why it was skipped (unsupported_types only)
+
+
+class SchemaSyncResult(BaseModel):
+    """Result of the admin 'Match Database & BigQuery Schema' action.
+
+    Additive + non-destructive: ``added`` columns were created in Postgres and are now
+    served; ``deactivated`` columns vanished from BigQuery and are FLAGGED (kept, not
+    dropped); ``missing_in_bigquery`` are static registry columns the source no longer
+    exposes; ``unsupported_types`` are BigQuery columns skipped (unsafe name / unmapped
+    type). ``ok`` is False only when BigQuery could not be read.
+    """
+
+    configured: bool
+    ok: bool = False
+    message: str | None = None  # sanitized note (not-configured / read failure)
+    added: list[SchemaSyncColumn] = []
+    reactivated: list[str] = []
+    deactivated: list[str] = []
+    healed_static: list[str] = []  # static columns that were missing from Postgres and re-added
+    missing_in_bigquery: list[str] = []
+    unsupported_types: list[SchemaSyncColumn] = []
+
+
 class ClearDataRequest(BaseModel):
     confirmation: str  # must equal the exact phrase to proceed
 

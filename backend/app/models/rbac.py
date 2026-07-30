@@ -33,10 +33,13 @@ class RoleMetricPermission(Base):
     )
     metric_group: Mapped[str] = mapped_column(Text, primary_key=True)
 
+    # 'unclassified' holds BigQuery-discovered fact columns not yet given a curated group;
+    # it is granted to admins ONLY (see migration c9d0e1f2a3b4) so those columns never
+    # reach a non-admin role.
     __table_args__ = (
         CheckConstraint(
             "metric_group IN ('store_installs','ua_spend','ad_revenue',"
-            "'iap_revenue','attribution','profitability')",
+            "'iap_revenue','attribution','profitability','unclassified')",
             name="metric_group_valid",
         ),
     )

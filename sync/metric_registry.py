@@ -23,6 +23,9 @@ class Group(str, Enum):
     ATTRIBUTION = "attribution"
     PROFITABILITY = "profitability"
     SYSTEM = "system"
+    # BigQuery-discovered columns adopted by the admin schema-reconcile with no curated
+    # metric group yet (admin-only on the serving side). Mirrors the backend registry.
+    UNCLASSIFIED = "unclassified"
 
 
 @dataclass(frozen=True)
@@ -170,7 +173,9 @@ def generate_fact_ddl(table_name: str) -> str:
 UPSERT_KEY = ("date", "platform", "app_key")
 
 
-def generate_upsert_sql(fact_table: str, staging_table: str) -> str:
+def generate_upsert_sql(
+    fact_table: str, staging_table: str, extra_columns: list[str] | None = None
+) -> str:
     """Emit the INSERT…SELECT…ON CONFLICT that merges a freshly loaded staging table
     into the live fact table, keyed on (date, platform, app_key).
 
@@ -178,11 +183,15 @@ def generate_upsert_sql(fact_table: str, staging_table: str) -> str:
     to the latest values — so the Apple 2-3 day lag self-corrects); a new date APPENDS;
     rows already in the fact table but absent from staging are RETAINED. The fact table
     therefore accumulates full history even after BigQuery ages older days out — never a
-    destructive replace."""
-    cols = ", ".join(COLUMN_NAMES)
+    destructive replace.
+
+    ``extra_columns`` are BigQuery-discovered dynamic columns (identifier-safe) present in
+    BOTH staging and fact for this run; they are merged exactly like registry columns."""
+    all_cols = [*COLUMN_NAMES, *(extra_columns or [])]
+    cols = ", ".join(all_cols)
     # app_key is generated (never in COLUMN_NAMES); date/platform are the key, not updated.
     key = set(UPSERT_KEY)
-    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in COLUMN_NAMES if c not in key)
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in all_cols if c not in key)
     conflict = ", ".join(UPSERT_KEY)
     return (
         f"INSERT INTO {fact_table} ({cols})\n"

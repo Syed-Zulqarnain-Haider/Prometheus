@@ -14,6 +14,7 @@ from app.models.app_master import APP_MASTER_TABLE
 from app.models.app_master_edit import AppMasterConfig, AppMasterEdit
 from app.models.base import Base
 from app.models.dim import DimApp
+from app.models.dynamic_columns import DynamicColumn
 from app.models.identity import Role, User, UserRole
 from app.models.layouts import DashboardLayout
 from app.models.notifications import Notification, NotificationRead
@@ -30,6 +31,7 @@ __all__ = [
     "AppMasterConfig",
     "AppMasterEdit",
     "DimApp",
+    "DynamicColumn",
     "User",
     "Role",
     "UserRole",

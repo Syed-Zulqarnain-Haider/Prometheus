@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import Select, and_, case, func, or_, select
 
 from app.core.fact_table import FACT_TABLE
-from app.core.metric_registry import REGISTRY, Col, Group
+from app.core.metric_registry import Col, Group, effective_registry
 from app.schemas.auth import UserContext
 from app.schemas.metrics import Bucket, GroupBy, MetricFilters, SortDirection
 from app.services.response_models import groups_from_names
@@ -36,6 +36,9 @@ _METRIC_GROUPS: frozenset[Group] = frozenset(
         Group.IAP_REVENUE,
         Group.ATTRIBUTION,
         Group.PROFITABILITY,
+        # Dynamic BigQuery-discovered numeric columns are summable measures too — but the
+        # group is admin-only, so only admins can ever request them (see UserContext groups).
+        Group.UNCLASSIFIED,
     }
 )
 
@@ -68,8 +71,10 @@ def _is_additive(col: Col) -> bool:
     )
 
 
-# name -> Col for every additive measure in the registry.
-ADDITIVE_MEASURES: dict[str, Col] = {c.name: c for c in REGISTRY if _is_additive(c)}
+def additive_measures() -> dict[str, Col]:
+    """name -> Col for every additive measure in the EFFECTIVE registry (static + dynamic).
+    Recomputed per call so a freshly-reconciled dynamic column is summable immediately."""
+    return {c.name: c for c in effective_registry() if _is_additive(c)}
 
 # group_by token -> fact column to group on.
 _GROUP_BY_COLUMN: dict[str, str] = {
@@ -88,7 +93,7 @@ class QueryBuilder:
         self._scope_filter = build_scope_filter(context.scopes)
         groups = groups_from_names(frozenset(context.metric_groups))
         self.permitted_measures: set[str] = {
-            name for name, col in ADDITIVE_MEASURES.items() if col.group in groups
+            name for name, col in additive_measures().items() if col.group in groups
         }
 
     # ── shared helpers ───────────────────────────────────────────────────────

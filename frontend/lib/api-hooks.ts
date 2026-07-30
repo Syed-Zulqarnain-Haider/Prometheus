@@ -747,10 +747,38 @@ export interface ClearDataResult {
   total: number;
 }
 
+export interface SchemaSyncColumn {
+  name: string;
+  type: string;
+  reason: string | null;
+}
+export interface SchemaSyncResult {
+  configured: boolean;
+  ok: boolean;
+  message: string | null;
+  added: SchemaSyncColumn[];
+  reactivated: string[];
+  deactivated: string[];
+  healed_static: string[];
+  missing_in_bigquery: string[];
+  unsupported_types: SchemaSyncColumn[];
+}
+
 /** Read-only, on-demand schema diff (BigQuery view vs the metric registry). */
 export function useSchemaDiff() {
   return useMutation({
     mutationFn: () => apiFetch<SchemaDiff>("/api/v1/admin/integration/schema-diff"),
+  });
+}
+
+/** Match Database & BigQuery Schema for the metrics fact table (admin-only, additive). */
+export function useSchemaSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SchemaSyncResult>("/api/v1/admin/integration/schema-sync", { method: "POST" }),
+    // New/updated columns can change what dashboards can request — refresh everything.
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 }
 
@@ -885,6 +913,16 @@ export function useRefreshAppMaster() {
 export function useAppMasterSchemaDiff() {
   return useMutation({
     mutationFn: () => apiFetch<SchemaDiff>("/api/v1/app-master/schema-diff"),
+  });
+}
+
+/** Match Database & BigQuery Schema for App Master (admin-only, additive, non-destructive). */
+export function useAppMasterSchemaSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SchemaSyncResult>("/api/v1/app-master/schema-sync", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
   });
 }
 

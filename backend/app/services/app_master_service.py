@@ -21,14 +21,32 @@ from app.core.app_master_columns import ALL_COLUMNS, EDITABLE_SET, PRIMARY_KEY, 
 from app.core.config import Settings
 from app.models import AppMasterConfig, AppMasterEdit, User
 from app.models.app_master import APP_MASTER_TABLE
+from app.models.dynamic_columns import APP_MASTER as _KIND_APP_MASTER
 from app.schemas.app_master import (
     AppMasterColumnMeta,
     AppMasterEditOut,
     AppMasterFilterValues,
     AppMasterListResponse,
 )
-from app.schemas.integration import BigQueryColumn, SchemaColumnDiff, SchemaDiff
-from app.services import app_master_bq, integration_service, settings_service
+from app.schemas.integration import (
+    BigQueryColumn,
+    SchemaColumnDiff,
+    SchemaDiff,
+    SchemaSyncResult,
+)
+from app.services import app_master_bq, integration_service, schema_reconcile, settings_service
+
+# Static app-master column -> Postgres DDL type (for schema reconcile ALTER statements).
+_PG_DDL_FROM_APP_MASTER: dict[str, str] = {
+    "text": "TEXT",
+    "bigint": "BIGINT",
+    "boolean": "BOOLEAN",
+    "double": "DOUBLE PRECISION",
+    "timestamptz": "TIMESTAMPTZ",
+}
+_APP_MASTER_STATIC_TYPES: dict[str, str] = {
+    c.name: _PG_DDL_FROM_APP_MASTER[c.pg_type] for c in REGISTRY
+}
 
 # The admin-editable setting holding the fully-qualified BigQuery table id.
 _TABLE_SETTING_KEY = "app_master_bq_table"
@@ -58,8 +76,24 @@ class NoEditToUndo(Exception):
     """There is no prior edit on this row to undo."""
 
 
-def _row_to_dict(row: Any) -> dict[str, Any]:
-    return {name: row._mapping[name] for name in ALL_COLUMNS}
+def _row_to_dict(row: Any, names: list[str]) -> dict[str, Any]:
+    # .get(): a just-added dynamic column may not be selected on every worker until it
+    # attaches — serve NULL rather than KeyError until the next request heals it.
+    return {name: row._mapping.get(name) for name in names}
+
+
+async def _effective_columns(
+    session: AsyncSession,
+) -> tuple[list[str], list[AppMasterColumnMeta]]:
+    """Static registry columns plus any active BigQuery-discovered dynamic columns
+    (always read-only). Dynamic columns are attached to the in-memory Table so
+    ``select(_TABLE)`` returns them. The single source of truth for what the grid shows."""
+    dynamic = await schema_reconcile.load_active_dynamic(session, _KIND_APP_MASTER)
+    schema_reconcile.attach_columns(_TABLE, [(c.name, c.pg_type) for c in dynamic])
+    names = [*ALL_COLUMNS, *[c.name for c in dynamic if c.name not in set(ALL_COLUMNS)]]
+    meta = [*_COLUMN_META, *[AppMasterColumnMeta(name=c.name, type=c.pg_type, editable=False)
+                             for c in dynamic if c.name not in set(ALL_COLUMNS)]]
+    return names, meta
 
 
 def _apply_filters(
@@ -102,11 +136,13 @@ def _apply_filters(
     return stmt
 
 
-def _ordered_columns(order: list[str]) -> list[AppMasterColumnMeta]:
+def _ordered_columns(
+    order: list[str], meta: list[AppMasterColumnMeta]
+) -> list[AppMasterColumnMeta]:
     """Column metadata reordered by ``order`` (unknown names dropped, missing ones appended)."""
-    by_name = {c.name: c for c in _COLUMN_META}
+    by_name = {c.name: c for c in meta}
     ordered = [by_name[n] for n in order if n in by_name]
-    ordered += [c for c in _COLUMN_META if c.name not in set(order)]
+    ordered += [c for c in meta if c.name not in set(order)]
     return ordered
 
 
@@ -136,6 +172,7 @@ async def list_rows(
         "package": package,
         "app_id": app_id,
     }
+    names, meta = await _effective_columns(session)
     total_stmt = _apply_filters(select(func.count()).select_from(_TABLE), **flt)
     total = int((await session.execute(total_stmt)).scalar_one())
     page = (
@@ -147,9 +184,9 @@ async def list_rows(
     rows = (await session.execute(page)).all()
     order = await get_column_order(session)
     return AppMasterListResponse(
-        rows=[_row_to_dict(r) for r in rows],
+        rows=[_row_to_dict(r, names) for r in rows],
         total=total,
-        columns=_ordered_columns(order),
+        columns=_ordered_columns(order, meta),
         column_order=order,
         primary_key=PRIMARY_KEY,
     )
@@ -171,14 +208,22 @@ async def filter_values(session: AsyncSession) -> AppMasterFilterValues:
 
 
 # ── Global column order (admin-set, shared by all users) ─────────────────────────
+async def _all_effective_names(session: AsyncSession) -> list[str]:
+    """Static + active dynamic column names (dynamic appended after static)."""
+    dynamic = await schema_reconcile.load_active_dynamic(session, _KIND_APP_MASTER)
+    return [*ALL_COLUMNS, *[c.name for c in dynamic if c.name not in set(ALL_COLUMNS)]]
+
+
 async def get_column_order(session: AsyncSession) -> list[str]:
     """The admin-set global column order, sanitized: only known columns, with any columns
-    missing from the saved order appended (so a newly-added registry column still appears)."""
+    missing from the saved order appended (so a newly-added registry OR dynamic column
+    still appears)."""
+    all_names = await _all_effective_names(session)
     cfg = await session.get(AppMasterConfig, 1)
     saved = list(cfg.column_order) if cfg and cfg.column_order else []
-    known = set(ALL_COLUMNS)
+    known = set(all_names)
     order = [c for c in saved if c in known]
-    order += [c for c in ALL_COLUMNS if c not in set(order)]
+    order += [c for c in all_names if c not in set(order)]
     return order
 
 
@@ -187,9 +232,10 @@ async def set_column_order(
 ) -> list[str]:
     """Persist the global column order (admin-only). Unknown names are dropped; any omitted
     columns are appended so the order always covers every column."""
-    known = set(ALL_COLUMNS)
+    all_names = await _all_effective_names(session)
+    known = set(all_names)
     clean = [c for c in order if c in known]
-    clean += [c for c in ALL_COLUMNS if c not in set(clean)]
+    clean += [c for c in all_names if c not in set(clean)]
     cfg = await session.get(AppMasterConfig, 1)
     if cfg is None:
         cfg = AppMasterConfig(id=1)
@@ -202,8 +248,9 @@ async def set_column_order(
 
 
 async def get_row(session: AsyncSession, key: str) -> dict[str, Any] | None:
+    names, _ = await _effective_columns(session)
     row = (await session.execute(select(_TABLE).where(key == _PK_COL))).first()
-    return _row_to_dict(row) if row else None
+    return _row_to_dict(row, names) if row else None
 
 
 async def _write_change(
@@ -316,8 +363,10 @@ async def list_history(session: AsyncSession, key: str, limit: int = 20) -> list
 async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> dict[str, int]:
     """Full refresh of the serving copy from BigQuery. Rows without a canonical_key can't be
     keyed, so they are skipped (counted). Blocking BQ read runs in a worker thread."""
+    names, _ = await _effective_columns(session)
+    dynamic_names = [n for n in names if n not in set(ALL_COLUMNS)]
     table_id = await _bq_table_id(session)
-    rows = await asyncio.to_thread(app_master_bq.fetch_rows, settings, table_id)
+    rows = await asyncio.to_thread(app_master_bq.fetch_rows, settings, table_id, dynamic_names)
     by_key: dict[str, dict[str, Any]] = {}
     skipped = 0
     for row in rows:
@@ -325,7 +374,7 @@ async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> di
         if not key:
             skipped += 1
             continue
-        by_key[str(key)] = {name: row.get(name) for name in ALL_COLUMNS}
+        by_key[str(key)] = {name: row.get(name) for name in names}
 
     await session.execute(delete(_TABLE))
     if by_key:
@@ -373,6 +422,27 @@ async def schema_diff(session: AsyncSession, settings: Settings) -> SchemaDiff:
         missing_in_view=missing,
         type_mismatches=mismatches,
         unregistered_in_view=unregistered,
+    )
+
+
+async def reconcile_schema(
+    session: AsyncSession, settings: Settings, admin_id: uuid.UUID | None = None
+) -> SchemaSyncResult:
+    """Match the Postgres App Master serving table to the live BigQuery schema: add any
+    new BigQuery columns (read-only), heal missing static columns, flag vanished ones.
+    Non-destructive. App Master is admin-only, so new columns carry no RBAC decision."""
+    table_id = await _bq_table_id(session)
+    project = str(await settings_service.get_value(session, "gcp_project"))
+    return await schema_reconcile.reconcile(
+        session,
+        settings,
+        table_kind=_KIND_APP_MASTER,
+        pg_table="app_master",
+        bq_table_id=table_id,
+        gcp_project=project,
+        static_types=_APP_MASTER_STATIC_TYPES,
+        table_obj=_TABLE,
+        added_by=admin_id,
     )
 
 

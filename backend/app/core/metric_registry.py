@@ -21,6 +21,10 @@ class Group(str, Enum):  # noqa: UP042 — mirror sync/metric_registry.py verbat
     ATTRIBUTION = "attribution"
     PROFITABILITY = "profitability"
     SYSTEM = "system"
+    # BigQuery-discovered columns adopted by the admin schema-reconcile that have no curated
+    # metric group yet. Granted to ADMINS ONLY (migration c9d0e1f2a3b4), so they never reach
+    # a non-admin role. Not part of the static REGISTRY — carried by the dynamic store below.
+    UNCLASSIFIED = "unclassified"
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,30 @@ REGISTRY: list[Col] = [
 # fmt: on
 
 COLUMN_NAMES: list[str] = [c.name for c in REGISTRY]
+
+# ── Dynamic (BigQuery-discovered) columns ────────────────────────────────────────
+# Populated at startup and after each admin schema-reconcile from the ``dynamic_columns``
+# table. Always ``Group.UNCLASSIFIED`` (admin-only). The static REGISTRY above remains the
+# curated source of truth; these are the additively-adopted extras.
+_DYNAMIC: list[Col] = []
+
+
+def set_dynamic_columns(cols: list[Col]) -> None:
+    """Replace the in-memory dynamic-column set (idempotent). Callers that mutate this MUST
+    also clear ``response_models.build_response_model``'s cache — use
+    ``app.services.fact_schema.refresh_dynamic_registry`` which does both."""
+    global _DYNAMIC
+    _DYNAMIC = list(cols)
+
+
+def dynamic_columns() -> list[Col]:
+    return list(_DYNAMIC)
+
+
+def effective_registry() -> list[Col]:
+    """The static registry plus any active dynamic columns — what RBAC, response models and
+    the query builder actually operate over."""
+    return [*REGISTRY, *_DYNAMIC]
 
 # Registry columns the BigQuery view may not expose yet — the sync defaults them to 0
 # instead of failing, and the Integration tab's schema diff flags them as optional (not a

@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, create_model
 
-from app.core.metric_registry import REGISTRY, Col, Group
+from app.core.metric_registry import Col, Group, effective_registry
 
 # Dimensions always serialize (they label rows); SYSTEM (_built_at) never does.
 _ALWAYS_INCLUDED: frozenset[Group] = frozenset({Group.DIMENSION})
@@ -40,9 +40,12 @@ def _python_type(pg_type: str) -> type:
 
 
 def permitted_columns(groups: frozenset[Group]) -> list[Col]:
-    """Registry columns visible to a caller holding ``groups`` (+ dimensions)."""
+    """Registry columns visible to a caller holding ``groups`` (+ dimensions).
+
+    Uses the EFFECTIVE registry (static + dynamic). A dynamic column is ``UNCLASSIFIED``,
+    which only admins hold — so non-admins never see one, enforced here by group membership."""
     allowed = (set(groups) | _ALWAYS_INCLUDED) - _NEVER_INCLUDED
-    return [col for col in REGISTRY if col.group in allowed]
+    return [col for col in effective_registry() if col.group in allowed]
 
 
 @cache

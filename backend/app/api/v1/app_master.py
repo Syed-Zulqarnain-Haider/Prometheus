@@ -22,7 +22,7 @@ from app.schemas.app_master import (
     AppMasterUpdate,
     ColumnOrderUpdate,
 )
-from app.schemas.integration import SchemaDiff
+from app.schemas.integration import SchemaDiff, SchemaSyncResult
 from app.services import app_master_service, notification_service
 from app.services.app_master_bq import (
     BigQueryNotConfigured,
@@ -142,6 +142,46 @@ async def undo_app_master(
 async def app_master_schema_diff(context: CurrentUser, db: DbSession) -> SchemaDiff:
     """Read-only check that the configured BigQuery table's columns match the registry."""
     return await app_master_service.schema_diff(db, get_settings())
+
+
+@router.post("/schema-sync", response_model=SchemaSyncResult)
+async def app_master_schema_sync(
+    request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> SchemaSyncResult:
+    """Match Database & BigQuery Schema: additively update the Postgres App Master table to
+    the live BigQuery schema (add new columns read-only, heal missing static columns, flag
+    vanished ones). Never drops data. Admin-only + audit-logged."""
+    try:
+        result = await app_master_service.reconcile_schema(db, get_settings(), context.user_id)
+    except (BigQueryNotConfigured, BigQueryUnavailable) as exc:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "BigQuery is not configured."
+        ) from exc
+    except BigQueryReadError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_app_master_schema_sync",
+        resource="app_master",
+        detail=result.model_dump(mode="json"),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    if result.added or result.deactivated:
+        await notification_service.notify_admins(
+            type="app_master_schema_sync",
+            title="App Master schema updated from BigQuery",
+            body=(
+                f"Added {len(result.added)} column(s), "
+                f"flagged {len(result.deactivated)} removed"
+            ),
+            actor_id=context.user_id,
+            resource="app_master",
+        )
+    return result
 
 
 @router.patch("/{key}", response_model=dict)

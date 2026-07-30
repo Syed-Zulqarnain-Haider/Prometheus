@@ -21,6 +21,7 @@ import {
   useAppMaster,
   useAppMasterFilterValues,
   useAppMasterSchemaDiff,
+  useAppMasterSchemaSync,
   useMe,
   useRefreshAppMaster,
   useSetAppMasterColumnOrder,
@@ -203,6 +204,7 @@ export function AppMasterClient() {
   const values = useAppMasterFilterValues();
   const refresh = useRefreshAppMaster();
   const schema = useAppMasterSchemaDiff();
+  const schemaSync = useAppMasterSchemaSync();
   const saveOrder = useSetAppMasterColumnOrder();
 
   if (meLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -330,6 +332,15 @@ export function AppMasterClient() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => schemaSync.mutate()}
+            disabled={schemaSync.isPending}
+            title="Add any new BigQuery columns to Postgres (read-only) and flag removed ones. Never drops data."
+          >
+            {schemaSync.isPending ? "Matching…" : "Match DB & BigQuery Schema"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             className="gap-2"
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending}
@@ -339,6 +350,65 @@ export function AppMasterClient() {
           </Button>
         </div>
       </div>
+
+      {/* Schema-sync (Match DB & BigQuery) result. */}
+      {(schemaSync.data || schemaSync.isError) && (
+        <div className="rounded-lg border bg-card p-3 text-sm">
+          {schemaSync.isError ? (
+            <p className="text-destructive">
+              {schemaSync.error instanceof ApiError
+                ? schemaSync.error.message
+                : "Schema match failed."}
+            </p>
+          ) : schemaSync.data && !schemaSync.data.configured ? (
+            <p className="text-muted-foreground">{schemaSync.data.message}</p>
+          ) : schemaSync.data && !schemaSync.data.ok ? (
+            <p className="text-destructive">{schemaSync.data.message}</p>
+          ) : schemaSync.data ? (
+            <div className="space-y-1">
+              <p className="font-medium text-[color:var(--color-positive)]">
+                ✓ Schema matched to BigQuery.
+              </p>
+              {schemaSync.data.added.length > 0 && (
+                <p>
+                  <span className="text-muted-foreground">Added (read-only):</span>{" "}
+                  {schemaSync.data.added.map((c) => `${c.name} (${c.type})`).join(", ")}
+                </p>
+              )}
+              {schemaSync.data.healed_static.length > 0 && (
+                <p>
+                  <span className="text-muted-foreground">Restored missing:</span>{" "}
+                  {schemaSync.data.healed_static.join(", ")}
+                </p>
+              )}
+              {schemaSync.data.deactivated.length > 0 && (
+                <p>
+                  <span className="text-muted-foreground">
+                    Removed from BigQuery (kept + flagged):
+                  </span>{" "}
+                  {schemaSync.data.deactivated.join(", ")}
+                </p>
+              )}
+              {schemaSync.data.missing_in_bigquery.length > 0 && (
+                <p className="text-muted-foreground">
+                  Not in BigQuery: {schemaSync.data.missing_in_bigquery.join(", ")}
+                </p>
+              )}
+              {schemaSync.data.unsupported_types.length > 0 && (
+                <p className="text-muted-foreground">
+                  Skipped (unsupported):{" "}
+                  {schemaSync.data.unsupported_types.map((c) => `${c.name} (${c.type})`).join(", ")}
+                </p>
+              )}
+              {schemaSync.data.added.length === 0 &&
+                schemaSync.data.deactivated.length === 0 &&
+                schemaSync.data.healed_static.length === 0 && (
+                  <p className="text-muted-foreground">Already in sync — no changes.</p>
+                )}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Schema-match result. */}
       {(schema.data || schema.isError) && (

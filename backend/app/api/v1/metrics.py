@@ -19,11 +19,23 @@ from app.api.deps import CurrentUser, DbSession, RedisClient
 from app.core.cache import aggregate_cache_key, cached_json, perms_token, scope_token
 from app.core.rate_limit import enforce_rate_limit
 from app.schemas.metrics import Bucket, GroupBy, MetricFilters, Platform, SortDirection
-from app.services import metrics_service
+from app.services import fact_schema, metrics_service
 from app.services.metrics_service import decode_cursor
 from app.services.query_builder import QueryBuilder
 
-router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(enforce_rate_limit)])
+
+async def ensure_dynamic_registry(db: DbSession) -> None:
+    """Keep the in-memory effective registry current with BigQuery-discovered columns
+    (TTL-guarded — at most one small query per worker per minute), so admin-only dynamic
+    columns surface on every worker within a minute of a schema-reconcile, no redeploy."""
+    await fact_schema.refresh_dynamic_registry(db)
+
+
+router = APIRouter(
+    prefix="/metrics",
+    tags=["metrics"],
+    dependencies=[Depends(enforce_rate_limit), Depends(ensure_dynamic_registry)],
+)
 
 
 def get_filters(

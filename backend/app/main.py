@@ -35,6 +35,7 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 from app.core.redis import redis_client
 from app.core.security_headers import build_security_headers_middleware
+from app.services import fact_schema
 from app.services.cache_warm import warm_overview_cache
 from app.services.sync_scheduler import scheduler_loop
 
@@ -75,6 +76,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     _check_pooled_db_endpoint()
     if not _is_test:
+        # Load BigQuery-discovered dynamic columns into the in-memory effective registry so
+        # admin-only columns adopted in a previous session serve immediately on boot.
+        try:
+            async with app.state.sessionmaker() as session:
+                await fact_schema.refresh_dynamic_registry(session, force=True)
+        except Exception:  # noqa: BLE001 — best-effort; the request path refreshes anyway
+            logger.exception("dynamic registry startup load failed")
 
         async def _warm() -> None:
             try:

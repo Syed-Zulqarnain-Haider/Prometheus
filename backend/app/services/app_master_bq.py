@@ -19,12 +19,16 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.core.app_master_columns import BY_NAME, PRIMARY_KEY, REGISTRY
 from app.core.config import Settings
 
 log = logging.getLogger("app.services.app_master_bq")
+
+# Guard for dynamic (BigQuery-discovered) column names before they touch a SELECT list.
+_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 # Both read and write must run query JOBS (a SELECT / an UPDATE both create a job), which the
 # narrow ``bigquery.readonly`` scope forbids ("insufficient authentication scopes"). Use the
@@ -103,18 +107,26 @@ def _error_reason(exc: Exception) -> str:
     return raw.strip().split("\n")[0][:300]
 
 
-def fetch_rows(settings: Settings, table_id: str) -> list[dict[str, Any]]:
+def fetch_rows(
+    settings: Settings, table_id: str, extra_columns: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Read ALL rows from the BigQuery App Master table, keyed by Postgres column names.
 
-    ``table_id`` is the fully-qualified ``project.dataset.table`` (from the admin setting)."""
+    ``table_id`` is the fully-qualified ``project.dataset.table`` (from the admin setting).
+    ``extra_columns`` are BigQuery-discovered *dynamic* columns (already identifier-safe,
+    lowercase) to also select — so a schema-reconciled column is populated on refresh.
+    BigQuery resolves column references case-insensitively, so the lowercased name matches."""
+    # Defensive: only ever interpolate identifier-safe names into the SELECT list.
+    extra = [c for c in (extra_columns or []) if _IDENT_RE.match(c)]
     client = _client(settings.bq_credentials_path, _query_project(table_id, settings), _READ_SCOPES)
     # Select each BQ column aliased to its sanitized Postgres name.
-    select_list = ", ".join(f"{_bq_ident(c.bq_name)} AS {c.name}" for c in REGISTRY)
+    names = [(c.bq_name, c.name) for c in REGISTRY] + [(c, c) for c in extra]
+    select_list = ", ".join(f"{_bq_ident(bq)} AS {pg}" for bq, pg in names)
     table = _bq_ident_table(table_id)
     query = f"SELECT {select_list} FROM {table}"  # noqa: S608 — identifiers from the registry, not user input
     try:
         rows = client.query(query).result()
-        return [{c.name: row[c.name] for c in REGISTRY} for row in rows]
+        return [{pg: row[pg] for _, pg in names} for row in rows]
     except Exception as exc:  # noqa: BLE001 — sanitize to first line; admin-only endpoint
         log.warning("App Master BigQuery read failed: %s", type(exc).__name__)
         raise BigQueryReadError(

@@ -8,6 +8,7 @@ than waiting out the 5-minute cache.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -17,6 +18,7 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession, RedisClient, require_capability
+from app.core.cache import AGG_PREFIX
 from app.core.config import get_settings
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit, enforce_sync_rate_limit
@@ -40,18 +42,23 @@ from app.schemas.integration import (
     ClearDataResult,
     IntegrationStatus,
     SchemaDiff,
+    SchemaSyncResult,
 )
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
 from app.services import (
     access_service,
     admin_service,
+    fact_schema,
     integration_service,
+    notification_service,
     settings_service,
     sync_service,
     system_service,
 )
 from app.services.audit import AuditDep
 from app.services.auth import user_context_cache_key
+
+logger = logging.getLogger("app.api.admin")
 
 # Router-level dependency enforces admin_panel; routes use CurrentUser for identity.
 router = APIRouter(
@@ -619,6 +626,54 @@ async def get_schema_diff(db: DbSession) -> SchemaDiff:
     gcp_project = str(await settings_service.get_value(db, "gcp_project"))
     bq_view = str(await settings_service.get_value(db, "bq_view"))
     return await integration_service.schema_diff(settings, gcp_project, bq_view)
+
+
+# ── Integration: Match Database & BigQuery Schema (additive, non-destructive) ────
+@router.post(
+    "/integration/schema-sync",
+    response_model=SchemaSyncResult,
+    dependencies=[Depends(enforce_sync_rate_limit)],
+)
+async def integration_schema_sync(
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> SchemaSyncResult:
+    """Match the Postgres fact table to the live BigQuery view: add any new columns
+    (served to ADMINS ONLY as 'unclassified' until you give them a curated metric group),
+    heal missing static columns, and flag columns that vanished from BigQuery. Never drops
+    data. The next daily sync (or a manual sync) populates the new columns' values."""
+    result = await fact_schema.reconcile(db, get_settings(), context.user_id)
+    if result.added or result.deactivated or result.healed_static:
+        # New/changed columns can alter what admins can request — bust the aggregate cache
+        # so payloads reflect the new schema instead of serving pre-sync cached rows.
+        try:
+            async for key in redis.scan_iter(f"{AGG_PREFIX}*", count=500):
+                await redis.delete(key)
+        except Exception:  # noqa: BLE001 — cache staleness is TTL-bounded; never fail the sync
+            logger.exception("aggregate cache bust after schema-sync failed (non-fatal)")
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_integration_schema_sync",
+        resource="fact_daily_performance",
+        detail=result.model_dump(mode="json"),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    if result.added or result.deactivated:
+        await notification_service.notify_admins(
+            type="schema_sync",
+            title="Metrics schema updated from BigQuery",
+            body=(
+                f"Added {len(result.added)} column(s) (admin-only), "
+                f"flagged {len(result.deactivated)} removed"
+            ),
+            actor_id=context.user_id,
+            resource="fact_daily_performance",
+        )
+    return result
 
 
 # ── Integration: Clear Data (DESTRUCTIVE — typed confirmation, audited) ──────────
