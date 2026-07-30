@@ -10,7 +10,11 @@ CREATE OR REPLACE VIEW `terafort.api.daily_performance_v1` AS
 SELECT
   -- identity & dimensions
   date, platform, canonical_key, apple_id, ios_bundle_id, android_package,
-  app_name, publisher, developer, pod, pod_owner, hou,
+  app_name, publisher, developer,
+  -- pod is INT64 in the source but the serving layer treats it as text (dim/group/filter);
+  -- cast here so the view matches the registry (no more STRING-vs-INT64 schema mismatch).
+  CAST(pod AS STRING) AS pod,
+  pod_owner, hou,
   app_category, ownership_type, is_mapped,
 
   -- store/console account dimensions (used by the Console + account filters)
