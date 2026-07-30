@@ -62,7 +62,9 @@ The API **never** queries BigQuery; users only ever read the materialized Postgr
 the per-role Pydantic response models, the RBAC column filters, and the fact indexes
 (including the date covering index). A **drift guard** test
 (`tests/test_metric_registry_parity.py`) fails CI if the two copies ever diverge in
-columns/types/groups/order. **Never hand-write column lists elsewhere.**
+columns/types/groups/order. **Never hand-write column lists elsewhere.** The curated
+registry is still authoritative; columns an admin adopts from BigQuery at runtime (see
+**Schema reconcile**) are carried alongside it as an `unclassified`, admin-only group.
 
 ### RBAC — enforced server-side
 - **Roles:** `admin`, `executive`, `pod_owner`, `marketing`, `finance`, `viewer`.
@@ -71,8 +73,9 @@ columns/types/groups/order. **Never hand-write column lists elsewhere.**
   predicate and injected **first** in every query; client filters can only **narrow** it,
   never widen it (no-scope ⇒ no rows, fail-closed).
 - **Metric scope:** `role_metric_permissions` (groups: store_installs, ua_spend,
-  ad_revenue, iap_revenue, attribution, profitability) → forbidden columns are never
-  serialized (per-role models from the registry).
+  ad_revenue, iap_revenue, attribution, profitability — plus `unclassified`, granted to
+  admins only for BigQuery-discovered columns) → forbidden columns are never serialized
+  (per-role models from the registry).
 - **Defense in depth:** the aggregate cache key varies by scope **and** permitted groups,
   so cached payloads never cross permission profiles; out-of-scope resources return **404**
   (indistinguishable from nonexistent). Frontend hiding is cosmetic only.
@@ -85,7 +88,28 @@ live table** by natural key (`date, platform, app_key`) — re-running a date up
 new dates append, aged-out history is retained → refresh `dim_app` → drop staging → bust
 `agg:*`. On **any** failure it discards the staged data and leaves the live table untouched
 (keeps serving existing data), alerts, and records the reason in `sync_runs`. The
-dashboard never shows half-loaded data.
+dashboard never shows half-loaded data. The sync also loads the values of any
+BigQuery-discovered dynamic columns (see below), so they aren't left NULL.
+
+### Schema reconcile — "Match Database & BigQuery Schema"
+When BigQuery's schema changes, admins can bring the Postgres serving layer into line
+**without a redeploy** via a button in two places:
+- **App Master page** (admin-only) → new BigQuery columns are added to the Postgres copy
+  (read-only) and shown immediately.
+- **Admin → Integration tab** (metrics fact table) → new BigQuery columns are adopted as
+  the `unclassified` metric group and served to **admins only** — never to a non-admin role
+  until an owner gives the column a curated metric group in the registry (a deliberate,
+  RBAC-reviewed change). This keeps the who-can-see-what guarantee intact.
+
+The reconcile is **additive and non-destructive**: it `ALTER … ADD COLUMN`s new columns
+(guarded by a strict identifier pattern + a BigQuery→Postgres type allow-list; unsupported
+types like STRUCT/ARRAY are skipped and reported), heals static registry columns missing
+from Postgres, and **flags — never drops** — columns that vanish from BigQuery (the column
+and its history are kept, marked inactive in `dynamic_columns`). Adopted columns live in the
+`dynamic_columns` table; the effective registry refreshes on startup and on the request path
+(TTL-guarded) so every worker converges within ~a minute. Both actions are audit-logged,
+notify admins, and bust the aggregate cache. Engine: `app/services/schema_reconcile.py`
+(+ `fact_schema.py` for the fact-table side).
 
 ---
 
@@ -96,9 +120,9 @@ backend/                 FastAPI service
   app/
     api/v1/              routes: auth, metrics, apps, meta, views, reports, export, admin, layouts
     core/               config, database, redis, cache, security, rate_limit, metric_registry, fact_table
-    models/             SQLAlchemy ORM (identity, rbac, reports, layouts, settings, targets, dim, operations)
+    models/             SQLAlchemy ORM (identity, rbac, reports, layouts, settings, targets, dim, operations, dynamic_columns)
     schemas/            Pydantic request/response models
-    services/           query_builder, auth, admin, reports, metrics, audit, settings, system, cache_warm
+    services/           query_builder, auth, admin, reports, metrics, audit, settings, system, cache_warm, schema_reconcile, fact_schema, app_master
   alembic/              migrations (ORM-managed tables; the fact table is sync-owned)
   tests/                pytest suites (RBAC matrix, auth, cache, query builder, financial math, …)
   scripts/              seed_local.py (sample data), create_admin.py (link a Firebase UID → admin)
