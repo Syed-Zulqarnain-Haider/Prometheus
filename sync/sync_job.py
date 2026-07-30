@@ -281,6 +281,44 @@ def merge_and_refresh(
     pg.commit()
 
 
+# ── Step 6.5: housekeeping (reclaim space) ────────────────────────────────────
+def housekeeping(pg: psycopg.Connection) -> None:
+    """Keep Postgres from bloating. Best-effort — a permission or lock issue must NEVER fail
+    the sync (the data is already committed by the time we get here).
+
+    1. Optional audit_log retention: if AUDIT_RETENTION_DAYS is set, prune older rows (the
+       audit trail is the fastest-growing table — every request is logged).
+    2. VACUUM (ANALYZE) the fact table: the incremental sync deletes + reinserts the recent
+       window each run, leaving dead tuples; VACUUM reclaims that space for reuse so the
+       table reaches a stable size instead of growing every day.
+    """
+    retention = os.environ.get("AUDIT_RETENTION_DAYS", "").strip()
+    if retention.isdigit() and int(retention) > 0:
+        try:
+            with pg.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM audit_log WHERE created_at < now() - make_interval(days => %s)",
+                    (int(retention),),
+                )
+            pg.commit()
+            log.info("audit_log pruned to the last %s days", retention)
+        except Exception:  # noqa: BLE001
+            pg.rollback()
+            log.exception("audit_log retention failed (non-fatal)")
+
+    try:
+        pg.autocommit = True  # VACUUM cannot run inside a transaction block
+        with pg.cursor() as cur:
+            cur.execute(f"VACUUM (ANALYZE) {FACT}")
+            if retention.isdigit() and int(retention) > 0:
+                cur.execute("VACUUM (ANALYZE) audit_log")
+        log.info("VACUUM ANALYZE complete")
+    except Exception:  # noqa: BLE001
+        log.exception("VACUUM failed (non-fatal)")
+    finally:
+        pg.autocommit = False
+
+
 # ── Step 7: cache bust ───────────────────────────────────────────────────────
 def bust_cache() -> None:
     url = os.environ.get("REDIS_URL")
@@ -380,8 +418,9 @@ def main() -> int:
             built_at = cur.fetchone()[0]
 
         merge_and_refresh(pg, mode, since, until)
-        bust_cache()
         finish("success", rows=rows, built_at=built_at)
+        housekeeping(pg)  # reclaim space AFTER the run is recorded (best-effort)
+        bust_cache()
         log.info("sync complete: %d rows, data as of %s", rows, built_at)
         return 0
 
