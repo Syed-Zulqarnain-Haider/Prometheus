@@ -156,11 +156,13 @@ export function KpiCard({
         </div>
       </div>
 
-      {spark && spark.length > 1 && (
-        <div className="mt-auto h-12 w-full">
+      {/* Always reserve the sparkline area so every card is the SAME height, even the
+          ones without a sparkline (e.g. Profit %). */}
+      <div className="mt-auto h-12 w-full">
+        {spark && spark.length > 1 && (
           <Chart option={sparklineOption(spark, sparkColor)} height={48} adjustable={false} />
-        </div>
-      )}
+        )}
+      </div>
     </Card>
   );
 }
