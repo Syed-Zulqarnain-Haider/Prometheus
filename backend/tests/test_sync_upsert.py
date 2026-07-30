@@ -236,3 +236,46 @@ async def test_incremental_overwrites_window_and_retains_older(db_session: Any) 
     assert "appB" in keys  # new in-window row loaded
     old = next(r for r in rows if r.canonical_key == "old")
     assert float(old.total_revenue_usd) == 10.0  # untouched
+
+
+# ── staging tolerates duplicate natural keys from the view (no crash), dedupes ──
+async def test_staging_dedupes_duplicate_natural_keys(db_session: Any) -> None:
+    """A PK-less staging accepts duplicate (date, platform, app_key) rows from the source
+    view; generate_dedupe_sql keeps ONE richest row per key before the merge — so the sync
+    never crashes on 'duplicate key' and never double-counts."""
+    reg = _load_sync_registry()
+    for table in (_FACT, _STG):
+        await db_session.execute(text(f"DROP TABLE IF EXISTS {table}"))
+    await db_session.execute(text(reg.generate_fact_ddl(_FACT)))
+    # Staging WITHOUT a primary key — the two duplicate rows below would otherwise crash it.
+    await db_session.execute(text(reg.generate_fact_ddl(_STG, with_pk=False)))
+    await db_session.commit()
+
+    # Two rows with the SAME natural key (date, platform, canonical_key→app_key) + one distinct.
+    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="android",
+                  canonical_key="dupapp", app_name="Poor", total_revenue_usd=5,
+                  store_total_installs=10)
+    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="android",
+                  canonical_key="dupapp", app_name="Rich", total_revenue_usd=999,
+                  store_total_installs=20)
+    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="ios",
+                  canonical_key="other", app_name="Solo", total_revenue_usd=1)
+
+    result = await db_session.execute(text(reg.generate_dedupe_sql(_STG)))
+    await db_session.commit()
+    assert result.rowcount == 1  # exactly one duplicate removed
+
+    kept = (
+        await db_session.execute(
+            text(f"SELECT canonical_key, app_name, total_revenue_usd FROM {_STG} "
+                 f"ORDER BY app_key")
+        )
+    ).all()
+    assert len(kept) == 2
+    dup = next(r for r in kept if r.canonical_key == "dupapp")
+    assert dup.app_name == "Rich" and float(dup.total_revenue_usd) == 999.0  # richest kept
+
+    # And the deduped staging now UPSERTs cleanly into the live table (no 'affect row twice').
+    await _upsert(db_session, reg)
+    fact_rows = await _fact(db_session)
+    assert len(fact_rows) == 2

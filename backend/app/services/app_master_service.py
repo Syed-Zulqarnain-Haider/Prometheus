@@ -9,12 +9,14 @@ succeeds — so the serving copy never diverges from the source of truth on a fa
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 import anyio
 from sqlalchemy import String, delete, func, insert, or_, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_master_columns import ALL_COLUMNS, EDITABLE_SET, PRIMARY_KEY, REGISTRY
@@ -68,12 +70,24 @@ _COLUMN_META = [
 ]
 
 
+log = logging.getLogger("app.services.app_master")
+
+# Postgres caps bound parameters per statement at 65535; insert in chunks well under that
+# (48 columns × 1000 rows = 48k) so a large refresh never trips the limit or a giant
+# statement. Also localizes any single-batch failure.
+_INSERT_CHUNK = 1000
+
+
 class AppMasterRowNotFound(Exception):
     """No editable row with the given primary key exists in the serving copy."""
 
 
 class NoEditToUndo(Exception):
     """There is no prior edit on this row to undo."""
+
+
+class AppMasterRefreshError(Exception):
+    """The serving-copy write during a BigQuery refresh failed (sanitized reason)."""
 
 
 def _row_to_dict(row: Any, names: list[str]) -> dict[str, Any]:
@@ -376,10 +390,21 @@ async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> di
             continue
         by_key[str(key)] = {name: row.get(name) for name in names}
 
-    await session.execute(delete(_TABLE))
-    if by_key:
-        await session.execute(insert(_TABLE), list(by_key.values()))
-    await session.commit()
+    rows_to_write = list(by_key.values())
+    try:
+        await session.execute(delete(_TABLE))
+        # Chunked insert: stays far under Postgres's 65535-bound-parameter limit even with a
+        # few thousand rows, and never builds one oversized statement.
+        for start in range(0, len(rows_to_write), _INSERT_CHUNK):
+            await session.execute(insert(_TABLE), rows_to_write[start : start + _INSERT_CHUNK])
+        await session.commit()
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        # Full detail to server logs; sanitized type name to the caller (never a raw DB error).
+        log.exception("App Master refresh: serving-copy write failed")
+        raise AppMasterRefreshError(
+            f"Serving-copy write failed ({type(exc).__name__}) — the existing data was kept."
+        ) from exc
     return {"synced": len(by_key), "skipped": skipped}
 
 

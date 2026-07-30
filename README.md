@@ -91,6 +91,14 @@ new dates append, aged-out history is retained → refresh `dim_app` → drop st
 dashboard never shows half-loaded data. The sync also loads the values of any
 BigQuery-discovered dynamic columns (see below), so they aren't left NULL.
 
+The **staging table has no primary key**, so a duplicate natural key `(date, platform,
+app_key)` in the source view can never crash the load (the historical
+`fact_daily_performance_staging_pkey` UniqueViolation). Before merging, staging is
+de-duplicated on the natural key — keeping ONE deterministic row per key (highest revenue,
+then installs) rather than double-counting — and the number removed is logged **and
+alerted**, so a view anomaly is visible and fixable at the source. The **live** table keeps
+its primary key, which the UPSERT relies on.
+
 ### Schema reconcile — "Match Database & BigQuery Schema"
 When BigQuery's schema changes, admins can bring the Postgres serving layer into line
 **without a redeploy** via a button in two places:
@@ -273,6 +281,9 @@ the env-var reference and a budget alert): [`docs/DEPLOY.md`](./docs/DEPLOY.md).
 | Neon connection fails | Use the **pooled** host with the asyncpg driver and TLS: `postgresql+asyncpg://…?ssl=require`. |
 | Upstash "Connection closed by server" | The Redis URL must be `rediss://` (TLS), not `redis://`. |
 | `npm audit` warnings on install | Expected for dev; **do not** run `npm audit fix --force` (it breaks the build). |
+| Sync fails: `UniqueViolation … fact_daily_performance_staging_pkey … (date, platform, app_key) already exists` | The BigQuery view emitted a **duplicate natural key**. Handled automatically now — staging has no PK and is de-duplicated before merge (kept-one is logged + alerted). If you see the old crash, the running sync image predates this fix; redeploy the latest `sync/`. Then investigate the view for the duplicated app/day. |
+| App Master **"Refresh from BigQuery" → An unexpected error occurred** | Now returns a **sanitized 502** with the reason instead of a blind 500, and keeps existing data. Check the backend logs for the full `App Master refresh: serving-copy write failed` traceback — usually a value from BigQuery that doesn't fit a Postgres column type (e.g. a non-numeric `pod`). Fix the source row or the mapping, then refresh again. |
+| "Run daily sync" → **Rate limit exceeded** | The heavy sync trigger is capped at 6/min (its own bucket). Read-only Test Connection / Check schema use a separate 20/min bucket, so they no longer starve it. Wait ~60s and click **once** — one run is all that's needed (an advisory lock prevents double-runs). |
 
 ---
 

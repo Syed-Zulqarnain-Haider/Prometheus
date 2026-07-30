@@ -228,6 +228,30 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
     assert [r["canonical_key"] for r in listing["rows"]] == ["app-c"]
 
 
+async def test_refresh_db_write_failure_is_sanitized_not_500(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A serving-copy write failure must surface as a sanitized 502 (existing data kept),
+    never a blind 500."""
+    await _seed(metrics_env)
+
+    def fake_fetch(
+        settings: Any, table_id: str, extra_columns: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        base = dict.fromkeys(ALL_COLUMNS)
+        # A pod value that can't go into the bigint column -> DB write fails.
+        return [{**base, "canonical_key": "bad", "platform": "ios", "pod": "not-an-int"}]
+
+    monkeypatch.setattr(app_master_bq, "fetch_rows", fake_fetch)
+
+    resp = await metrics_env.client.post("/api/v1/app-master/refresh", headers=_auth("admin"))
+    assert resp.status_code == 502
+    assert "existing data" in resp.json()["error"]["message"].lower()
+    # The pre-existing serving rows are still intact (write rolled back).
+    listing = (await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))).json()
+    assert {r["canonical_key"] for r in listing["rows"]} == {"app-a", "app-b"}
+
+
 # ── schema match (verify a configured BigQuery table's columns) ──────────────────
 async def test_schema_diff_reports_match(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch

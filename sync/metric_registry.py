@@ -154,17 +154,44 @@ def columns_for_groups(groups: set[Group]) -> list[str]:
     return [c.name for c in REGISTRY if c.group in groups]
 
 
-def generate_fact_ddl(table_name: str) -> str:
+def generate_fact_ddl(table_name: str, with_pk: bool = True) -> str:
     """Emit CREATE TABLE for the fact/staging table, plus the generated app_key
-    column used as part of the primary key (expressions aren't allowed in PKs)."""
+    column used as part of the primary key (expressions aren't allowed in PKs).
+
+    ``with_pk=False`` is used for the STAGING table: it omits the primary key so the load
+    COPY can never crash on a duplicate natural key coming from the source view (the sync
+    de-duplicates staging before merging — see ``generate_dedupe_sql``). The LIVE fact table
+    always keeps its primary key, which the UPSERT relies on."""
     cols = ",\n  ".join(f"{c.name} {c.pg_type}" for c in REGISTRY)
+    pk = ",\n  PRIMARY KEY (date, platform, app_key)" if with_pk else ""
     return f"""CREATE TABLE {table_name} (
   {cols},
   app_key TEXT GENERATED ALWAYS AS (
     COALESCE(canonical_key, android_package, CAST(apple_id AS TEXT), 'unknown')
-  ) STORED,
-  PRIMARY KEY (date, platform, app_key)
+  ) STORED{pk}
 );"""
+
+
+def generate_dedupe_sql(staging_table: str) -> str:
+    """Remove duplicate natural-key rows from staging, keeping ONE deterministic row per
+    (date, platform, app_key) — the richest one (highest revenue, then installs).
+
+    The BigQuery view is expected to be unique per natural key. If it ever emits duplicates
+    (e.g. a mapping collision that collapses two source rows to the same app_key), this keeps
+    the sync from crashing on the staging load and avoids double-counting — instead of
+    summing (which would corrupt derived ratios computed in the view). The sync logs and
+    alerts the number removed, so the anomaly is visible and can be fixed at the source."""
+    return f"""DELETE FROM {staging_table} s
+USING (
+    SELECT ctid, row_number() OVER (
+        PARTITION BY date, platform, app_key
+        ORDER BY total_revenue_usd DESC NULLS LAST,
+                 store_total_installs DESC NULLS LAST,
+                 ctid
+    ) AS rn
+    FROM {staging_table}
+) d
+WHERE s.ctid = d.ctid AND d.rn > 1"""
 
 
 # The natural key the daily sync UPSERTs on — the fact table's primary key. app_key is a

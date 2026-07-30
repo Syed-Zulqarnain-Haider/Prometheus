@@ -45,7 +45,7 @@ from google.cloud import bigquery
 
 from metric_registry import (
     COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
-    generate_fact_ddl, generate_indexes, generate_upsert_sql,
+    generate_dedupe_sql, generate_fact_ddl, generate_indexes, generate_upsert_sql,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -166,7 +166,10 @@ def load_staging(
     cols_sql = ", ".join(all_cols)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
-        cur.execute(generate_fact_ddl(STAGING))
+        # Staging has NO primary key: the COPY must never crash on a duplicate natural key
+        # from the source view. Duplicates are removed deterministically before the merge
+        # (see generate_dedupe_sql), and the LIVE table keeps its PK for the UPSERT.
+        cur.execute(generate_fact_ddl(STAGING, with_pk=False))
         # Add the dynamic columns to staging so its shape matches the SELECT + COPY below.
         for name, pg_type in dyn:
             cur.execute(f'ALTER TABLE {STAGING} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
@@ -264,7 +267,7 @@ def integrity_checks(
 def merge_and_refresh(
     pg: psycopg.Connection, mode: str, since: date | None, until: date | None,
     dyn: list[tuple[str, str]] | None = None,
-) -> None:
+) -> int:
     """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
     Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
 
@@ -289,6 +292,14 @@ def merge_and_refresh(
         # sync must be self-sufficient so it never inserts into a missing column).
         for name, pg_type in dyn:
             cur.execute(f'ALTER TABLE {FACT} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
+
+        # De-duplicate staging on the natural key BEFORE merging (staging has no PK). If the
+        # view emitted duplicate (date, platform, app_key) rows, keep one deterministic row
+        # each rather than crash the UPSERT ("cannot affect row a second time") or double-count.
+        cur.execute(generate_dedupe_sql(STAGING))
+        removed = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        if removed:
+            log.warning("removed %d duplicate natural-key row(s) from staging", removed)
 
         if mode in ("incremental", "range") and since is not None:
             # Replace the window atomically: delete the dates we re-pulled, then load the fresh
@@ -323,6 +334,7 @@ def merge_and_refresh(
         # Staging has served its purpose (validation + integrity + the UPSERT source).
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
     pg.commit()
+    return removed
 
 
 # ── Step 6.5: housekeeping (reclaim space) ────────────────────────────────────
@@ -469,8 +481,16 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        merge_and_refresh(pg, mode, since, until, dyn=dyn)
+        removed = merge_and_refresh(pg, mode, since, until, dyn=dyn)
         finish("success", rows=rows, built_at=built_at)
+        if removed:
+            # The run SUCCEEDED (deduped, not crashed); surface the anomaly so the source view
+            # can be fixed. Non-fatal — alert is best-effort and never affects the run status.
+            alert(
+                f"sync succeeded but removed {removed} duplicate natural-key row(s) from "
+                f"staging — the view emitted duplicate (date, platform, app_key). Kept the "
+                f"richest row per key; investigate the source view."
+            )
         housekeeping(pg)  # reclaim space AFTER the run is recorded (best-effort)
         bust_cache()
         log.info("sync complete: %d rows, data as of %s", rows, built_at)

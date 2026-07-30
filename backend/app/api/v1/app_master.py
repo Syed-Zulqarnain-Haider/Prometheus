@@ -250,6 +250,15 @@ async def refresh_app_master(
         # Surface the sanitized reason (e.g. NotFound / Forbidden / BadRequest) so the admin
         # can tell whether it's the table name, columns, or permissions — not a blank 500.
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except app_master_service.AppMasterRefreshError as exc:
+        # DB write failed; existing serving data was kept. Sanitized reason, never a 500.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — last-resort: no blind 500 on an admin action
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"Refresh failed ({type(exc).__name__}) — existing data kept; see server logs.",
+        ) from exc
 
     await audit.log_admin_action(
         user_id=context.user_id,
