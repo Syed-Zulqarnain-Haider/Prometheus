@@ -52,6 +52,6 @@ def test_optional_source_columns_match_sync() -> None:
     assert BACKEND_OPTIONAL == sync.OPTIONAL_SOURCE_COLUMNS
 
 
-def test_registry_has_79_columns() -> None:
-    # 78 view columns (incl. tech_cost_usd) + _built_at system column.
-    assert len(BACKEND_REGISTRY) == 79
+def test_registry_has_86_columns() -> None:
+    # 85 view columns (incl. tech_cost_usd + the rpt_*/account columns) + _built_at system.
+    assert len(BACKEND_REGISTRY) == 86

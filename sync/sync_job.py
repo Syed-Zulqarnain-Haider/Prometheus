@@ -46,6 +46,7 @@ from google.cloud import bigquery
 from metric_registry import (
     COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
     generate_dedupe_sql, generate_fact_ddl, generate_indexes, generate_upsert_sql,
+    optional_default_expr,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -175,12 +176,13 @@ def load_staging(
             cur.execute(f'ALTER TABLE {STAGING} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
     pg.commit()
 
-    # Select every registry column from the view; for optional columns the view
-    # doesn't expose yet (e.g. tech_cost_usd) substitute a literal 0 so the column
-    # order/shape still matches the staging table. Dynamic columns are selected by name
-    # (BigQuery resolves column references case-insensitively).
+    # Select every registry column from the view; for optional columns the view doesn't
+    # expose yet (e.g. tech_cost_usd, the rpt_* / account columns) substitute a type-matched
+    # literal (0 for numerics, typed NULL for text) so the column order/shape still matches
+    # the staging table. Dynamic columns are selected by name (BigQuery resolves references
+    # case-insensitively).
     select_terms = [
-        col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
+        col if col in present else optional_default_expr(col)
         for col in COLUMN_NAMES
     ]
     select_terms += [name for name, _ in dyn]

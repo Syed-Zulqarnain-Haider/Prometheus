@@ -53,6 +53,10 @@ REGISTRY: list[Col] = [
     Col("app_category",    "STRING",  "TEXT",    Group.DIMENSION),
     Col("ownership_type",  "STRING",  "TEXT",    Group.DIMENSION),
     Col("is_mapped",       "BOOL",    "BOOLEAN", Group.DIMENSION),
+    # store/console account dimensions (Console + account filters)
+    Col("google_play_account", "STRING", "TEXT", Group.DIMENSION),
+    Col("apple_account",       "STRING", "TEXT", Group.DIMENSION),
+    Col("rpt_console",         "STRING", "TEXT", Group.DIMENSION),
 
     # ── store installs ──────────────────────────────────────────────────────
     Col("store_first_time_installs", "INT64", "BIGINT", Group.STORE_INSTALLS),
@@ -129,6 +133,12 @@ REGISTRY: list[Col] = [
     Col("roas",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
 
+    # ── reported actual totals (rpt_*) — finance-authoritative figures the cards now show ──
+    Col("rpt_gross_revenue_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_ua_cost_usd",           "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
+    Col("rpt_tf_profit_usd",         "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_shares_fees_taxes_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+
     # ── system ──────────────────────────────────────────────────────────────
     Col("_built_at", "TIMESTAMP", "TIMESTAMPTZ", Group.SYSTEM),
 ]
@@ -164,7 +174,19 @@ def effective_registry() -> list[Col]:
 # instead of failing, and the Integration tab's schema diff flags them as optional (not a
 # blocking mismatch). Kept identical to sync/metric_registry.py (drift-guarded by
 # tests/test_metric_registry_parity.py).
-OPTIONAL_SOURCE_COLUMNS: set[str] = {"tech_cost_usd"}
+OPTIONAL_SOURCE_COLUMNS: set[str] = {
+    "tech_cost_usd",
+    # Newly surfaced from the source view; optional so the sync keeps working if the code
+    # deploys before the updated daily_performance_v1 view. Type-aware defaults (0 for
+    # numerics, NULL for text) are applied by the sync until the view exposes them.
+    "google_play_account",
+    "apple_account",
+    "rpt_console",
+    "rpt_gross_revenue_usd",
+    "rpt_ua_cost_usd",
+    "rpt_tf_profit_usd",
+    "rpt_shares_fees_taxes_usd",
+}
 
 
 def expected_bq_schema() -> dict[str, str]:

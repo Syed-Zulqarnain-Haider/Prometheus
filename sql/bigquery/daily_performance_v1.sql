@@ -13,6 +13,9 @@ SELECT
   app_name, publisher, developer, pod, pod_owner, hou,
   app_category, ownership_type, is_mapped,
 
+  -- store/console account dimensions (used by the Console + account filters)
+  google_play_account, apple_account, rpt_console,
+
   -- store installs (separated, validated)
   store_first_time_installs, store_redownloads, store_total_installs,
   store_organic_installs, gp_uninstalls, apple_restores,
@@ -38,6 +41,12 @@ SELECT
 
   -- headline
   total_revenue_usd,
+
+  -- ── REPORTED ACTUAL TOTALS (rpt_*) — the finance-authoritative figures the dashboard
+  --    now surfaces on the metric cards (owner decision). Pass-through from the source;
+  --    NOT recomputed here. rpt_tf_profit_usd is Terafort's reported gross profit and
+  --    rpt_shares_fees_taxes_usd is the partners' share + fees + taxes deduction.
+  rpt_gross_revenue_usd, rpt_ua_cost_usd, rpt_tf_profit_usd, rpt_shares_fees_taxes_usd,
 
   -- Infra / tech cost per app-day (feeds Gross Profit on the Overview).
   -- PLACEHOLDER 0 until the data team adds tech_cost_usd to the source table;
