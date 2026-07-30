@@ -109,7 +109,7 @@ export function parseFilters(params: URLSearchParams): Filters {
     pods: splitList(params.get("pods")),
     publishers: splitList(params.get("publishers")),
     apps: splitList(params.get("apps")),
-    hou: [], // not a global-bar filter; set by the HOU drill-down page only
+    hou: splitList(params.get("hou")),
   };
 }
 
@@ -123,6 +123,7 @@ export function filtersToParams(filters: Filters): URLSearchParams {
   if (filters.pods.length) params.set("pods", filters.pods.join(","));
   if (filters.publishers.length) params.set("publishers", filters.publishers.join(","));
   if (filters.apps.length) params.set("apps", filters.apps.join(","));
+  if (filters.hou.length) params.set("hou", filters.hou.join(","));
   return params;
 }
 

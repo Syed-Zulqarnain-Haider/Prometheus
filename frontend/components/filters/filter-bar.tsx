@@ -32,6 +32,7 @@ export function FilterBar() {
   const apps = useMemo(() => data?.apps ?? [], [data]);
 
   const podOptions = useMemo(() => uniqueOptions(apps.map((a) => a.pod)), [apps]);
+  const houOptions = useMemo(() => uniqueOptions(apps.map((a) => a.hou)), [apps]);
   const publisherOptions = useMemo(
     () => uniqueOptions(apps.map((a) => a.publisher)),
     [apps],
@@ -77,6 +78,13 @@ export function FilterBar() {
           <SelectItem value="android">Android</SelectItem>
         </SelectContent>
       </Select>
+      <MultiSelect
+        label="HOU"
+        options={houOptions}
+        selected={filters.hou}
+        onChange={(hou) => setFilters({ ...filters, hou })}
+        disabled={isLoading}
+      />
       <MultiSelect
         label="Pods"
         options={podOptions}
