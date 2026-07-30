@@ -31,10 +31,18 @@ export interface Filters {
   dateTo: string; // yyyy-MM-dd
   compare: boolean;
   platform: Platform | null;
-  pods: string[];
+  pods: string[]; // legacy — kept for saved views; the bar now uses podOwners
   publishers: string[];
   apps: string[];
-  hou: string[]; // set only by the HOU drill-down page (not the global filter bar)
+  hou: string[];
+  // Additional narrowing dimensions surfaced in the global filter bar.
+  podOwners: string[];
+  consoles: string[];
+  developers: string[];
+  googlePlayAccounts: string[];
+  appleAccounts: string[];
+  packages: string[]; // android_package
+  bundles: string[]; // ios_bundle_id
 }
 
 const DEFAULT_PRESET: Exclude<DatePreset, "custom"> = "30D";
@@ -85,6 +93,13 @@ export function defaultFilters(): Filters {
     publishers: [],
     apps: [],
     hou: [],
+    podOwners: [],
+    consoles: [],
+    developers: [],
+    googlePlayAccounts: [],
+    appleAccounts: [],
+    packages: [],
+    bundles: [],
   };
 }
 
@@ -110,6 +125,13 @@ export function parseFilters(params: URLSearchParams): Filters {
     publishers: splitList(params.get("publishers")),
     apps: splitList(params.get("apps")),
     hou: splitList(params.get("hou")),
+    podOwners: splitList(params.get("podOwners")),
+    consoles: splitList(params.get("consoles")),
+    developers: splitList(params.get("developers")),
+    googlePlayAccounts: splitList(params.get("googlePlayAccounts")),
+    appleAccounts: splitList(params.get("appleAccounts")),
+    packages: splitList(params.get("packages")),
+    bundles: splitList(params.get("bundles")),
   };
 }
 
@@ -124,6 +146,14 @@ export function filtersToParams(filters: Filters): URLSearchParams {
   if (filters.publishers.length) params.set("publishers", filters.publishers.join(","));
   if (filters.apps.length) params.set("apps", filters.apps.join(","));
   if (filters.hou.length) params.set("hou", filters.hou.join(","));
+  if (filters.podOwners.length) params.set("podOwners", filters.podOwners.join(","));
+  if (filters.consoles.length) params.set("consoles", filters.consoles.join(","));
+  if (filters.developers.length) params.set("developers", filters.developers.join(","));
+  if (filters.googlePlayAccounts.length)
+    params.set("googlePlayAccounts", filters.googlePlayAccounts.join(","));
+  if (filters.appleAccounts.length) params.set("appleAccounts", filters.appleAccounts.join(","));
+  if (filters.packages.length) params.set("packages", filters.packages.join(","));
+  if (filters.bundles.length) params.set("bundles", filters.bundles.join(","));
   return params;
 }
 
@@ -138,5 +168,12 @@ export function filtersToApiQuery(filters: Filters): Record<string, string | boo
     publishers: filters.publishers,
     apps: filters.apps,
     ...(filters.hou.length ? { hou: filters.hou } : {}),
+    pod_owners: filters.podOwners,
+    consoles: filters.consoles,
+    developers: filters.developers,
+    google_play_accounts: filters.googlePlayAccounts,
+    apple_accounts: filters.appleAccounts,
+    packages: filters.packages,
+    bundles: filters.bundles,
   };
 }

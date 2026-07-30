@@ -58,6 +58,34 @@ export function useApps() {
   });
 }
 
+export interface FilterOptions {
+  platforms: string[];
+  consoles: string[];
+  pod_owners: string[];
+  publishers: string[];
+  developers: string[];
+  google_play_accounts: string[];
+  apple_accounts: string[];
+  packages: string[];
+  bundles: string[];
+  hous: string[];
+  apps: { value: string; label: string | null }[];
+}
+
+/** Cascading filter-bar options — refetches whenever any filter changes, so each dropdown
+ *  reflects the others (e.g. platform=ios narrows the HOU list). */
+export function useFilterOptions(filters: Filters) {
+  const { user } = useAuth();
+  const params = filtersToApiQuery(filters);
+  return useQuery({
+    queryKey: ["filter-options", params],
+    queryFn: () => apiFetch<FilterOptions>(`/api/v1/meta/filter-options${buildQuery(params)}`),
+    enabled: Boolean(user),
+    staleTime: 60 * 1000,
+    placeholderData: (prev) => prev, // keep old options visible while the new set loads
+  });
+}
+
 export function useAppDetail(canonicalKey: string) {
   const { user } = useAuth();
   return useQuery({
