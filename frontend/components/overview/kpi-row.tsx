@@ -13,6 +13,12 @@ const SPARK_METRICS = [
   "rpt_ua_cost_usd",
   "rpt_shares_fees_taxes_usd",
   "rpt_tf_profit_usd",
+  // second row — the deeper reported P&L ladder
+  "rpt_total_revenue_usd",
+  "rpt_total_cost_usd",
+  "rpt_gross_profit_usd",
+  "rpt_net_profit_usd",
+  "rpt_net_revenue_terafort_usd",
 ];
 
 /** margin = profit / gross revenue, guarded like the server ratios (None on 0 denominator). */
@@ -47,20 +53,45 @@ export function KpiRow({ filters }: { filters: Filters }) {
     { label: "Profit %", field: "rpt_profit_margin", value: formatPercent(profitPct), current: profitPct, previous: profitPctPrev, spark: undefined, description: "Reported profit as a percentage of reported gross revenue." },
   ];
 
+  // Second row — the deeper reported P&L ladder (all profitability-group, same RBAC).
+  const ladder = [
+    { label: "Total Revenue", field: "rpt_total_revenue_usd", value: formatUSD(current.rpt_total_revenue_usd), current: current.rpt_total_revenue_usd, previous: previous?.rpt_total_revenue_usd, spark: metricValues(timeseries.data, "rpt_total_revenue_usd"), description: "Reported total revenue for the selected period." },
+    { label: "Total Cost", field: "rpt_total_cost_usd", value: formatUSD(current.rpt_total_cost_usd), current: current.rpt_total_cost_usd, previous: previous?.rpt_total_cost_usd, spark: metricValues(timeseries.data, "rpt_total_cost_usd"), description: "Reported total cost for the selected period." },
+    { label: "Gross Profit (reported)", field: "rpt_gross_profit_usd", value: formatUSD(current.rpt_gross_profit_usd), current: current.rpt_gross_profit_usd, previous: previous?.rpt_gross_profit_usd, spark: metricValues(timeseries.data, "rpt_gross_profit_usd"), description: "Reported gross profit for the selected period." },
+    { label: "Net Profit", field: "rpt_net_profit_usd", value: formatUSD(current.rpt_net_profit_usd), current: current.rpt_net_profit_usd, previous: previous?.rpt_net_profit_usd, spark: metricValues(timeseries.data, "rpt_net_profit_usd"), description: "Reported net profit for the selected period." },
+    { label: "Net Revenue (Terafort)", field: "rpt_net_revenue_terafort_usd", value: formatUSD(current.rpt_net_revenue_terafort_usd), current: current.rpt_net_revenue_terafort_usd, previous: previous?.rpt_net_revenue_terafort_usd, spark: metricValues(timeseries.data, "rpt_net_revenue_terafort_usd"), description: "Reported net revenue retained by Terafort for the selected period." },
+  ];
+
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-      {kpis.map((kpi) => (
-        <KpiCard
-          key={kpi.field}
-          label={kpi.label}
-          value={kpi.value}
-          current={kpi.current}
-          previous={kpi.previous}
-          spark={kpi.spark}
-          description={kpi.description}
-          loading={loading}
-        />
-      ))}
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        {kpis.map((kpi) => (
+          <KpiCard
+            key={kpi.field}
+            label={kpi.label}
+            value={kpi.value}
+            current={kpi.current}
+            previous={kpi.previous}
+            spark={kpi.spark}
+            description={kpi.description}
+            loading={loading}
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        {ladder.map((kpi) => (
+          <KpiCard
+            key={kpi.field}
+            label={kpi.label}
+            value={kpi.value}
+            current={kpi.current}
+            previous={kpi.previous}
+            spark={kpi.spark}
+            description={kpi.description}
+            loading={loading}
+          />
+        ))}
+      </div>
     </div>
   );
 }
