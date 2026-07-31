@@ -7,6 +7,31 @@ import { num, token } from "@/lib/chart-helpers";
 import type { EChartsOption } from "@/lib/echarts";
 import type { Filters } from "@/lib/filters";
 import { formatUSD } from "@/lib/format";
+import type { Platform } from "@/lib/types";
+import { useFilters } from "@/lib/use-filters";
+
+/** Narrow the global filters into one clicked category (drill-down). Only ever NARROWS —
+ * never widens — so it stays within the caller's RBAC scope. Returns null if this dimension
+ * isn't a filterable one. */
+function drillInto(filters: Filters, groupBy: string, value: string): Filters | null {
+  if (!value) return null;
+  switch (groupBy) {
+    case "platform":
+      return value === "ios" || value === "android"
+        ? { ...filters, platform: value as Platform }
+        : null;
+    case "pod":
+      return { ...filters, pods: [value] };
+    case "publisher":
+      return { ...filters, publishers: [value] };
+    case "hou":
+      return { ...filters, hou: [value] };
+    case "app":
+      return { ...filters, apps: [value] };
+    default:
+      return null;
+  }
+}
 
 const PALETTE = [
   "--chart-bar",
@@ -26,6 +51,7 @@ function BreakdownPie({
   filters: Filters;
   groupBy: string;
 }) {
+  const { setFilters } = useFilters();
   const breakdown = useBreakdown(filters, groupBy, ["total_revenue_usd"]);
   const rows = breakdown.data?.rows ?? [];
   const data = rows.map((row, i) => ({
@@ -60,6 +86,12 @@ function BreakdownPie({
         error={breakdown.isError}
         isEmpty={!breakdown.isLoading && data.length === 0}
         height={240}
+        onEvents={{
+          click: (p) => {
+            const next = drillInto(filters, groupBy, String(p.name));
+            if (next) setFilters(next);
+          },
+        }}
       />
     </ChartCard>
   );
