@@ -367,14 +367,19 @@ async def share_report(
         user_agent=request.headers.get("user-agent"),
     )
     if new_status == "pending":
-        # A non-admin share needs approval — let the admins know.
-        await notification_service.notify_admins(
-            type="share_request",
-            title="Report share awaiting approval",
-            body=f"{context.email} shared “{report.name}” — needs an admin's approval.",
-            actor_id=context.user_id,
-            resource=str(report_id),
-        )
+        # A non-admin share needs approval — route it up the hierarchy: every admin AND
+        # every pod owner is notified, with a deep-link to the approvals view.
+        _kwargs = {
+            "type": "share_request",
+            "title": "Report share awaiting approval",
+            "body": f"{context.email} shared “{report.name}” — needs approval.",
+            "severity": "warning",
+            "link": "/reports?tab=shares",
+            "actor_id": context.user_id,
+            "resource": str(report_id),
+        }
+        await notification_service.notify_admins(**_kwargs)
+        await notification_service.notify_role("pod_owner", **_kwargs)
     return _share_out(share, report.name)
 
 
@@ -410,6 +415,8 @@ async def _decide_share(
         share.shared_by,
         type="share_decision",
         title=f"Your report share was {new_status}",
+        severity="info" if new_status == "approved" else "warning",
+        link="/reports",
         actor_id=context.user_id,
         resource=str(share.report_id),
     )

@@ -674,6 +674,8 @@ async def integration_schema_sync(
                 f"Added {len(result.added)} column(s) (admin-only), "
                 f"flagged {len(result.deactivated)} removed"
             ),
+            severity="warning" if result.deactivated else "info",
+            link="/admin?tab=integration",
             actor_id=context.user_id,
             resource="fact_daily_performance",
         )

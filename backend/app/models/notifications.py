@@ -25,6 +25,10 @@ class Notification(Base):
     type: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str | None] = mapped_column(Text)
+    # info | warning | critical — drives the bell's ranking/colour (sync crash = critical).
+    severity: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'info'"))
+    # Relative dashboard path the notification opens when clicked (deep-link to the change).
+    link: Mapped[str | None] = mapped_column(Text)
     audience: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'all'"))
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")

@@ -979,6 +979,8 @@ export interface NotificationItem {
   type: string;
   title: string;
   body: string | null;
+  severity: "info" | "warning" | "critical";
+  link: string | null;
   resource: string | null;
   read: boolean;
 }

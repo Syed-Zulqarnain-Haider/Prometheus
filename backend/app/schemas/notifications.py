@@ -14,6 +14,8 @@ class NotificationOut(BaseModel):
     type: str
     title: str
     body: str | None
+    severity: str = "info"  # info | warning | critical
+    link: str | None = None  # relative path the notification opens when clicked
     resource: str | None
     detail: dict[str, Any] | None
     read: bool

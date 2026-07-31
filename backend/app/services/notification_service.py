@@ -32,6 +32,8 @@ async def create(
     title: str,
     body: str | None = None,
     audience: str = "all",
+    severity: str = "info",
+    link: str | None = None,
     actor_id: uuid.UUID | None = None,
     resource: str | None = None,
     detail: dict[str, Any] | None = None,
@@ -45,6 +47,8 @@ async def create(
                     title=title,
                     body=body,
                     audience=audience,
+                    severity=severity if severity in ("info", "warning", "critical") else "info",
+                    link=link,
                     actor_user_id=actor_id,
                     resource=resource,
                     detail=detail,
@@ -61,6 +65,34 @@ async def notify_admins(**kwargs: Any) -> None:
 
 async def notify_user(user_id: uuid.UUID, **kwargs: Any) -> None:
     await create(audience=f"user:{user_id}", **kwargs)
+
+
+async def notify_role(role_name: str, **kwargs: Any) -> None:
+    """Notify every active user holding ``role_name`` (one per-user notification each).
+
+    Used for hierarchy routing — e.g. a viewer's share request notifies the pod owners AND
+    all admins. Best-effort; never raises."""
+    try:
+        from app.models import Role, User, UserRole
+
+        async with get_sessionmaker()() as session:
+            user_ids = (
+                (
+                    await session.execute(
+                        select(User.id)
+                        .join(UserRole, UserRole.user_id == User.id)
+                        .join(Role, Role.id == UserRole.role_id)
+                        .where(Role.name == role_name, User.is_active.is_(True))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    except Exception:
+        logger.exception("notify_role lookup failed (role=%s)", role_name)
+        return
+    for uid in dict.fromkeys(user_ids):
+        await create(audience=f"user:{uid}", **kwargs)
 
 
 def _visible(user_id: uuid.UUID, is_admin: bool) -> Any:
@@ -96,6 +128,8 @@ async def list_for_user(
             type=n.type,
             title=n.title,
             body=n.body,
+            severity=n.severity,
+            link=n.link,
             resource=n.resource,
             detail=n.detail,
             read=read_id is not None,

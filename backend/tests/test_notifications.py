@@ -1,4 +1,5 @@
 """Notifications: RBAC-scoped visibility + read state."""
+from typing import Any
 
 from app.models import Notification
 from sqlalchemy import insert
@@ -58,3 +59,48 @@ async def test_mark_read_and_unread_count(metrics_env: MetricsEnv) -> None:
         await c.post("/api/v1/notifications/read-all", headers=_auth("viewer"))
     ).status_code == 204
     assert (await c.get("/api/v1/notifications", headers=_auth("viewer"))).json()["unread"] == 0
+
+
+# ── v2: severity + clickable link + hierarchy routing ────────────────────────────
+async def test_severity_and_link_surface_in_api(metrics_env: MetricsEnv) -> None:
+    async with metrics_env.sessionmaker() as s:
+        await s.execute(
+            insert(Notification),
+            [
+                {
+                    "type": "sync_failed",
+                    "title": "Sync crashed",
+                    "audience": "admins",
+                    "severity": "critical",
+                    "link": "/admin?tab=integration",
+                }
+            ],
+        )
+        await s.commit()
+
+    admin = (await metrics_env.client.get("/api/v1/notifications", headers=_auth("admin"))).json()
+    item = next(n for n in admin["items"] if n["title"] == "Sync crashed")
+    assert item["severity"] == "critical"
+    assert item["link"] == "/admin?tab=integration"
+
+
+async def test_notify_role_routes_to_pod_owners(
+    metrics_env: MetricsEnv, monkeypatch: Any
+) -> None:
+    """Hierarchy routing: notify_role('pod_owner') reaches pod-owner users, not others."""
+    from app.services import notification_service
+
+    # The service writes on its own session; point it at the test DB.
+    monkeypatch.setattr(
+        notification_service, "get_sessionmaker", lambda: metrics_env.sessionmaker
+    )
+    await notification_service.notify_role(
+        "pod_owner", type="share_request", title="needs approval", link="/reports?tab=shares"
+    )
+
+    po = (await metrics_env.client.get("/api/v1/notifications", headers=_auth("pod_owner"))).json()
+    assert any(n["title"] == "needs approval" and n["link"] == "/reports?tab=shares"
+               for n in po["items"])
+    # A viewer (not a pod owner) must NOT receive it.
+    viewer = (await metrics_env.client.get("/api/v1/notifications", headers=_auth("viewer"))).json()
+    assert all(n["title"] != "needs approval" for n in viewer["items"])
