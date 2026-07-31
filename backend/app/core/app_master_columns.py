@@ -46,7 +46,7 @@ REGISTRY: list[AppMasterColumn] = [
     _c("sana_mirror_package", "text", "STRING"),
     _c("apple_account", "text", "STRING"),
     _c("google_play_account", "text", "STRING"),
-    _c("facebook_app_id", "text", "STRING"),
+    _c("facebook_app_id", "double", "FLOAT64"),  # FLOAT64 in BigQuery (not STRING)
     _c("type", "text", "STRING", editable=True),
     _c("publisher", "text", "STRING", editable=True),
     _c("developer", "text", "STRING", editable=True),
