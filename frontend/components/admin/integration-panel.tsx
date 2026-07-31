@@ -242,7 +242,26 @@ function SchemaSyncResultLists({ result }: { result: SchemaSyncResult }) {
 function SchemaDiffSection() {
   const diff = useSchemaDiff();
   const sync = useSchemaSync();
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
   const result = diff.data;
+  // The view differs from the registry and there's something to apply.
+  const hasChanges =
+    !!result &&
+    result.configured &&
+    !result.in_sync &&
+    !result.message &&
+    ((result.missing_in_view?.length ?? 0) > 0 ||
+      (result.type_mismatches?.length ?? 0) > 0 ||
+      (result.unregistered_in_view?.length ?? 0) > 0);
+
+  function proposeMatch() {
+    setAwaitingApproval(true);
+    diff.mutate(); // fetch the exact drift to show BEFORE applying
+  }
+  function approve() {
+    setAwaitingApproval(false);
+    sync.mutate();
+  }
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -271,11 +290,11 @@ function SchemaDiffSection() {
             </Button>
             <Button
               className="gap-2"
-              disabled={sync.isPending}
-              onClick={() => sync.mutate()}
-              title="Add new BigQuery columns to Postgres (admin-only) and flag removed ones. Never drops data."
+              disabled={sync.isPending || (awaitingApproval && diff.isPending)}
+              onClick={proposeMatch}
+              title="Review the exact schema changes, then approve or reject before anything is applied."
             >
-              {sync.isPending ? (
+              {sync.isPending || (awaitingApproval && diff.isPending) ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
               ) : (
                 <Database className="h-4 w-4" />
@@ -284,6 +303,43 @@ function SchemaDiffSection() {
             </Button>
           </div>
         </CardContent>
+
+        {/* Approval gate: show the pending changes and require an explicit Approve/Reject. */}
+        {awaitingApproval && !diff.isPending && result && (
+          <CardContent className="space-y-3 border-t pt-3 text-sm">
+            {!result.configured || result.message ? (
+              <p className="text-muted-foreground">{result.message ?? "BigQuery not configured."}</p>
+            ) : !hasChanges ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-positive">Already in sync — nothing to apply.</p>
+                <Button variant="outline" size="sm" onClick={() => setAwaitingApproval(false)}>
+                  Close
+                </Button>
+              </div>
+            ) : (
+              <>
+                <p className="font-medium">Review these changes before applying:</p>
+                <SchemaDiffLists diff={result} />
+                <p className="text-xs text-muted-foreground">
+                  New columns are added to Postgres (visible to admins only) and columns removed
+                  from BigQuery are flagged — never dropped. Values populate on the next sync.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={approve} disabled={sync.isPending}>
+                    Approve &amp; apply
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAwaitingApproval(false)}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        )}
         {result && (
           <CardContent className="space-y-3 pt-0 text-sm">
             {!result.configured || result.message ? (
