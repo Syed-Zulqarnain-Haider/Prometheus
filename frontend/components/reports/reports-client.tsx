@@ -13,6 +13,7 @@ import {
   useDeleteReport,
   useMe,
   usePendingShares,
+  useRequestReportEdit,
   useRunReport,
   useSavedReports,
   useSharedReports,
@@ -81,6 +82,7 @@ function ReportCard({
 }) {
   const run = useRunReport();
   const deleteReport = useDeleteReport();
+  const requestEdit = useRequestReportEdit();
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
 
@@ -127,6 +129,17 @@ function ReportCard({
             Run
           </Button>
           {canShare && report.is_owner && <ShareDialog reportId={report.id} />}
+          {!report.is_owner && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => requestEdit.mutate(report.id)}
+              disabled={requestEdit.isPending || requestEdit.isSuccess}
+              title="You can view this shared report; request access to edit it."
+            >
+              {requestEdit.isSuccess ? "Edit requested ✓" : "Request edit"}
+            </Button>
+          )}
           {canExport && (
             <>
               <Button

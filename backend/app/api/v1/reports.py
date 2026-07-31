@@ -29,6 +29,7 @@ from app.core.rate_limit import enforce_rate_limit
 from app.models import ReportShare, SavedReport, User
 from app.schemas.auth import UserContext
 from app.schemas.reports import (
+    EditDecision,
     ReportRunResult,
     SavedReportCreate,
     SavedReportOut,
@@ -77,6 +78,7 @@ def _share_out(share: ReportShare, report_name: str | None = None) -> ShareOut:
         shared_by=share.shared_by,
         shared_with=share.shared_with,
         status=share.status,
+        edit_status=share.edit_status,
         created_at=share.created_at,
     )
 
@@ -218,13 +220,25 @@ async def update_report(
     db: DbSession,
     audit: AuditDep,
 ) -> SavedReportOut:
-    report = await db.scalar(
-        select(SavedReport).where(
-            and_(SavedReport.id == report_id, SavedReport.user_id == context.user_id)
-        )
-    )
+    report = await db.scalar(select(SavedReport).where(SavedReport.id == report_id))
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    is_owner = report.user_id == context.user_id
+    if not is_owner:
+        # A non-owner may edit ONLY with a granted edit request on an approved share.
+        granted = await db.scalar(
+            select(ReportShare.id).where(
+                and_(
+                    ReportShare.report_id == report_id,
+                    ReportShare.shared_with == context.user_id,
+                    ReportShare.status == "approved",
+                    ReportShare.edit_status == "granted",
+                )
+            )
+        )
+        if granted is None:
+            # No grant → indistinguishable 404 (never reveal the report's existence/edit-lock).
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
 
     qb = QueryBuilder(context)
     try:
@@ -246,11 +260,97 @@ async def update_report(
         user_id=context.user_id,
         action="saved_report_update",
         resource=str(report_id),
-        detail={"name": report.name, "group_by": report.group_by},
+        detail={"name": report.name, "group_by": report.group_by, "by_owner": is_owner},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
-    return _report_out(report, is_owner=True)
+    return _report_out(report, is_owner=is_owner)
+
+
+@router.post("/{report_id}/request-edit", response_model=ShareOut)
+async def request_edit(
+    report_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> ShareOut:
+    """A recipient of a shared report requests edit access. Routes the request to the report
+    OWNER and all admins (deep-linked). No-op-safe if already granted."""
+    share = await db.scalar(
+        select(ReportShare).where(
+            and_(
+                ReportShare.report_id == report_id,
+                ReportShare.shared_with == context.user_id,
+                ReportShare.status == "approved",
+            )
+        )
+    )
+    if share is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    report = await db.scalar(select(SavedReport).where(SavedReport.id == report_id))
+    if share.edit_status != "granted":
+        share.edit_status = "requested"
+        await db.commit()
+    await audit.write(
+        user_id=context.user_id,
+        action="report_edit_requested",
+        resource=str(report_id),
+        detail={"share_id": str(share.id)},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    name = report.name if report else "a report"
+    kwargs = {
+        "type": "report_edit_request",
+        "title": "Edit access requested",
+        "body": f"{context.email} wants to edit “{name}”.",
+        "severity": "warning",
+        "link": "/reports?tab=shares",
+        "actor_id": context.user_id,
+        "resource": str(report_id),
+    }
+    if report is not None:
+        await notification_service.notify_user(report.user_id, **kwargs)
+    await notification_service.notify_admins(**kwargs)
+    return _share_out(share, name if report else None)
+
+
+@router.post("/shares/{share_id}/edit-decision", response_model=ShareOut)
+async def decide_edit(
+    share_id: uuid.UUID,
+    body: EditDecision,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> ShareOut:
+    """Grant or deny a recipient's edit request. Allowed for the report OWNER or any admin."""
+    share = await db.scalar(select(ReportShare).where(ReportShare.id == share_id))
+    if share is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Share not found")
+    report = await db.scalar(select(SavedReport).where(SavedReport.id == share.report_id))
+    is_admin = ADMIN_CAPABILITY in context.capabilities
+    if not (is_admin or (report is not None and report.user_id == context.user_id)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Share not found")
+
+    share.edit_status = "granted" if body.grant else "none"
+    await db.commit()
+    await db.refresh(share)
+    await audit.write(
+        user_id=context.user_id,
+        action="report_edit_" + ("granted" if body.grant else "denied"),
+        resource=str(share.report_id),
+        detail={"share_id": str(share.id), "shared_with": str(share.shared_with)},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await notification_service.notify_user(
+        share.shared_with,
+        type="report_edit_decision",
+        title="Edit access " + ("granted" if body.grant else "denied"),
+        severity="info" if body.grant else "warning",
+        link="/reports",
+        actor_id=context.user_id,
+        resource=str(share.report_id),
+    )
+    return _share_out(share, report.name if report else None)
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -97,6 +97,9 @@ class ReportShare(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    # Edit-access grant for this recipient: none | requested | granted. A shared report is
+    # owner-editable only until an owner/admin grants edit here.
+    edit_status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'none'"))
     # SET NULL: keep an approved share if the approving admin is later deleted.
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")

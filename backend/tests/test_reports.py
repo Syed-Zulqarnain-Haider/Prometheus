@@ -313,3 +313,52 @@ async def test_revoke_cuts_off_access(metrics_env: MetricsEnv) -> None:
         await client.post(f"/api/v1/reports/{report_id}/run", headers=_auth("finance"))
     ).status_code == 404
     assert "report_share_revoked" in await _audit_actions(metrics_env)
+
+
+# ── v2: owner-lock + request-to-edit grant flow ──────────────────────────────────
+async def test_shared_report_edit_requires_granted_request(metrics_env: MetricsEnv) -> None:
+    client = metrics_env.client
+    # Admin owns a report and shares it with finance (admin self-share auto-approves).
+    created = await client.post("/api/v1/reports", json=_report_body(), headers=_auth("admin"))
+    report_id = created.json()["id"]
+    share = await client.post(
+        f"/api/v1/reports/{report_id}/share",
+        json={"shared_with": _metrics_uid("finance")},
+        headers=_auth("admin"),
+    )
+    share_id = share.json()["id"]
+
+    # A non-owner cannot edit the shared report (owner-lock → indistinguishable 404).
+    blocked = await client.put(
+        f"/api/v1/reports/{report_id}", json=_report_body(name="hijack"), headers=_auth("finance")
+    )
+    assert blocked.status_code == 404
+
+    # Finance requests edit access.
+    req = await client.post(f"/api/v1/reports/{report_id}/request-edit", headers=_auth("finance"))
+    assert req.status_code == 200 and req.json()["edit_status"] == "requested"
+
+    # Admin (owner) grants it.
+    grant = await client.post(
+        f"/api/v1/reports/shares/{share_id}/edit-decision",
+        json={"grant": True},
+        headers=_auth("admin"),
+    )
+    assert grant.status_code == 200 and grant.json()["edit_status"] == "granted"
+
+    # Now finance CAN edit.
+    ok = await client.put(
+        f"/api/v1/reports/{report_id}", json=_report_body(name="collab"), headers=_auth("finance")
+    )
+    assert ok.status_code == 200 and ok.json()["name"] == "collab"
+
+    # Revoking the grant re-locks it.
+    await client.post(
+        f"/api/v1/reports/shares/{share_id}/edit-decision",
+        json={"grant": False},
+        headers=_auth("admin"),
+    )
+    relocked = await client.put(
+        f"/api/v1/reports/{report_id}", json=_report_body(name="nope"), headers=_auth("finance")
+    )
+    assert relocked.status_code == 404

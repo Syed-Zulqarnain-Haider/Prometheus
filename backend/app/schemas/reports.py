@@ -71,7 +71,12 @@ class ShareOut(BaseModel):
     shared_by: uuid.UUID
     shared_with: uuid.UUID
     status: str
+    edit_status: str = "none"  # none | requested | granted
     created_at: datetime
+
+
+class EditDecision(BaseModel):
+    grant: bool  # True → grant edit access; False → revoke/deny it
 
 
 # ── Exports ──────────────────────────────────────────────────────────────────

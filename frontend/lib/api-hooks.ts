@@ -341,6 +341,32 @@ export function usePendingShares(enabled: boolean) {
   });
 }
 
+/** A shared-report recipient requests edit access (routes to owner + admins). */
+export function useRequestReportEdit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (reportId: string) =>
+      apiFetch<ShareOut>(`/api/v1/reports/${reportId}/request-edit`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shared-reports"] }),
+  });
+}
+
+/** Owner/admin grants or revokes a recipient's edit request. */
+export function useDecideReportEdit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shareId, grant }: { shareId: string; grant: boolean }) =>
+      apiFetch<ShareOut>(`/api/v1/reports/shares/${shareId}/edit-decision`, {
+        method: "POST",
+        body: JSON.stringify({ grant }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-shares"] });
+      queryClient.invalidateQueries({ queryKey: ["shared-reports"] });
+    },
+  });
+}
+
 export function useCreateReport() {
   const queryClient = useQueryClient();
   return useMutation({
