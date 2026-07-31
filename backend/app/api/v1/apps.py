@@ -5,15 +5,16 @@ Out-of-scope or nonexistent apps return 404 (indistinguishable), never 403.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, RedisClient
 from app.core.cache import aggregate_cache_key, cached_json, scope_token
 from app.core.rate_limit import enforce_rate_limit
 from app.models import DimApp
+from app.services import icon_service
 from app.services.scopes import build_scope_filter
 
 router = APIRouter(tags=["apps"], dependencies=[Depends(enforce_rate_limit)])
@@ -70,6 +71,18 @@ async def list_apps(context: CurrentUser, db: DbSession, redis: RedisClient) -> 
 
     result: dict[str, Any] = await cached_json(redis, key, produce)
     return result
+
+
+@router.get("/apps/icons")
+async def app_icons(
+    context: CurrentUser,
+    redis: RedisClient,
+    ids: Annotated[list[int], Query()] = [],  # noqa: B006 — FastAPI multi-value query
+) -> dict[str, str]:
+    """Resolve real iOS store icons for the given apple_ids (cached in Redis, best-effort).
+    Non-iOS or unresolved ids are simply absent — the client falls back to an initials badge.
+    Declared BEFORE /apps/{canonical_key} so 'icons' isn't captured as a key."""
+    return await icon_service.resolve_ios_icons(redis, ids[:500])
 
 
 @router.get("/apps/{canonical_key}")

@@ -72,6 +72,24 @@ export interface FilterOptions {
   apps: { value: string; label: string | null }[];
 }
 
+/** Resolve real iOS store icons for the given apple_ids (cached server-side). Returns a
+ *  { "<apple_id>": url } map; ids without an icon are simply absent. */
+export function useAppIcons(appleIds: (number | null | undefined)[]) {
+  const { user } = useAuth();
+  const ids = Array.from(new Set(appleIds.filter((x): x is number => Boolean(x)))).sort(
+    (a, b) => a - b,
+  );
+  return useQuery({
+    queryKey: ["app-icons", ids],
+    queryFn: () =>
+      apiFetch<Record<string, string>>(
+        `/api/v1/apps/icons${buildQuery({ ids: ids.map(String) })}`,
+      ),
+    enabled: Boolean(user) && ids.length > 0,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
 /** Cascading filter-bar options — refetches whenever any filter changes, so each dropdown
  *  reflects the others (e.g. platform=ios narrows the HOU list). */
 export function useFilterOptions(filters: Filters) {
