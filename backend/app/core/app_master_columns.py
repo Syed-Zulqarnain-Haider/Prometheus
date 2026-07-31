@@ -87,6 +87,10 @@ REGISTRY: list[AppMasterColumn] = [
     _c("in_apple_console", "boolean", "BOOL", editable=True),
     _c("in_gp_console", "boolean", "BOOL", editable=True),
     _c("ops_notes", "text", "STRING", editable=True),
+    # Newer app_master_v2 columns. net_revenue_share's BigQuery name has spaces/caps
+    # ("Net Revenue Share") — carried via bq_name and back-quoted on read/write.
+    _c("net_revenue_share", "double", "FLOAT64", editable=True, bq_name="Net Revenue Share"),
+    _c("console_owned_by", "text", "STRING", editable=True),
 ]
 
 BY_NAME: dict[str, AppMasterColumn] = {c.name: c for c in REGISTRY}

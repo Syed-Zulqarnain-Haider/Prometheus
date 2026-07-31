@@ -242,6 +242,7 @@ function SchemaSyncResultLists({ result }: { result: SchemaSyncResult }) {
 function SchemaDiffSection() {
   const diff = useSchemaDiff();
   const sync = useSchemaSync();
+  const runSync = useRunSync();
   const [awaitingApproval, setAwaitingApproval] = useState(false);
   const result = diff.data;
   // The view differs from the registry and there's something to apply.
@@ -253,14 +254,26 @@ function SchemaDiffSection() {
     ((result.missing_in_view?.length ?? 0) > 0 ||
       (result.type_mismatches?.length ?? 0) > 0 ||
       (result.unregistered_in_view?.length ?? 0) > 0);
+  const busy = diff.isPending || sync.isPending || runSync.isPending;
 
   function proposeMatch() {
     setAwaitingApproval(true);
     diff.mutate(); // fetch the exact drift to show BEFORE applying
   }
-  function approve() {
+  // One click, BigQuery → Postgres: apply any schema changes (columns/types), THEN pull the
+  // data in a full sync — so the admin never has to touch Postgres or run a separate sync.
+  async function approveAndPull() {
     setAwaitingApproval(false);
-    sync.mutate();
+    try {
+      if (hasChanges) await sync.mutateAsync();
+    } finally {
+      runSync.mutate({ mode: "full" });
+    }
+  }
+  // Schema already matches — just refresh the data.
+  function pullDataOnly() {
+    setAwaitingApproval(false);
+    runSync.mutate({ mode: "full" });
   }
   return (
     <section className="space-y-3">
@@ -270,15 +283,16 @@ function SchemaDiffSection() {
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-muted-foreground">
-            Compare the BigQuery view&apos;s columns to the metric registry, or match them:
-            new columns are added to Postgres (shown to admins only) and removed ones are
-            flagged, never dropped.
+            Pull BigQuery → Postgres in one click: new columns and type changes are applied to
+            Postgres (admin-only, removed columns flagged never dropped), then a full sync loads
+            the data — so you never have to touch Postgres or run a separate sync. You approve the
+            schema changes first.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               className="gap-2"
-              disabled={diff.isPending}
+              disabled={busy}
               onClick={() => diff.mutate()}
             >
               {diff.isPending ? (
@@ -290,16 +304,16 @@ function SchemaDiffSection() {
             </Button>
             <Button
               className="gap-2"
-              disabled={sync.isPending || (awaitingApproval && diff.isPending)}
+              disabled={busy}
               onClick={proposeMatch}
-              title="Review the exact schema changes, then approve or reject before anything is applied."
+              title="Review the schema changes, approve them, then automatically pull the data — all BigQuery → Postgres."
             >
-              {sync.isPending || (awaitingApproval && diff.isPending) ? (
+              {sync.isPending || runSync.isPending || (awaitingApproval && diff.isPending) ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
               ) : (
                 <Database className="h-4 w-4" />
               )}
-              Match DB &amp; BigQuery Schema
+              Sync BigQuery → Postgres (schema + data)
             </Button>
           </div>
         </CardContent>
@@ -310,23 +324,31 @@ function SchemaDiffSection() {
             {!result.configured || result.message ? (
               <p className="text-muted-foreground">{result.message ?? "BigQuery not configured."}</p>
             ) : !hasChanges ? (
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-positive">Already in sync — nothing to apply.</p>
-                <Button variant="outline" size="sm" onClick={() => setAwaitingApproval(false)}>
-                  Close
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-positive">
+                  Schema already matches. Pull the latest data from BigQuery?
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={pullDataOnly} disabled={busy}>
+                    Pull data (full sync)
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setAwaitingApproval(false)}>
+                    Close
+                  </Button>
+                </div>
               </div>
             ) : (
               <>
                 <p className="font-medium">Review these changes before applying:</p>
                 <SchemaDiffLists diff={result} />
                 <p className="text-xs text-muted-foreground">
-                  New columns are added to Postgres (visible to admins only) and columns removed
-                  from BigQuery are flagged — never dropped. Values populate on the next sync.
+                  New columns/types are applied to Postgres (visible to admins only) and columns
+                  removed from BigQuery are flagged — never dropped. On approval the schema is
+                  applied and a full data sync runs immediately.
                 </p>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={approve} disabled={sync.isPending}>
-                    Approve &amp; apply
+                  <Button size="sm" onClick={approveAndPull} disabled={busy}>
+                    Approve &amp; pull (schema + data)
                   </Button>
                   <Button
                     variant="outline"
@@ -362,14 +384,28 @@ function SchemaDiffSection() {
             )}
           </CardContent>
         )}
-        {(diff.isError || sync.isError) && (
+        {(runSync.isPending || runSync.data) && (
+          <CardContent className="pt-0 text-sm">
+            {runSync.isPending ? (
+              <p className="flex items-center gap-2 text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Pulling data from BigQuery (full sync)…
+              </p>
+            ) : (
+              <p className={runSync.data?.triggered ? "text-positive" : "text-muted-foreground"}>
+                {runSync.data?.message ?? "Data sync triggered."}
+              </p>
+            )}
+          </CardContent>
+        )}
+        {(diff.isError || sync.isError || runSync.isError) && (
           <CardContent className="pt-0 text-sm">
             <p className="text-destructive">
               {(() => {
-                const err = diff.error ?? sync.error;
+                const err = diff.error ?? sync.error ?? runSync.error;
                 return err instanceof ApiError
                   ? err.message
-                  : "Schema action failed. Please try again.";
+                  : "Sync action failed. Please try again.";
               })()}
             </p>
           </CardContent>
