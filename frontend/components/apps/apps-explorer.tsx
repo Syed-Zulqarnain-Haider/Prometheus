@@ -2,6 +2,7 @@
 
 import {
   type ColumnDef,
+  type ColumnOrderState,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -9,7 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ArrowUp, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -101,12 +102,28 @@ function buildColumns(
   }));
 }
 
+const COL_ORDER_KEY = "apps-explorer-col-order";
+
 export function AppsExplorer({ filters }: { filters: Filters }) {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([{ id: "app_name", desc: false }]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
+  const [reordering, setReordering] = useState(false);
+  const dragCol = useRef<string | null>(null);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 250);
+
+  // Restore the saved column order after mount only (SSR-safe — never touch localStorage
+  // during render). Unknown/new columns keep their natural position (TanStack appends them).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COL_ORDER_KEY);
+      if (raw) setColumnOrder(JSON.parse(raw) as string[]);
+    } catch {
+      /* absent/corrupt — fall back to natural order */
+    }
+  }, []);
 
   const sort = sorting[0]?.id ?? "app_name";
   const direction = sorting[0]?.desc ? "desc" : "asc";
@@ -145,14 +162,33 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting, columnVisibility },
+    state: { sorting, columnVisibility, columnOrder },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnOrderChange: setColumnOrder,
     manualSorting: true,
     enableSortingRemoval: false,
     enableMultiSort: false,
     getCoreRowModel: getCoreRowModel(),
   });
+
+  // Drop the dragged column immediately before the target, persisting the new order per user.
+  function dropColumn(targetId: string) {
+    const src = dragCol.current;
+    dragCol.current = null;
+    if (!src || src === targetId) return;
+    const base = columnOrder.length ? [...columnOrder] : table.getAllLeafColumns().map((c) => c.id);
+    const without = base.filter((id) => id !== src);
+    const at = without.indexOf(targetId);
+    if (at < 0) return;
+    without.splice(at, 0, src);
+    setColumnOrder(without);
+    try {
+      localStorage.setItem(COL_ORDER_KEY, JSON.stringify(without));
+    } catch {
+      /* storage blocked — order still applies for this session */
+    }
+  }
 
   const visibleColumns = table.getVisibleLeafColumns();
   const gridTemplate = visibleColumns
@@ -200,6 +236,16 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
+        <div className="flex items-center gap-2">
+        <Button
+          variant={reordering ? "default" : "outline"}
+          size="sm"
+          className="gap-2"
+          onClick={() => setReordering((v) => !v)}
+          title="Drag column headers to reorder them (saved for you)"
+        >
+          <GripVertical className="h-4 w-4" /> {reordering ? "Done" : "Reorder"}
+        </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="gap-2">
@@ -229,6 +275,7 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
 
       <div className="rounded-lg border bg-card">
@@ -240,19 +287,29 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
           {table.getHeaderGroups()[0]?.headers.map((header) => {
             const canSort = header.column.getCanSort();
             const sorted = header.column.getIsSorted();
+            const id = header.column.id;
             return (
               <button
                 key={header.id}
                 type="button"
-                disabled={!canSort}
-                onClick={header.column.getToggleSortingHandler()}
+                disabled={reordering ? false : !canSort}
+                onClick={reordering ? undefined : header.column.getToggleSortingHandler()}
+                draggable={reordering}
+                onDragStart={reordering ? () => (dragCol.current = id) : undefined}
+                onDragOver={reordering ? (e) => e.preventDefault() : undefined}
+                onDrop={reordering ? () => dropColumn(id) : undefined}
                 className={`flex items-center gap-1 px-3 py-2 text-left ${
-                  canSort ? "hover:text-foreground" : "cursor-default"
-                } ${ALWAYS.has(header.column.id) && header.column.id !== "app_name" ? "" : "justify-start"}`}
+                  reordering
+                    ? "cursor-grab active:cursor-grabbing hover:text-foreground"
+                    : canSort
+                      ? "hover:text-foreground"
+                      : "cursor-default"
+                } ${ALWAYS.has(id) && id !== "app_name" ? "" : "justify-start"}`}
               >
+                {reordering && <GripVertical className="h-3 w-3 shrink-0 opacity-60" />}
                 {flexRender(header.column.columnDef.header, header.getContext())}
-                {sorted === "asc" && <ArrowUp className="h-3 w-3" />}
-                {sorted === "desc" && <ArrowDown className="h-3 w-3" />}
+                {!reordering && sorted === "asc" && <ArrowUp className="h-3 w-3" />}
+                {!reordering && sorted === "desc" && <ArrowDown className="h-3 w-3" />}
               </button>
             );
           })}
