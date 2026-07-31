@@ -125,7 +125,8 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
     () => allRows.map((r) => r.apple_id as number | null),
     [allRows],
   );
-  const iconMap = useAppIcons(appleIds).data ?? {};
+  const iconsData = useAppIcons(appleIds).data;
+  const iconMap = useMemo(() => iconsData ?? {}, [iconsData]);
   const columns = useMemo(() => buildColumns(available, iconMap), [available, iconMap]);
 
   const q = debouncedSearch.trim().toLowerCase();

@@ -6,22 +6,19 @@ import { metricValues } from "@/lib/chart-helpers";
 import type { Filters } from "@/lib/filters";
 import { formatPercent, formatUSD } from "@/lib/format";
 
-// Components needed to draw the sparklines for the headline + derived KPIs.
+// Reported-actual (rpt_*) measures drive the headline cards — the finance-authoritative
+// figures. Each card's sparkline is the daily series of its own measure.
 const SPARK_METRICS = [
-  "total_revenue_usd",
-  "total_ua_spend_usd",
-  "total_iap_gross_usd",
-  "total_ad_revenue_usd",
-  "tech_cost_usd",
+  "rpt_gross_revenue_usd",
+  "rpt_ua_cost_usd",
+  "rpt_shares_fees_taxes_usd",
+  "rpt_tf_profit_usd",
 ];
 
-function elementwise(
-  a: number[],
-  b: number[],
-  op: (x: number, y: number) => number,
-): number[] {
-  const length = Math.max(a.length, b.length);
-  return Array.from({ length }, (_, i) => op(a[i] ?? 0, b[i] ?? 0));
+/** margin = profit / gross revenue, guarded like the server ratios (None on 0 denominator). */
+function margin(profit?: number | null, revenue?: number | null): number | undefined {
+  if (profit == null || revenue == null || revenue === 0) return undefined;
+  return profit / revenue;
 }
 
 export function KpiRow({ filters }: { filters: Filters }) {
@@ -32,26 +29,22 @@ export function KpiRow({ filters }: { filters: Filters }) {
   const previous = summary.data?.previous ?? null;
   const loading = summary.isLoading;
 
-  // Derived sparklines, period-correct per bucket (mirrors the server KPI math).
-  const revenue = metricValues(timeseries.data, "total_revenue_usd");
-  const spend = metricValues(timeseries.data, "total_ua_spend_usd");
-  const iapGross = metricValues(timeseries.data, "total_iap_gross_usd");
-  const adRevenue = metricValues(timeseries.data, "total_ad_revenue_usd");
-  const techCost = metricValues(timeseries.data, "tech_cost_usd");
+  const revenueSpark = metricValues(timeseries.data, "rpt_gross_revenue_usd");
+  const uaCostSpark = metricValues(timeseries.data, "rpt_ua_cost_usd");
+  const sharesSpark = metricValues(timeseries.data, "rpt_shares_fees_taxes_usd");
+  const profitSpark = metricValues(timeseries.data, "rpt_tf_profit_usd");
 
-  const netRevenueSpark = elementwise(revenue, spend, (r, s) => r - s);
-  const grossProfitSpark = elementwise(
-    elementwise(iapGross, adRevenue, (g, a) => g + a),
-    elementwise(spend, techCost, (s, t) => s + t),
-    (gross, costs) => gross - costs,
-  );
+  // Profit % from the reported figures (computed client-side; both components are permitted
+  // together, so it inherits the same RBAC as the profitability group).
+  const profitPct = margin(current.rpt_tf_profit_usd, current.rpt_gross_revenue_usd);
+  const profitPctPrev = margin(previous?.rpt_tf_profit_usd, previous?.rpt_gross_revenue_usd);
 
   const kpis = [
-    { label: "Revenue", field: "total_revenue_usd", value: formatUSD(current.total_revenue_usd), spark: revenue, description: "Total revenue (IAP net + ad revenue) for the selected period." },
-    { label: "Spend", field: "total_ua_spend_usd", value: formatUSD(current.total_ua_spend_usd), spark: spend, description: "Total user-acquisition spend for the selected period." },
-    { label: "Net Revenue", field: "net_revenue_usd", value: formatUSD(current.net_revenue_usd), spark: netRevenueSpark, description: "Revenue minus UA spend." },
-    { label: "Gross Profit", field: "gross_profit_usd", value: formatUSD(current.gross_profit_usd), spark: grossProfitSpark, description: "IAP gross + ad revenue, minus UA spend and tech cost." },
-    { label: "Profit %", field: "profit_margin", value: formatPercent(current.profit_margin), spark: undefined, description: "Profit as a percentage of revenue." },
+    { label: "Revenue", field: "rpt_gross_revenue_usd", value: formatUSD(current.rpt_gross_revenue_usd), current: current.rpt_gross_revenue_usd, previous: previous?.rpt_gross_revenue_usd, spark: revenueSpark, description: "Reported gross revenue for the selected period." },
+    { label: "Spend", field: "rpt_ua_cost_usd", value: formatUSD(current.rpt_ua_cost_usd), current: current.rpt_ua_cost_usd, previous: previous?.rpt_ua_cost_usd, spark: uaCostSpark, description: "Reported user-acquisition cost for the selected period." },
+    { label: "Partners Share, Fees & Taxes", field: "rpt_shares_fees_taxes_usd", value: formatUSD(current.rpt_shares_fees_taxes_usd), current: current.rpt_shares_fees_taxes_usd, previous: previous?.rpt_shares_fees_taxes_usd, spark: sharesSpark, description: "Partners' share plus fees and taxes for the selected period." },
+    { label: "Gross Profit", field: "rpt_tf_profit_usd", value: formatUSD(current.rpt_tf_profit_usd), current: current.rpt_tf_profit_usd, previous: previous?.rpt_tf_profit_usd, spark: profitSpark, description: "Terafort reported gross profit for the selected period." },
+    { label: "Profit %", field: "rpt_profit_margin", value: formatPercent(profitPct), current: profitPct, previous: profitPctPrev, spark: undefined, description: "Reported profit as a percentage of reported gross revenue." },
   ];
 
   return (
@@ -61,8 +54,8 @@ export function KpiRow({ filters }: { filters: Filters }) {
           key={kpi.field}
           label={kpi.label}
           value={kpi.value}
-          current={current[kpi.field]}
-          previous={previous?.[kpi.field]}
+          current={kpi.current}
+          previous={kpi.previous}
           spark={kpi.spark}
           description={kpi.description}
           loading={loading}
