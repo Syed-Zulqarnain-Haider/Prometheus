@@ -44,7 +44,7 @@ import psycopg
 from google.cloud import bigquery
 
 from metric_registry import (
-    COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
+    COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, SOURCE_EXPR, expected_bq_schema,
     generate_dedupe_sql, generate_fact_ddl, generate_indexes, generate_upsert_sql,
     optional_default_expr,
 )
@@ -176,15 +176,22 @@ def load_staging(
             cur.execute(f'ALTER TABLE {STAGING} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
     pg.commit()
 
-    # Select every registry column from the view; for optional columns the view doesn't
-    # expose yet (e.g. tech_cost_usd, the rpt_* / account columns) substitute a type-matched
-    # literal (0 for numerics, typed NULL for text) so the column order/shape still matches
-    # the staging table. Dynamic columns are selected by name (BigQuery resolves references
-    # case-insensitively).
-    select_terms = [
-        col if col in present else optional_default_expr(col)
-        for col in COLUMN_NAMES
-    ]
+    # Build the SELECT term for each registry column, in order:
+    #   • computed columns (SOURCE_EXPR: pod cast + every derived metric) → their BigQuery
+    #     expression aliased to the column name. This is the view's old math, inlined — so
+    #     reading the raw source table directly (no view) never drops a derived metric.
+    #   • plain columns present in the source → selected by name.
+    #   • optional columns the source lacks (e.g. tech_cost_usd) → a type-matched literal
+    #     (0 for numerics, typed NULL for text) so the staging shape still lines up.
+    # Dynamic columns are selected by name (BigQuery resolves references case-insensitively).
+    select_terms = []
+    for col in COLUMN_NAMES:
+        if col in SOURCE_EXPR:
+            select_terms.append(f"{SOURCE_EXPR[col]} AS {col}")
+        elif col in present:
+            select_terms.append(col)
+        else:
+            select_terms.append(optional_default_expr(col))
     select_terms += [name for name, _ in dyn]
     rows_iter = bq.query(
         f"SELECT {', '.join(select_terms)} FROM `{view}`{_window_sql(since, until)}"
@@ -398,7 +405,10 @@ def bust_cache() -> None:
 # ── Orchestration ────────────────────────────────────────────────────────────
 def main() -> int:
     project = env("GCP_PROJECT")
-    view = env("BQ_VIEW", "terafort.api.daily_performance_v1")
+    # The sync reads the source table directly (no view). BQ_VIEW is still honored — it's set
+    # from the `bq_view` operational setting — but now points at project.dataset.table; the
+    # derived metrics the view used to compute are inlined into the load SELECT (SOURCE_EXPR).
+    view = env("BQ_VIEW", "terafort.Final_Staging_tables.unified_daily_performance")
     mode = os.environ.get("SYNC_MODE", "incremental").strip().lower()
     if mode not in ("incremental", "full", "range"):
         mode = "incremental"

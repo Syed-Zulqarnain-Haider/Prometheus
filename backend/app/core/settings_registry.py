@@ -104,10 +104,11 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
     "bq_view": SettingSpec(
         key="bq_view",
         type="str",
-        default="terafort.api.daily_performance_v1",
-        label="BigQuery view",
-        description="Fully-qualified BigQuery view the sync reads (project.dataset.table). "
-        "The app only ever reads this view, never the underlying table.",
+        default="terafort.Final_Staging_tables.unified_daily_performance",
+        label="BigQuery source (view or table)",
+        description="Fully-qualified BigQuery source the sync reads (project.dataset.table). "
+        "May be a view or a table; the sync computes derived metrics itself, so a raw table "
+        "works directly. Change 'Check schema' after pointing it somewhere new.",
         group="integration",
         str_format="bq_view",
     ),

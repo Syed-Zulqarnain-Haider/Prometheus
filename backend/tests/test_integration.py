@@ -70,7 +70,7 @@ async def test_integration_settings_have_group_and_defaults(metrics_env: Metrics
         assert by_key[key]["group"] == "integration", f"{key} not grouped as integration"
 
     assert by_key["gcp_project"]["value"] == ""
-    assert by_key["bq_view"]["value"] == "terafort.api.daily_performance_v1"
+    assert by_key["bq_view"]["value"] == "terafort.Final_Staging_tables.unified_daily_performance"
     assert by_key["sync_enabled"]["value"] is False
     assert by_key["sync_schedule_time"]["value"] == "06:00"
     assert by_key["sync_timezone"]["value"] == "UTC"

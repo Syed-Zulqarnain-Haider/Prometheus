@@ -33,6 +33,12 @@ class Col:
     bq_type: str  # BigQuery INFORMATION_SCHEMA data_type
     pg_type: str  # Postgres column type
     group: Group
+    # BigQuery expression that PRODUCES this column from the raw source table (the sync reads
+    # the table directly, no view). None = plain pass-through. Set for the CAST(pod) dimension
+    # and every derived metric. Columns WITH a source_expr are computed by the loader, so the
+    # schema-diff never expects/type-checks them against the raw table (see expected_bq_schema).
+    # Kept identical to sync/metric_registry.py (drift-guarded by test_metric_registry_parity).
+    source_expr: str | None = None
 
 
 # fmt: off
@@ -47,7 +53,9 @@ REGISTRY: list[Col] = [
     Col("app_name",        "STRING",  "TEXT",    Group.DIMENSION),
     Col("publisher",       "STRING",  "TEXT",    Group.DIMENSION),
     Col("developer",       "STRING",  "TEXT",    Group.DIMENSION),
-    Col("pod",             "STRING",  "TEXT",    Group.DIMENSION),
+    # pod is INT64 in the source; the serving layer treats it as text — cast it here.
+    Col("pod",             "STRING",  "TEXT",    Group.DIMENSION,
+        source_expr="CAST(pod AS STRING)"),
     Col("pod_owner",       "STRING",  "TEXT",    Group.DIMENSION),
     Col("hou",             "STRING",  "TEXT",    Group.DIMENSION),
     Col("app_category",    "STRING",  "TEXT",    Group.DIMENSION),
@@ -65,7 +73,8 @@ REGISTRY: list[Col] = [
     Col("store_organic_installs",    "INT64", "BIGINT", Group.STORE_INSTALLS),
     Col("gp_uninstalls",             "INT64", "BIGINT", Group.STORE_INSTALLS),
     Col("apple_restores",            "INT64", "BIGINT", Group.STORE_INSTALLS),
-    Col("organic_install_share", "FLOAT64", "NUMERIC(12,6)", Group.STORE_INSTALLS),
+    Col("organic_install_share", "FLOAT64", "NUMERIC(12,6)", Group.STORE_INSTALLS,
+        source_expr="ROUND(SAFE_DIVIDE(store_organic_installs, store_total_installs), 6)"),
 
     # ── paid UA installs + spend + engagement + derived ────────────────────
     Col("fb_paid_installs",       "INT64",   "BIGINT",           Group.UA_SPEND),
@@ -86,13 +95,20 @@ REGISTRY: list[Col] = [
     Col("mint_adv_impressions", "INT64",   "BIGINT",        Group.UA_SPEND),
     Col("mint_adv_clicks",      "INT64",   "BIGINT",        Group.UA_SPEND),
     Col("total_ua_spend_usd",   "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
-    Col("cpi",          "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
-    Col("fb_cpi",       "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
-    Col("gads_cpi",     "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
-    Col("mint_adv_cpi", "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
-    Col("fb_ctr",       "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND),
-    Col("gads_ctr",     "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND),
-    Col("mint_adv_ctr", "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND),
+    Col("cpi",          "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(total_ua_spend_usd, total_paid_installs), 4)"),
+    Col("fb_cpi",       "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(fb_spend_usd, fb_paid_installs), 4)"),
+    Col("gads_cpi",     "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(gads_spend_usd, gads_paid_installs), 4)"),
+    Col("mint_adv_cpi", "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(mint_adv_spend_usd, mint_adv_paid_installs), 4)"),
+    Col("fb_ctr",       "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(fb_clicks, fb_impressions), 6)"),
+    Col("gads_ctr",     "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(gads_clicks, gads_impressions), 6)"),
+    Col("mint_adv_ctr", "FLOAT64", "NUMERIC(12,6)", Group.UA_SPEND,
+        source_expr="ROUND(SAFE_DIVIDE(mint_adv_clicks, mint_adv_impressions), 6)"),
 
     # ── ad revenue + derived ────────────────────────────────────────────────
     Col("admob_revenue_usd",    "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
@@ -100,8 +116,10 @@ REGISTRY: list[Col] = [
     Col("applovin_revenue_usd", "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
     Col("applovin_impressions", "INT64",   "BIGINT",        Group.AD_REVENUE),
     Col("total_ad_revenue_usd", "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
-    Col("admob_ecpm",           "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
-    Col("applovin_ecpm",        "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
+    Col("admob_ecpm",           "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE,
+        source_expr="ROUND(SAFE_DIVIDE(admob_revenue_usd, admob_impressions) * 1000, 4)"),
+    Col("applovin_ecpm",        "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE,
+        source_expr="ROUND(SAFE_DIVIDE(applovin_revenue_usd, applovin_impressions) * 1000, 4)"),
 
     # ── IAP revenue ─────────────────────────────────────────────────────────
     Col("gp_iap_gross_usd",      "FLOAT64", "NUMERIC(18,4)", Group.IAP_REVENUE),
@@ -129,15 +147,42 @@ REGISTRY: list[Col] = [
     # ── profitability / headline ────────────────────────────────────────────
     Col("total_revenue_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("tech_cost_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
-    Col("profit_usd",        "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
-    Col("roas",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
-    Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("profit_usd",        "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY,
+        source_expr="ROUND(total_revenue_usd - total_ua_spend_usd, 4)"),
+    Col("roas",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY,
+        source_expr="ROUND(SAFE_DIVIDE(total_revenue_usd, total_ua_spend_usd), 4)"),
+    Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY,
+        source_expr="ROUND(SAFE_DIVIDE(total_ad_revenue_usd, total_ua_spend_usd), 4)"),
 
     # ── reported actual totals (rpt_*) — finance-authoritative figures the cards now show ──
     Col("rpt_gross_revenue_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("rpt_ua_cost_usd",           "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
     Col("rpt_tf_profit_usd",         "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("rpt_shares_fees_taxes_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+
+    # ── reported finance ladder (rpt_*), read straight from the source table ──────────────
+    # The finance-authoritative figures the source already computes upstream — pass-through,
+    # never recomputed here (owner decision to surface the reported ladder directly).
+    Col("rpt_first_time_installs",       "INT64",   "BIGINT",        Group.STORE_INSTALLS),
+    Col("rpt_redownloads",               "INT64",   "BIGINT",        Group.STORE_INSTALLS),
+    Col("rpt_total_installs",            "INT64",   "BIGINT",        Group.STORE_INSTALLS),
+    Col("rpt_organic_installs",          "INT64",   "BIGINT",        Group.STORE_INSTALLS),
+    Col("rpt_ad_revenue_usd",            "FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
+    Col("rpt_ad_revenue_after_share_usd","FLOAT64", "NUMERIC(18,4)", Group.AD_REVENUE),
+    Col("rpt_total_revenue_usd",         "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_net_revenue_usd",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_net_revenue_terafort_usd",  "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_gross_profit_usd",          "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_net_profit_usd",            "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_total_cost_usd",            "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_tax_fees_usd",              "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_withholding_tax_usd",       "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_store_fee_usd",             "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_partner_fees_usd",          "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_partner_share_app_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_partner_share_transsion_usd","FLOAT64","NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_partner_share_usd",         "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
+    Col("rpt_total_deductions_usd",      "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
 
     # ── system ──────────────────────────────────────────────────────────────
     Col("_built_at", "TIMESTAMP", "TIMESTAMPTZ", Group.SYSTEM),
@@ -170,6 +215,7 @@ def effective_registry() -> list[Col]:
     the query builder actually operate over."""
     return [*REGISTRY, *_DYNAMIC]
 
+
 # Registry columns the BigQuery view may not expose yet — the sync defaults them to 0
 # instead of failing, and the Integration tab's schema diff flags them as optional (not a
 # blocking mismatch). Kept identical to sync/metric_registry.py (drift-guarded by
@@ -191,8 +237,10 @@ OPTIONAL_SOURCE_COLUMNS: set[str] = {
 
 def expected_bq_schema() -> dict[str, str]:
     """Registry column name -> expected BigQuery INFORMATION_SCHEMA data_type. Used by the
-    admin schema-diff to compare the live view against the registry (informational only)."""
-    return {c.name: c.bq_type for c in REGISTRY}
+    admin schema-diff to compare the live source against the registry (informational only).
+    Computed columns (those with a source_expr — pod cast + derived metrics) are produced by
+    the sync, not read from the source, so they are excluded here (never flagged as missing)."""
+    return {c.name: c.bq_type for c in REGISTRY if c.source_expr is None}
 
 
 def columns_for_groups(groups: set[Group]) -> list[str]:
