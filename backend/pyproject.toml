@@ -23,6 +23,9 @@ dependencies = [
     # dependencies when the corresponding provider is configured and used.
     "anthropic>=0.40",
     "openai>=1.40",
+    # Optional error reporting — imported lazily and only initialized when SENTRY_DSN is set,
+    # but declared here so a configured production image has it available.
+    "sentry-sdk[fastapi]>=2.0",
     # Security floors for transitive deps (patch-level CVE fixes, non-breaking):
     #   starlette (via fastapi)        — CVE-2026-54283
     #   msgpack   (via firebase-admin) — GHSA-6v7p-g79w-8964
@@ -95,6 +98,9 @@ module = ["anthropic.*"]
 ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["openai.*"]
+ignore_missing_imports = true
+[[tool.mypy.overrides]]
+module = ["sentry_sdk.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

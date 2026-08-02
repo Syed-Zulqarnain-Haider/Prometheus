@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     chat_max_iterations: int = 6
     chat_max_tokens: int = 2048
 
+    # Observability. SENTRY_DSN is a SECRET (env/Secret Manager only). Absent → Sentry stays
+    # off and the app still emits structured, trace-correlated logs. log_json defaults on in
+    # non-development so log aggregators get one JSON object per line; locally it's plain text.
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.0
+    log_level: str = "INFO"
+    log_json: bool = False
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

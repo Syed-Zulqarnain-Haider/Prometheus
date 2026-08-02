@@ -17,8 +17,10 @@ def test_unknown_route_uses_error_envelope():
     assert response.status_code == 404
     body = response.json()
     assert set(body.keys()) == {"error"}
-    assert set(body["error"].keys()) == {"code", "message"}
+    # code + message, plus the additive trace id (request_id) so a user can quote it.
+    assert set(body["error"].keys()) == {"code", "message", "request_id"}
     assert body["error"]["code"] == "not_found"
+    assert body["error"]["request_id"] == response.headers.get("X-Request-ID")
 
 
 def test_security_headers_present():

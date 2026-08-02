@@ -34,6 +34,12 @@ from app.api.v1 import reports as reports_routes
 from app.api.v1 import views as views_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.observability import (
+    capture_exception,
+    configure_logging,
+    init_sentry,
+    request_context_middleware,
+)
 from app.core.redis import redis_client
 from app.core.security_headers import build_security_headers_middleware
 from app.services import fact_schema
@@ -45,6 +51,10 @@ logger = logging.getLogger("app.main")
 settings = get_settings()
 _is_production = settings.env.lower() in ("production", "prod")
 _is_test = settings.env.lower() in ("test", "testing")
+
+# Observability first, so startup logs are structured + trace-ready and errors get reported.
+configure_logging(settings)
+init_sentry(settings)
 
 # Fail loudly (in logs) on a misconfigured prod deploy rather than silently
 # serving with no allowed origins — every browser request would then break.
@@ -110,6 +120,10 @@ app = FastAPI(title=settings.project_name, lifespan=lifespan)
 # Session factory used by the audit middleware (overridable in tests).
 app.state.sessionmaker = AsyncSessionLocal
 
+# Trace-id + access logging + error reporting. Registered LAST so it runs FIRST (outermost),
+# giving every downstream log line and error a request id.
+app.middleware("http")(request_context_middleware)
+
 # Security headers on every response (HSTS only in production, where TLS exists).
 app.middleware("http")(build_security_headers_middleware(enable_hsts=_is_production))
 
@@ -131,13 +145,20 @@ def _error_response(
     message: str,
     status_code: int,
     headers: dict[str, str] | None = None,
+    request_id: str | None = None,
 ) -> JSONResponse:
-    """Build the canonical error envelope: ``{"error": {"code", "message"}}``."""
-    return JSONResponse(
-        status_code=status_code,
-        content={"error": {"code": code, "message": message}},
-        headers=headers,
-    )
+    """Build the canonical error envelope: ``{"error": {"code", "message", "request_id"}}``.
+
+    ``request_id`` is additive (the trace id) so a user can quote it to support — it never
+    contains internals."""
+    error: dict[str, str] = {"code": code, "message": message}
+    if request_id:
+        error["request_id"] = request_id
+    return JSONResponse(status_code=status_code, content={"error": error}, headers=headers)
+
+
+def _request_id_of(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)
 
 
 # Map common HTTP status codes to stable, client-facing error codes.
@@ -159,7 +180,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     message = exc.detail if isinstance(exc.detail, str) else "Request failed."
     # Preserve headers (e.g. Retry-After on 429).
     headers = dict(exc.headers) if exc.headers else None
-    return _error_response(code, message, exc.status_code, headers=headers)
+    return _error_response(
+        code, message, exc.status_code, headers=headers, request_id=_request_id_of(request)
+    )
 
 
 @app.exception_handler(RequestValidationError)
@@ -167,13 +190,23 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """Return a generic validation error — never echo raw input or internals."""
-    return _error_response("validation_error", "Request validation failed.", 422)
+    return _error_response(
+        "validation_error", "Request validation failed.", 422, request_id=_request_id_of(request)
+    )
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Catch-all: never expose stack traces or SQL to clients."""
-    return _error_response("internal_error", "An unexpected error occurred.", 500)
+    """Catch-all: never expose stack traces or SQL to clients. Log + report with the trace id
+    so the failure is diagnosable from the id the user sees."""
+    rid = _request_id_of(request)
+    logger.exception(
+        "unhandled error on %s %s (request_id=%s)", request.method, request.url.path, rid
+    )
+    capture_exception(exc)
+    return _error_response(
+        "internal_error", "An unexpected error occurred.", 500, request_id=rid
+    )
 
 
 @app.get("/health")
