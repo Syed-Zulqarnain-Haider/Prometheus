@@ -5,7 +5,7 @@ import { useMemo } from "react";
 
 import { Chart } from "@/components/charts/chart";
 import { ChartCard } from "@/components/charts/chart-card";
-import { useSummary, useTargets } from "@/lib/api-hooks";
+import { usePacing, useSummary, useTargets } from "@/lib/api-hooks";
 import { token } from "@/lib/chart-helpers";
 import type { EChartsOption } from "@/lib/echarts";
 import { defaultFilters, type Filters } from "@/lib/filters";
@@ -46,6 +46,8 @@ export function RevenueProgress({ period }: { period: Period }) {
 
   const { data: targets } = useTargets(now.getFullYear());
   const summary = useSummary(filters);
+  // Forward-looking pacing (projection + on/off-pace) for the monthly card only.
+  const pacing = usePacing(now.getFullYear(), now.getMonth() + 1);
 
   const target = isYear
     ? (targets?.annual?.target_usd ?? null)
@@ -125,6 +127,32 @@ export function RevenueProgress({ period }: { period: Period }) {
             value={targetSet ? formatUSD(remaining, { compact: true }) : ""}
           />
           <Figure label="Target Date" value={targetDate} />
+          {!isYear && pacing.data?.projected_usd != null && (
+            <>
+              <Figure
+                label="Projected (month-end)"
+                value={formatUSD(pacing.data.projected_usd, { compact: true })}
+              />
+              {pacing.data.pace_pct != null && (
+                <Figure
+                  label="Pace vs plan"
+                  value={
+                    <span
+                      style={{
+                        color:
+                          pacing.data.pace_pct >= 1
+                            ? "var(--color-positive)"
+                            : "var(--color-amber)",
+                      }}
+                    >
+                      {formatPercent(pacing.data.pace_pct)}
+                      {pacing.data.pace_pct >= 1 ? " ahead" : " behind"}
+                    </span>
+                  }
+                />
+              )}
+            </>
+          )}
           {!targetSet && (
             <p className="text-[11px] text-muted-foreground">
               Set the {period}ly target in Admin to track progress.

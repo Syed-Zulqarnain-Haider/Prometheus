@@ -19,7 +19,7 @@ from app.api.deps import CurrentUser, DbSession, RedisClient
 from app.core.cache import aggregate_cache_key, cached_json, perms_token, scope_token
 from app.core.rate_limit import enforce_rate_limit
 from app.schemas.metrics import Bucket, GroupBy, MetricFilters, Platform, SortDirection
-from app.services import fact_schema, metrics_service
+from app.services import fact_schema, forecast_service, metrics_service, pacing_service
 from app.services.metrics_service import decode_cursor
 from app.services.query_builder import QueryBuilder
 
@@ -159,6 +159,45 @@ async def breakdown(
     async def produce() -> dict[str, Any]:
         try:
             return await metrics_service.run_breakdown(db, qb, filters, group_by, metrics, limit)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    result: dict[str, Any] = await cached_json(redis, key, produce)
+    return result
+
+
+@router.get("/pacing")
+async def pacing(
+    context: CurrentUser,
+    db: DbSession,
+    year: Annotated[int, Query(ge=2000, le=2100)],
+    month: Annotated[int, Query(ge=1, le=12)],
+) -> dict[str, Any]:
+    """Month-to-date revenue vs the target, with a linear month-end projection — all under the
+    caller's RBAC (their scoped revenue; actual/projection are null if revenue isn't permitted)."""
+    return await pacing_service.compute(db, context, year, month, date.today())
+
+
+@router.get("/forecast")
+async def forecast(
+    filters: Filters,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    metric: str,
+    horizon: Annotated[int, Query(ge=1, le=90)] = 14,
+) -> dict[str, Any]:
+    """Daily history for ``metric`` plus a simple linear projection ``horizon`` days ahead."""
+    key = aggregate_cache_key(
+        "metrics.forecast",
+        scope_token(context.scopes),
+        perms_token(context.metric_groups),
+        _params(filters, metric=metric, horizon=horizon),
+    )
+
+    async def produce() -> dict[str, Any]:
+        try:
+            return await forecast_service.forecast(db, context, filters, metric, horizon)
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

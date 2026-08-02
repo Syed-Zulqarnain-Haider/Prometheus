@@ -395,6 +395,58 @@ export function useRunReport() {
   });
 }
 
+// ── Budget pacing + forecasting ───────────────────────────────────────────────
+export interface Pacing {
+  year: number;
+  month: number;
+  target_usd: number | null;
+  actual_usd: number | null;
+  days_elapsed: number;
+  days_in_month: number;
+  expected_to_date_usd: number | null;
+  projected_usd: number | null;
+  attainment_pct: number | null;
+  pace_pct: number | null;
+}
+
+export interface ForecastPoint {
+  date: string;
+  value: number;
+}
+
+export interface ForecastResult {
+  metric: string;
+  method: string;
+  history: ForecastPoint[];
+  forecast: ForecastPoint[];
+}
+
+/** Month-to-date revenue vs target + projection, under the caller's own RBAC. */
+export function usePacing(year: number, month: number) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["pacing", year, month],
+    queryFn: () => apiFetch<Pacing>(`/api/v1/metrics/pacing?year=${year}&month=${month}`),
+    enabled: Boolean(user),
+    staleTime: AGG_STALE,
+  });
+}
+
+/** Linear projection of a metric `horizon` days past the current window. */
+export function useForecast(filters: Filters, metric: string, horizon = 14, enabled = true) {
+  const { user } = useAuth();
+  const query = filtersToApiQuery(filters);
+  return useQuery({
+    queryKey: ["forecast", query, metric, horizon],
+    queryFn: () =>
+      apiFetch<ForecastResult>(
+        `/api/v1/metrics/forecast${buildQuery({ ...query, metric, horizon })}`,
+      ),
+    enabled: Boolean(user) && enabled,
+    staleTime: AGG_STALE,
+  });
+}
+
 // ── Scheduled report delivery ─────────────────────────────────────────────────
 export interface ReportSchedule {
   id: string;
