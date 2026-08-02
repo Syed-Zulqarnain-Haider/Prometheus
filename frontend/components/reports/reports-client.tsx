@@ -4,6 +4,7 @@ import { Check, Download, Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
 import { ReportBuilder } from "@/components/reports/report-builder";
+import { ScheduleDialog } from "@/components/reports/schedule-dialog";
 import { ShareDialog } from "@/components/reports/share-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -128,6 +129,7 @@ function ReportCard({
             <Play className="h-4 w-4" />
             Run
           </Button>
+          {report.is_owner && <ScheduleDialog reportId={report.id} />}
           {canShare && report.is_owner && <ShareDialog reportId={report.id} />}
           {!report.is_owner && (
             <Button

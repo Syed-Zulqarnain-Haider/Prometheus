@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "saved_views",
     "saved_reports",
     "report_shares",
+    "report_schedules",
     "revenue_targets",
     "audit_log",
     "sync_runs",

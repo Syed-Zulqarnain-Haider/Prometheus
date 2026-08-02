@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from tests.conftest import TEST_DATABASE_URL
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-_HEAD = "c5d6e7f8a9b0"  # app_master facebook_app_id TEXT->DOUBLE (current head)
+_HEAD = "d6e7f8a9b0c1"  # report_schedules table (current head)
 _BEFORE_EXPIRY = "f4a1c9d2e7b3"  # revision just before the access_expires_at migration
 
 

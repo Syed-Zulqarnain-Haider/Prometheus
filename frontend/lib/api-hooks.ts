@@ -395,6 +395,71 @@ export function useRunReport() {
   });
 }
 
+// ── Scheduled report delivery ─────────────────────────────────────────────────
+export interface ReportSchedule {
+  id: string;
+  report_id: string;
+  cadence: "daily" | "weekly" | "monthly";
+  hour: number;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  fmt: "csv" | "xlsx";
+  timezone: string;
+  enabled: boolean;
+  last_run_on: string | null;
+  created_at: string;
+}
+
+export interface ReportScheduleCreate {
+  cadence: "daily" | "weekly" | "monthly";
+  hour: number;
+  day_of_week?: number | null;
+  day_of_month?: number | null;
+  fmt: "csv" | "xlsx";
+  timezone: string;
+}
+
+export function useReportSchedules(reportId: string, enabled = true) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["report-schedules", reportId],
+    queryFn: () => apiFetch<ReportSchedule[]>(`/api/v1/reports/${reportId}/schedules`),
+    enabled: Boolean(user) && enabled,
+  });
+}
+
+export function useCreateSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reportId, body }: { reportId: string; body: ReportScheduleCreate }) =>
+      apiFetch<ReportSchedule>(`/api/v1/reports/${reportId}/schedules`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_data, { reportId }) =>
+      queryClient.invalidateQueries({ queryKey: ["report-schedules", reportId] }),
+  });
+}
+
+export function useDeleteSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scheduleId }: { reportId: string; scheduleId: string }) =>
+      apiFetch<void>(`/api/v1/reports/schedules/${scheduleId}`, { method: "DELETE" }),
+    onSuccess: (_data, { reportId }) =>
+      queryClient.invalidateQueries({ queryKey: ["report-schedules", reportId] }),
+  });
+}
+
+export function useRunScheduleNow() {
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      apiFetch<{ sent: boolean }>(`/api/v1/reports/schedules/${scheduleId}/run-now`, {
+        method: "POST",
+      }),
+  });
+}
+
 // ── Sharing lifecycle ─────────────────────────────────────────────────────────
 export function useShareReport() {
   const queryClient = useQueryClient();

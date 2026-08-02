@@ -21,13 +21,15 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 
 from app.api.deps import CurrentUser, DbSession, require_capability
+from app.core.config import get_settings
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit
-from app.models import ReportShare, SavedReport, User
+from app.models import ReportSchedule, ReportShare, SavedReport, User
 from app.schemas.auth import UserContext
+from app.schemas.report_schedule import ReportScheduleCreate, ReportScheduleOut
 from app.schemas.reports import (
     EditDecision,
     ReportRunResult,
@@ -36,7 +38,7 @@ from app.schemas.reports import (
     ShareCreate,
     ShareOut,
 )
-from app.services import notification_service, reports_service
+from app.services import notification_service, report_delivery_service, reports_service
 from app.services.audit import AuditDep
 from app.services.query_builder import QueryBuilder
 
@@ -388,6 +390,170 @@ async def run_report(report_id: uuid.UUID, context: CurrentUser, db: DbSession) 
     columns = report.columns if isinstance(report.columns, list) else list(report.columns)
     result = await reports_service.run_report(db, qb, filters, report.group_by, columns)
     return ReportRunResult(**result)
+
+
+# ── Scheduled delivery (owner-only; always runs as + delivers to the owner) ──
+MAX_SCHEDULES_PER_REPORT = 5
+
+
+def _schedule_out(schedule: ReportSchedule) -> ReportScheduleOut:
+    return ReportScheduleOut(
+        id=schedule.id,
+        report_id=schedule.report_id,
+        cadence=schedule.cadence,
+        hour=schedule.hour,
+        day_of_week=schedule.day_of_week,
+        day_of_month=schedule.day_of_month,
+        fmt=schedule.fmt,
+        timezone=schedule.timezone,
+        enabled=schedule.enabled,
+        last_run_on=schedule.last_run_on,
+        created_at=schedule.created_at,
+    )
+
+
+async def _owned_report(db: DbSession, report_id: uuid.UUID, context: UserContext) -> SavedReport:
+    """A report the CALLER owns — scheduling is owner-only (a schedule runs as its owner).
+    404 (not 403) for anything else, so it never reveals another user's report exists."""
+    report = await db.scalar(
+        select(SavedReport).where(
+            and_(SavedReport.id == report_id, SavedReport.user_id == context.user_id)
+        )
+    )
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    return report
+
+
+@router.get("/{report_id}/schedules", response_model=list[ReportScheduleOut])
+async def list_schedules(
+    report_id: uuid.UUID, context: CurrentUser, db: DbSession
+) -> list[ReportScheduleOut]:
+    await _owned_report(db, report_id, context)
+    rows = await db.scalars(
+        select(ReportSchedule)
+        .where(
+            and_(
+                ReportSchedule.report_id == report_id,
+                ReportSchedule.user_id == context.user_id,
+            )
+        )
+        .order_by(ReportSchedule.created_at)
+    )
+    return [_schedule_out(s) for s in rows]
+
+
+@router.post(
+    "/{report_id}/schedules",
+    response_model=ReportScheduleOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_schedule(
+    report_id: uuid.UUID,
+    body: ReportScheduleCreate,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> ReportScheduleOut:
+    await _owned_report(db, report_id, context)
+    existing = await db.scalar(
+        select(func.count())
+        .select_from(ReportSchedule)
+        .where(
+            and_(
+                ReportSchedule.report_id == report_id,
+                ReportSchedule.user_id == context.user_id,
+            )
+        )
+    )
+    if (existing or 0) >= MAX_SCHEDULES_PER_REPORT:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"A report can have at most {MAX_SCHEDULES_PER_REPORT} schedules.",
+        )
+    schedule = ReportSchedule(
+        report_id=report_id,
+        user_id=context.user_id,
+        cadence=body.cadence,
+        hour=body.hour,
+        day_of_week=body.day_of_week,
+        day_of_month=body.day_of_month,
+        fmt=body.fmt,
+        timezone=body.timezone,
+        enabled=body.enabled,
+    )
+    db.add(schedule)
+    await db.commit()
+    await db.refresh(schedule)
+    await audit.write(
+        user_id=context.user_id,
+        action="report_schedule_create",
+        resource=str(report_id),
+        detail={"cadence": body.cadence, "fmt": body.fmt},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return _schedule_out(schedule)
+
+
+async def _owned_schedule(
+    db: DbSession, schedule_id: uuid.UUID, context: UserContext
+) -> ReportSchedule:
+    schedule = await db.scalar(
+        select(ReportSchedule).where(
+            and_(
+                ReportSchedule.id == schedule_id,
+                ReportSchedule.user_id == context.user_id,
+            )
+        )
+    )
+    if schedule is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
+    return schedule
+
+
+@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule(
+    schedule_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> Response:
+    schedule = await _owned_schedule(db, schedule_id, context)
+    await db.delete(schedule)
+    await db.commit()
+    await audit.write(
+        user_id=context.user_id,
+        action="report_schedule_delete",
+        resource=str(schedule_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/schedules/{schedule_id}/run-now")
+async def run_schedule_now(
+    schedule_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> dict[str, bool]:
+    """Send this schedule's report to the owner now (a test send). Runs under the caller's own
+    RBAC and emails only the caller — so it can never deliver another user's data."""
+    schedule = await _owned_schedule(db, schedule_id, context)
+    report = await _owned_report(db, schedule.report_id, context)
+    today = report_delivery_service.local_now(datetime.now(UTC), schedule.timezone).date()
+    try:
+        sent = await report_delivery_service.build_and_email(
+            db, get_settings(), context, report, fmt=schedule.fmt, local_today=today
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    await audit.write(
+        user_id=context.user_id,
+        action="report_schedule_run_now",
+        resource=str(schedule_id),
+        detail={"sent": sent},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"sent": sent}
 
 
 # ── Sharing ──────────────────────────────────────────────────────────────────

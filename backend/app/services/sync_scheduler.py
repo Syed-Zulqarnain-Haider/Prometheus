@@ -20,7 +20,13 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
-from app.services import alerts_service, digest_service, settings_service, sync_service
+from app.services import (
+    alerts_service,
+    digest_service,
+    report_delivery_service,
+    settings_service,
+    sync_service,
+)
 
 log = logging.getLogger("app.scheduler")
 
@@ -109,4 +115,12 @@ async def scheduler_loop(
             raise
         except Exception:  # noqa: BLE001 — alert eval must never kill the loop
             log.exception("alert evaluation failed")
+        try:
+            # Scheduled report emails: each schedule self-guards on its own hour/day + a
+            # once-per-day claim, so calling this every tick is cheap and multi-instance safe.
+            await report_delivery_service.evaluate_due(sessionmaker, settings, datetime.now(UTC))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — report delivery must never kill the loop
+            log.exception("scheduled report evaluation failed")
         await asyncio.sleep(tick_seconds)
