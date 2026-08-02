@@ -77,6 +77,20 @@ async def get_user_context(
     if context.access_expires_at is not None and context.access_expires_at <= datetime.now(UTC):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Access has expired")
 
+    # "Sign out of all devices": reject any token ISSUED before the user's revoke instant.
+    # Enforced live (revoking busts the cache, so the re-resolved context carries the new
+    # timestamp). auth_time/iat are epoch seconds in the verified token.
+    if context.sessions_revoked_at is not None:
+        issued = decoded.get("auth_time") or decoded.get("iat")
+        if issued is not None and float(issued) < context.sessions_revoked_at.timestamp():
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "Session was signed out — please sign in again"
+            )
+
+    # Surface whether this sign-in used a second factor (2FA), for the security page. It is
+    # per-TOKEN (not cached on the context, which is per-user).
+    firebase_claims = decoded.get("firebase") or {}
+    request.state.two_factor = bool(firebase_claims.get("sign_in_second_factor"))
     request.state.user_context = context
     return context
 

@@ -239,8 +239,11 @@ REDIS_TEST_URL = os.environ.setdefault("REDIS_TEST_URL", "redis://127.0.0.1:6390
 
 METRICS_ROLES = ["admin", "executive", "pod_owner", "marketing", "finance", "viewer"]
 _METRICS_NS = uuid_module.UUID("00000000-0000-0000-0000-0000000000bb")
+# A fixed, well-in-the-past issued-at (2023) so a live "sign out everywhere" (which stamps
+# sessions_revoked_at to now) rejects these tokens — lets the revocation path be tested.
+_PAST_IAT = 1_700_000_000
 METRICS_TOKENS: dict[str, dict[str, Any]] = {
-    f"valid-{role}": {"uid": f"{role}-uid"} for role in METRICS_ROLES
+    f"valid-{role}": {"uid": f"{role}-uid", "iat": _PAST_IAT} for role in METRICS_ROLES
 }
 METRICS_TOKENS["valid-pod_owner_scoped"] = {"uid": "pod_owner_scoped-uid"}
 # An authenticated-but-UNPROVISIONED identity (not in the seed) — carries email + name

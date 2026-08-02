@@ -38,6 +38,9 @@ class UserContext(BaseModel):
     # NULL = permanent. Enforced live on every request (see deps.get_user_context); a
     # default keeps any pre-existing cached context JSON deserializable.
     access_expires_at: datetime | None = None
+    # Tokens issued before this instant are rejected ("sign out everywhere"). Default keeps
+    # any pre-existing cached context JSON deserializable.
+    sessions_revoked_at: datetime | None = None
     roles: list[str]
     metric_groups: list[str]
     capabilities: list[str]

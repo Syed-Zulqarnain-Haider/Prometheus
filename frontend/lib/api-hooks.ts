@@ -395,6 +395,38 @@ export function useRunReport() {
   });
 }
 
+// ── Account security ──────────────────────────────────────────────────────────
+export interface DeviceActivity {
+  user_agent: string | null;
+  ip_address: string | null;
+  last_seen: string;
+  events: number;
+}
+
+export interface SecurityStatus {
+  two_factor: boolean;
+  sessions_revoked_at: string | null;
+  devices: DeviceActivity[];
+}
+
+export function useSecurity() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["security"],
+    queryFn: () => apiFetch<SecurityStatus>("/api/v1/me/security"),
+    enabled: Boolean(user),
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Sign out of all devices. This also invalidates the CALLER's current session. */
+export function useRevokeSessions() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ revoked_at: string }>("/api/v1/me/security/revoke-sessions", { method: "POST" }),
+  });
+}
+
 // ── Budget pacing + forecasting ───────────────────────────────────────────────
 export interface Pacing {
   year: number;

@@ -25,6 +25,9 @@ class User(Base):
     # Time-limited access: NULL = permanent. When in the past, the user is treated as having
     # NO access (enforced live in get_user_context, even for cached contexts).
     access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # "Sign out of all devices": tokens ISSUED before this instant are rejected (enforced live
+    # in get_user_context). NULL = never revoked. Bumping it invalidates every existing session.
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

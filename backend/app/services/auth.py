@@ -68,6 +68,7 @@ async def resolve_user_context(db: AsyncSession, firebase_uid: str) -> UserConte
         display_name=user.display_name,
         is_active=user.is_active,
         access_expires_at=user.access_expires_at,
+        sessions_revoked_at=user.sessions_revoked_at,
         roles=roles,
         metric_groups=sorted(set(metric_groups)),
         capabilities=sorted(set(capabilities)),
