@@ -786,6 +786,46 @@ export function useRunSync() {
   });
 }
 
+// ── Ask-your-data assistant (chatbot) ───────────────────────────────────────
+export interface ChatStatus {
+  available: boolean;
+  configured: boolean;
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatResponse {
+  answer: string;
+  tool_calls: number;
+}
+
+/** Whether the assistant is usable for this user (admin-enabled AND API key configured). */
+export function useChatStatus() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["chat-status"],
+    queryFn: () => apiFetch<ChatStatus>("/api/v1/chat/status"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Send the running transcript; the last message must be the user's question. */
+export function useSendChat() {
+  return useMutation({
+    mutationFn: (messages: ChatMessage[]) =>
+      apiFetch<ChatResponse>("/api/v1/chat", {
+        method: "POST",
+        body: JSON.stringify({ messages }),
+      }),
+  });
+}
+
 /** Operational settings any authenticated user may read (e.g. demo-widget toggle). */
 export function useClientSettings() {
   const { user } = useAuth();

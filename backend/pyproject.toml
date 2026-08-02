@@ -17,6 +17,9 @@ dependencies = [
     # services/reports_service.build_xlsx imports openpyxl. Keep it here so
     # production images and fresh installs (`pip install .`) always include it.
     "openpyxl>=3.1",
+    # The ask-your-data assistant (services/chat_service) calls Claude via the official
+    # Anthropic SDK. Imported lazily, but a runtime dependency when the feature is used.
+    "anthropic>=0.40",
     # Security floors for transitive deps (patch-level CVE fixes, non-breaking):
     #   starlette (via fastapi)        — CVE-2026-54283
     #   msgpack   (via firebase-admin) — GHSA-6v7p-g79w-8964
@@ -83,6 +86,9 @@ ignore_missing_imports = true
 # libraries are untyped. Treat the whole google.* namespace as untyped/optional.
 [[tool.mypy.overrides]]
 module = ["google.*"]
+ignore_missing_imports = true
+[[tool.mypy.overrides]]
+module = ["anthropic.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

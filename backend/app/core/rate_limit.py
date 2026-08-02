@@ -21,6 +21,10 @@ from app.core.redis import get_redis
 RATE_LIMIT = 300
 EXPORT_RATE_LIMIT = 10
 SYNC_RATE_LIMIT = 6
+# The "ask your data" assistant. Each question fans out into several model calls +
+# scoped queries, so it gets its own tighter bucket (separate from the general budget)
+# to bound both cost and load.
+CHAT_RATE_LIMIT = 20
 # Read-only / idempotent BigQuery admin actions (Test Connection, schema diff, schema
 # match). Kept on their OWN bucket so they can't starve the heavy sync trigger's budget.
 DIAGNOSTICS_RATE_LIMIT = 20
@@ -102,6 +106,15 @@ async def enforce_diagnostics_rate_limit(
     diff, schema match). Separate from the sync-trigger budget so running diagnostics
     never blocks the actual sync."""
     await _enforce(redis, f"rl:diag:{context.user_id}", DIAGNOSTICS_RATE_LIMIT)
+
+
+async def enforce_chat_rate_limit(
+    context: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> None:
+    """Tight limit for the ask-your-data assistant (20/min) — one question triggers several
+    model calls + queries, so it gets its own bucket separate from the general budget."""
+    await _enforce(redis, f"rl:chat:{context.user_id}", CHAT_RATE_LIMIT)
 
 
 async def enforce_access_request_rate_limit(

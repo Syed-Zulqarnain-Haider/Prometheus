@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
 import { AccessRequestPending } from "@/components/layout/access-request-pending";
+import { ChatWidget } from "@/components/chat/chat-widget";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { FreshnessBanner } from "@/components/layout/freshness-banner";
 import { Header } from "@/components/layout/header";
@@ -92,6 +93,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
       <ProductTour />
       <CommandPalette />
+      <ChatWidget />
     </div>
   );
 }

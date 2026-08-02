@@ -137,6 +137,16 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         description="Email admins + executives a daily performance summary (revenue, spend, "
         "profit, ROAS, top apps) once a day after the sync.",
     ),
+    "chat_enabled": SettingSpec(
+        key="chat_enabled",
+        type="bool",
+        default=False,
+        label="Ask-your-data assistant",
+        description="Enable the in-app chat assistant that answers questions about the data. "
+        "It only ever reads what the asking user is permitted to see (their RBAC scope + "
+        "metric permissions) and never generates SQL. Requires ANTHROPIC_API_KEY to be "
+        "configured in the environment.",
+    ),
     # ── Integration (Integration tab) — NON-SECRET sync parameters only ──────────
     "gcp_project": SettingSpec(
         key="gcp_project",

@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     smtp_from: str | None = None
     smtp_use_tls: bool = True
 
+    # "Ask your data" assistant (chatbot). The API key is a SECRET — env / Secret Manager
+    # only, NEVER stored in the DB or shown in the UI. Its PRESENCE (plus the admin
+    # ``chat_enabled`` operational setting) is what makes the assistant available; absent,
+    # the endpoint returns a clean "not configured" and the UI hides the widget. The
+    # assistant only ever reads data through the caller's scoped QueryBuilder — it cannot
+    # see anything the user could not see themselves, and it never generates SQL.
+    anthropic_api_key: str | None = None
+    chat_model: str = "claude-opus-5"
+    # Bound on the tool-use loop (each iteration is one model call that may run tools) and
+    # the answer length — caps the per-question cost of a hostile or runaway question.
+    chat_max_iterations: int = 6
+    chat_max_tokens: int = 2048
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

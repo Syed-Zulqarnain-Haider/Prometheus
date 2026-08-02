@@ -24,6 +24,7 @@ from app.api.v1 import admin as admin_routes
 from app.api.v1 import app_master as app_master_routes
 from app.api.v1 import apps as apps_routes
 from app.api.v1 import auth as auth_routes
+from app.api.v1 import chat as chat_routes
 from app.api.v1 import export as export_routes
 from app.api.v1 import layouts as layouts_routes
 from app.api.v1 import meta as meta_routes
@@ -193,3 +194,4 @@ app.include_router(reports_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(export_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(admin_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(app_master_routes.router, prefix=settings.api_v1_prefix)
+app.include_router(chat_routes.router, prefix=settings.api_v1_prefix)
