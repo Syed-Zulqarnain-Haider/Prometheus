@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_chat_rate_limit
 from app.schemas.chat import ChatRequest, ChatResponse, ChatStatus, ProviderInfo
-from app.services import chat_providers, chat_service, settings_service
+from app.services import chat_guardrails, chat_providers, chat_service, settings_service
 from app.services.audit import AuditDep
 
 logger = logging.getLogger("app.api.chat")
@@ -80,6 +80,21 @@ async def chat(
         provider = chat_providers.resolve(settings, body.provider)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    # Guardrail: refuse obvious manipulation attempts (jailbreak / role-escalation / reveal
+    # prompt / raw SQL) BEFORE any model call, and record it. This is defense-in-depth — the
+    # real boundary is the scoped query layer below, which injection cannot cross regardless.
+    verdict = chat_guardrails.screen(body.messages)
+    if verdict.blocked:
+        await audit.write(
+            user_id=context.user_id,
+            action="chat_blocked",
+            resource="chat",
+            detail={"reason": verdict.reason, "provider": provider.id},
+            ip=client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        return ChatResponse(answer=chat_guardrails.REFUSAL, tool_calls=0, provider=provider.id)
 
     try:
         answer = await chat_service.answer_question(
