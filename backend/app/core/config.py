@@ -64,6 +64,18 @@ class Settings(BaseSettings):
     # the scheduler/trigger falls back to ``sync_trigger_url`` or reports not-configured.
     sync_pg_dsn: str | None = None
 
+    # SMTP for admin email alerts (e.g. a new app discovered on refresh). Operational,
+    # env-only — the password is a SECRET (Secret Manager / env, never DB/UI/logs). Email is
+    # "configured" only when smtp_host AND smtp_from are set; otherwise every send is a
+    # graceful no-op (logged) and the in-app notification still fires. Set smtp_password for
+    # authenticated relays; leave empty for an open internal relay.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_use_tls: bool = True
+
     # Exact frontend origins, comma-separated (kept as a raw string so
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""

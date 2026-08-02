@@ -97,6 +97,20 @@ def is_active_admin(
     return is_active and "admin" in roles and not_expired
 
 
+async def active_admin_emails(db: AsyncSession) -> list[str]:
+    """Distinct emails of all active admins — recipients for admin email alerts (e.g. a new
+    app discovered on refresh). Deduplicated, order-stable."""
+    rows = (
+        await db.execute(
+            select(User.email)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin", User.is_active.is_(True), User.email.isnot(None))
+        )
+    ).scalars().all()
+    return list(dict.fromkeys(e for e in rows if e))
+
+
 async def other_active_admins_exist(db: AsyncSession, exclude_user_id: uuid.UUID) -> bool:
     """Is there at least one ACTIVE admin OTHER than ``exclude_user_id``? Used to refuse any
     change that would otherwise leave the system with zero admins (lockout prevention)."""

@@ -221,11 +221,49 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
 
     resp = await metrics_env.client.post("/api/v1/app-master/refresh", headers=_auth("admin"))
     assert resp.status_code == 200
-    assert resp.json() == {"synced": 1, "skipped": 1}
+    body = resp.json()
+    assert body["synced"] == 1 and body["skipped"] == 1
+    # app-c wasn't in the seeded master → detected as a NEW app (alerts admins to set HOU/pod/rev).
+    assert body["new_apps"] == [
+        {"canonical_key": "app-c", "app_name": "Gamma", "platform": "ios"}
+    ]
 
     # Full refresh: old rows gone, only the keyed fetched row remains.
     listing = (await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))).json()
     assert [r["canonical_key"] for r in listing["rows"]] == ["app-c"]
+
+
+async def test_new_apps_alert_emails_admins(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A newly-discovered app emails the admins (best-effort) to set HOU/pod/net-revenue."""
+    from app.services import email_service
+
+    await _seed(metrics_env)
+
+    def fake_fetch(
+        settings: Any, table_id: str, extra_columns: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        base = dict.fromkeys(ALL_COLUMNS)
+        return [{**base, "canonical_key": "app-new", "app_name": "Fresh", "platform": "android"}]
+
+    monkeypatch.setattr(app_master_bq, "fetch_rows", fake_fetch)
+
+    sent: list[tuple[list[str], str]] = []
+
+    async def fake_send(settings: Any, recipients: list[str], subject: str, body: str) -> bool:
+        sent.append((recipients, subject))
+        return True
+
+    monkeypatch.setattr(email_service, "send_email", fake_send)
+
+    resp = await metrics_env.client.post("/api/v1/app-master/refresh", headers=_auth("admin"))
+    assert resp.status_code == 200
+    assert resp.json()["new_apps"][0]["canonical_key"] == "app-new"
+
+    assert sent, "expected an admin email for the newly-discovered app"
+    recipients, subject = sent[0]
+    assert recipients and "new app" in subject.lower()
 
 
 async def test_refresh_db_write_failure_is_sanitized_not_500(

@@ -23,7 +23,7 @@ from app.schemas.app_master import (
     ColumnOrderUpdate,
 )
 from app.schemas.integration import SchemaDiff, SchemaSyncResult
-from app.services import app_master_service, notification_service
+from app.services import admin_service, app_master_service, email_service, notification_service
 from app.services.app_master_bq import (
     BigQueryNotConfigured,
     BigQueryReadError,
@@ -276,4 +276,55 @@ async def refresh_app_master(
         actor_id=context.user_id,
         resource="app_master",
     )
+
+    # New apps discovered → alert admins to set hou / pod_owner / net_revenue_share, both
+    # in-app (severity=warning, deep-linked to App Master) and by email (best-effort; a mail
+    # outage or unconfigured SMTP never breaks the refresh — the in-app alert still fires).
+    new_apps = result.get("new_apps") or []
+    if new_apps:
+        await _alert_new_apps(db, new_apps, actor_id=context.user_id)
     return result
+
+
+def _new_apps_email_body(new_apps: list[dict[str, Any]], app_url: str | None) -> str:
+    lines = [
+        f"{len(new_apps)} new app(s) were discovered in App Master and need their",
+        "HOU, Pod Owner, and Net Revenue Share set:",
+        "",
+    ]
+    for a in new_apps[:50]:
+        name = a.get("app_name") or a.get("canonical_key") or "(unnamed)"
+        platform = a.get("platform") or "?"
+        lines.append(f"  • {name}  [{platform}]  key={a.get('canonical_key')}")
+    if len(new_apps) > 50:
+        lines.append(f"  … and {len(new_apps) - 50} more.")
+    lines += ["", "Open App Master to set them:"]
+    target = f"  {app_url.rstrip('/')}/admin" if app_url else "  Dashboard → Admin → App Master"
+    lines.append(target)
+    return "\n".join(lines)
+
+
+async def _alert_new_apps(
+    db: DbSession, new_apps: list[dict[str, Any]], *, actor_id: Any
+) -> None:
+    names = ", ".join(a.get("app_name") or a.get("canonical_key") or "?" for a in new_apps[:10])
+    more = f" (+{len(new_apps) - 10} more)" if len(new_apps) > 10 else ""
+    await notification_service.notify_admins(
+        type="app_master_new_apps",
+        title=f"{len(new_apps)} new app(s) discovered",
+        body=f"Set HOU / Pod Owner / Net Revenue Share for: {names}{more}",
+        severity="warning",
+        link="/admin",
+        actor_id=actor_id,
+        resource="app_master",
+    )
+    settings = get_settings()
+    emails = await admin_service.active_admin_emails(db)
+    if emails:
+        app_url = settings.cors_origin_list[0] if settings.cors_origin_list else None
+        await email_service.send_email(
+            settings,
+            emails,
+            subject=f"[Prometheus] {len(new_apps)} new app(s) need HOU / Pod / Net Revenue",
+            body=_new_apps_email_body(new_apps, app_url),
+        )

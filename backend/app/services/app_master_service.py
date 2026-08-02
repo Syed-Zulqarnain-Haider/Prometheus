@@ -374,7 +374,7 @@ async def list_history(session: AsyncSession, key: str, limit: int = 20) -> list
     ]
 
 
-async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> dict[str, int]:
+async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> dict[str, Any]:
     """Full refresh of the serving copy from BigQuery. Rows without a canonical_key can't be
     keyed, so they are skipped (counted). Blocking BQ read runs in a worker thread."""
     names, _ = await _effective_columns(session)
@@ -389,6 +389,27 @@ async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> di
             skipped += 1
             continue
         by_key[str(key)] = {name: row.get(name) for name in names}
+
+    # Detect NEW apps (canonical_keys not already in the serving copy) BEFORE the replace, so
+    # admins can be alerted to set hou / pod_owner / net_revenue_share. On the very first
+    # refresh the table is empty and EVERY app would look "new" — that's the initial load, not a
+    # discovery, so we suppress new-app reporting when there was no prior data.
+    existing_keys: set[str] = set(
+        (await session.execute(select(_TABLE.c[PRIMARY_KEY]))).scalars().all()
+    )
+    new_apps: list[dict[str, Any]] = (
+        []
+        if not existing_keys
+        else [
+            {
+                "canonical_key": k,
+                "app_name": v.get("app_name"),
+                "platform": v.get("platform"),
+            }
+            for k, v in by_key.items()
+            if k not in existing_keys
+        ]
+    )
 
     rows_to_write = list(by_key.values())
     try:
@@ -405,7 +426,7 @@ async def refresh_from_bigquery(session: AsyncSession, settings: Settings) -> di
         raise AppMasterRefreshError(
             f"Serving-copy write failed ({type(exc).__name__}) — the existing data was kept."
         ) from exc
-    return {"synced": len(by_key), "skipped": skipped}
+    return {"synced": len(by_key), "skipped": skipped, "new_apps": new_apps}
 
 
 # BigQuery INFORMATION_SCHEMA data_type expected for each registry column (GoogleSQL types
