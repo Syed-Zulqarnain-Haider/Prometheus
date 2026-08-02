@@ -7,6 +7,7 @@ import { AccessRequestPending } from "@/components/layout/access-request-pending
 import { FilterBar } from "@/components/filters/filter-bar";
 import { FreshnessBanner } from "@/components/layout/freshness-banner";
 import { Header } from "@/components/layout/header";
+import { CommandPalette } from "@/components/layout/command-palette";
 import { NotProvisioned } from "@/components/layout/not-provisioned";
 import { Sidebar } from "@/components/layout/sidebar";
 import { ProductTour } from "@/components/onboarding/product-tour";
@@ -22,7 +23,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   // The global metric filter bar belongs only on the analytics pages. Admin/utility pages
   // (and App Master, which has its own filters) don't use it, so hide it there.
-  const HIDE_FILTERS_ON = ["/app-master", "/admin", "/data-health"];
+  const HIDE_FILTERS_ON = ["/app-master", "/admin", "/data-health", "/glossary"];
   const hideGlobalFilters = HIDE_FILTERS_ON.some((p) => pathname?.startsWith(p));
   // Provisioning gate: Firebase auth alone is NOT access. We resolve /auth/me, and
   // an authenticated-but-unprovisioned user (any provider, incl. Google) is rejected
@@ -90,6 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
       <ProductTour />
+      <CommandPalette />
     </div>
   );
 }
