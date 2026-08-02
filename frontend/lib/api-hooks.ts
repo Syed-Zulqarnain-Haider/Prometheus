@@ -787,10 +787,16 @@ export function useRunSync() {
 }
 
 // ── Ask-your-data assistant (chatbot) ───────────────────────────────────────
+export interface ChatProvider {
+  id: string;
+  label: string;
+}
+
 export interface ChatStatus {
   available: boolean;
   configured: boolean;
   enabled: boolean;
+  providers: ChatProvider[];
   reason: string | null;
 }
 
@@ -802,9 +808,11 @@ export interface ChatMessage {
 export interface ChatResponse {
   answer: string;
   tool_calls: number;
+  provider: string;
 }
 
-/** Whether the assistant is usable for this user (admin-enabled AND API key configured). */
+/** Whether the assistant is usable for this user (admin-enabled AND a provider configured),
+ * plus the list of LLM providers they can pick from. */
 export function useChatStatus() {
   const { user } = useAuth();
   return useQuery({
@@ -815,13 +823,14 @@ export function useChatStatus() {
   });
 }
 
-/** Send the running transcript; the last message must be the user's question. */
+/** Send the running transcript on the chosen provider; the last message must be the user's
+ * question. Answers are always scoped to the caller's own access, whichever provider. */
 export function useSendChat() {
   return useMutation({
-    mutationFn: (messages: ChatMessage[]) =>
+    mutationFn: ({ messages, provider }: { messages: ChatMessage[]; provider?: string }) =>
       apiFetch<ChatResponse>("/api/v1/chat", {
         method: "POST",
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, provider }),
       }),
   });
 }

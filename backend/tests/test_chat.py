@@ -1,8 +1,9 @@
-"""Ask-your-data assistant.
+"""Ask-your-data assistant (multi-provider).
 
-The model is mocked (a scripted fake Anthropic client), but every tool call runs through the
-REAL scoped QueryBuilder against the REAL seeded fact table — so these tests exercise the
-actual RBAC path the assistant uses, not a stub of it.
+The LLM is mocked (a scripted fake client per provider kind), but every tool call runs through
+the REAL scoped QueryBuilder against the REAL seeded fact table — so these tests exercise the
+actual RBAC path the assistant uses, and prove it holds IDENTICALLY for the Anthropic loop and
+the OpenAI-compatible loop (OpenAI / Grok / Gemini).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import uuid
 from typing import Any
 
 import pytest
+from app.core.config import get_settings
 from app.schemas.auth import ScopeOut, UserContext
 from app.services import chat_service
 from app.services.query_builder import QueryBuilder
@@ -22,7 +24,7 @@ def _auth(role: str) -> dict[str, str]:
     return {"Authorization": f"Bearer valid-{role}"}
 
 
-# ── A tiny scripted stand-in for the Anthropic async client ──────────────────
+# ── Anthropic-shaped fake ────────────────────────────────────────────────────
 class _Block:
     def __init__(
         self,
@@ -52,19 +54,74 @@ class _FakeMessages:
         self.calls: list[dict[str, Any]] = []
 
     async def create(self, **kwargs: Any) -> _Msg:
-        self.calls.append(kwargs)
+        # Snapshot messages — the loop mutates its convo list in place after the call.
+        self.calls.append({**kwargs, "messages": list(kwargs.get("messages", []))})
         return self._script.pop(0)
 
 
-class _FakeClient:
+class _FakeAnthropic:
     def __init__(self, script: list[_Msg]) -> None:
         self.messages = _FakeMessages(script)
 
 
-def _install_fake(monkeypatch: pytest.MonkeyPatch, script: list[_Msg]) -> _FakeClient:
-    client = _FakeClient(script)
-    monkeypatch.setattr(chat_service, "is_configured", lambda settings: True)
-    monkeypatch.setattr(chat_service, "_create_client", lambda settings: client)
+# ── OpenAI-compatible-shaped fake (OpenAI / Grok / Gemini) ───────────────────
+class _OAIFunc:
+    def __init__(self, name: str, arguments: str) -> None:
+        self.name = name
+        self.arguments = arguments
+
+
+class _OAIToolCall:
+    def __init__(self, id: str, name: str, arguments: str) -> None:
+        self.id = id
+        self.type = "function"
+        self.function = _OAIFunc(name, arguments)
+
+
+class _OAIMessage:
+    def __init__(self, content: str | None = None, tool_calls: list[_OAIToolCall] | None = None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _OAIChoice:
+    def __init__(self, message: _OAIMessage) -> None:
+        self.message = message
+
+
+class _OAIResponse:
+    def __init__(self, message: _OAIMessage) -> None:
+        self.choices = [_OAIChoice(message)]
+
+
+class _FakeCompletions:
+    def __init__(self, script: list[_OAIMessage]) -> None:
+        self._script = script
+        self.calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> _OAIResponse:
+        # Snapshot messages — the loop mutates its convo list in place after the call.
+        self.calls.append({**kwargs, "messages": list(kwargs.get("messages", []))})
+        return _OAIResponse(self._script.pop(0))
+
+
+class _FakeChat:
+    def __init__(self, script: list[_OAIMessage]) -> None:
+        self.completions = _FakeCompletions(script)
+
+
+class _FakeOpenAI:
+    def __init__(self, script: list[_OAIMessage]) -> None:
+        self.chat = _FakeChat(script)
+
+
+def _set_key(monkeypatch: pytest.MonkeyPatch, attr: str, value: str = "test-key") -> None:
+    """Set a provider API key on the cached Settings singleton (reverted after the test)."""
+    monkeypatch.setattr(get_settings(), attr, value)
+
+
+def _install_client(monkeypatch: pytest.MonkeyPatch, client: Any) -> Any:
+    monkeypatch.setattr(chat_service, "_create_client", lambda settings, provider: client)
     return client
 
 
@@ -75,24 +132,29 @@ async def _enable_chat(env: MetricsEnv) -> None:
     assert resp.status_code == 200
 
 
-# ── status + gating ──────────────────────────────────────────────────────────
+# ── status + gating + provider listing ───────────────────────────────────────
 async def test_status_unavailable_by_default(metrics_env: MetricsEnv) -> None:
     resp = await metrics_env.client.get("/api/v1/chat/status", headers=_auth("admin"))
     assert resp.status_code == 200
     body = resp.json()
     assert body["available"] is False
-    assert body["enabled"] is False  # chat_enabled defaults off
+    assert body["enabled"] is False
+    assert body["providers"] == []  # nothing configured
 
 
-async def test_status_available_when_enabled_and_configured(
+async def test_status_lists_only_configured_providers(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install_fake(monkeypatch, [])
+    _set_key(monkeypatch, "anthropic_api_key")
+    _set_key(monkeypatch, "xai_api_key")  # Grok, but NOT OpenAI/Gemini
     await _enable_chat(metrics_env)
     resp = await metrics_env.client.get("/api/v1/chat/status", headers=_auth("viewer"))
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"available": True, "configured": True, "enabled": True, "reason": None}
+    assert body["available"] is True
+    ids = [p["id"] for p in body["providers"]]
+    assert ids == ["claude", "grok"]  # registry order, only configured ones
+    assert {p["label"] for p in body["providers"]} == {"Claude", "Grok"}
 
 
 async def test_chat_requires_auth(metrics_env: MetricsEnv) -> None:
@@ -105,8 +167,7 @@ async def test_chat_requires_auth(metrics_env: MetricsEnv) -> None:
 async def test_chat_disabled_returns_503(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Configured but the admin setting is still off → clean 503, no model call.
-    _install_fake(monkeypatch, [])
+    _set_key(monkeypatch, "anthropic_api_key")  # configured but setting still off
     resp = await metrics_env.client.post(
         "/api/v1/chat",
         json={"messages": [{"role": "user", "content": "revenue?"}]},
@@ -116,8 +177,7 @@ async def test_chat_disabled_returns_503(
 
 
 async def test_chat_not_configured_returns_503(metrics_env: MetricsEnv) -> None:
-    # Enabled but no API key configured (default) → clean 503.
-    await _enable_chat(metrics_env)
+    await _enable_chat(metrics_env)  # enabled but no provider key
     resp = await metrics_env.client.post(
         "/api/v1/chat",
         json={"messages": [{"role": "user", "content": "revenue?"}]},
@@ -126,10 +186,24 @@ async def test_chat_not_configured_returns_503(metrics_env: MetricsEnv) -> None:
     assert resp.status_code == 503
 
 
+async def test_chat_unknown_provider_is_400(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_key(monkeypatch, "anthropic_api_key")
+    await _enable_chat(metrics_env)
+    resp = await metrics_env.client.post(
+        "/api/v1/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "provider": "gemini"},
+        headers=_auth("admin"),
+    )
+    # Gemini has no key configured → clean 400, not a 500.
+    assert resp.status_code == 400
+
+
 async def test_chat_rejects_non_user_last_message(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install_fake(monkeypatch, [])
+    _set_key(monkeypatch, "anthropic_api_key")
     await _enable_chat(metrics_env)
     resp = await metrics_env.client.post(
         "/api/v1/chat",
@@ -139,8 +213,8 @@ async def test_chat_rejects_non_user_last_message(
     assert resp.status_code == 422
 
 
-# ── end-to-end tool loop (real RBAC-scoped queries) ──────────────────────────
-async def test_chat_answers_using_scoped_totals(
+# ── Anthropic loop: end-to-end with real scoped queries ──────────────────────
+async def test_claude_answers_using_scoped_totals(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     script = [
@@ -157,71 +231,108 @@ async def test_chat_answers_using_scoped_totals(
         ),
         _Msg([_Block("text", text="Total revenue was $1,080.")], stop_reason="end_turn"),
     ]
-    client = _install_fake(monkeypatch, script)
+    _set_key(monkeypatch, "anthropic_api_key")
+    client = _install_client(monkeypatch, _FakeAnthropic(script))
     await _enable_chat(metrics_env)
 
     resp = await metrics_env.client.post(
         "/api/v1/chat",
-        json={"messages": [{"role": "user", "content": "What was revenue in June?"}]},
+        json={
+            "messages": [{"role": "user", "content": "What was revenue in June?"}],
+            "provider": "claude",
+        },
         headers=_auth("admin"),
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["answer"] == "Total revenue was $1,080."
     assert body["tool_calls"] == 1
+    assert body["provider"] == "claude"
 
     # The tool result fed back to the model carried the REAL scoped totals (admin sees all
     # 4 seeded rows: 600+400+70+10 = 1080), proving the tool queried the DB through RBAC.
-    second_call_messages = client.messages.calls[1]["messages"]
-    tool_result = second_call_messages[-1]["content"][0]
+    tool_result = client.messages.calls[1]["messages"][-1]["content"][0]
     assert tool_result["is_error"] is False
     assert "1080" in tool_result["content"]
 
 
-async def test_chat_tool_error_on_forbidden_metric_via_loop(
+# ── OpenAI-compatible loop: same RBAC boundary, different provider ────────────
+async def test_openai_loop_answers_using_scoped_totals(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A viewer (store_installs only) — the model asks to rank by total_revenue_usd, which is
-    # not permitted. The loop must feed back a recoverable tool error, never leak the number.
     script = [
-        _Msg(
-            [
-                _Block(
-                    "tool_use",
-                    id="t1",
-                    name="get_breakdown",
-                    input={
-                        "date_from": "2026-06-01",
-                        "date_to": "2026-06-30",
-                        "group_by": "app",
-                        "metric": "total_revenue_usd",
-                    },
+        _OAIMessage(
+            tool_calls=[
+                _OAIToolCall(
+                    "call_1",
+                    "get_totals",
+                    '{"date_from": "2026-06-01", "date_to": "2026-06-30"}',
                 )
-            ],
-            stop_reason="tool_use",
+            ]
         ),
-        _Msg(
-            [_Block("text", text="You don't have access to revenue.")],
-            stop_reason="end_turn",
-        ),
+        _OAIMessage(content="Revenue totaled $1,080."),
     ]
-    client = _install_fake(monkeypatch, script)
+    _set_key(monkeypatch, "openai_api_key")
+    client = _install_client(monkeypatch, _FakeOpenAI(script))
     await _enable_chat(metrics_env)
 
     resp = await metrics_env.client.post(
         "/api/v1/chat",
-        json={"messages": [{"role": "user", "content": "top apps by revenue?"}]},
+        json={
+            "messages": [{"role": "user", "content": "revenue in June?"}],
+            "provider": "openai",
+        },
+        headers=_auth("admin"),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "Revenue totaled $1,080."
+    assert body["provider"] == "openai"
+    assert body["tool_calls"] == 1
+
+    tool_msg = client.chat.completions.calls[1]["messages"][-1]
+    assert tool_msg["role"] == "tool"
+    assert "1080" in tool_msg["content"]
+
+
+async def test_openai_loop_forbidden_metric_is_recoverable(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A viewer (store_installs only) asks — via the OpenAI provider — to rank by revenue.
+    # The loop must feed back a recoverable tool error, never the number.
+    script = [
+        _OAIMessage(
+            tool_calls=[
+                _OAIToolCall(
+                    "call_1",
+                    "get_breakdown",
+                    '{"date_from": "2026-06-01", "date_to": "2026-06-30", '
+                    '"group_by": "app", "metric": "total_revenue_usd"}',
+                )
+            ]
+        ),
+        _OAIMessage(content="You don't have access to revenue."),
+    ]
+    _set_key(monkeypatch, "openai_api_key")
+    client = _install_client(monkeypatch, _FakeOpenAI(script))
+    await _enable_chat(metrics_env)
+
+    resp = await metrics_env.client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "top apps by revenue?"}],
+            "provider": "openai",
+        },
         headers=_auth("viewer"),
     )
     assert resp.status_code == 200
-    tool_result = client.messages.calls[1]["messages"][-1]["content"][0]
-    assert tool_result["is_error"] is True
-    assert "not permitted" in tool_result["content"]
-    # And no revenue figure was ever handed to the model.
-    assert "1080" not in tool_result["content"]
+    tool_msg = client.chat.completions.calls[1]["messages"][-1]
+    assert tool_msg["role"] == "tool"
+    assert "not permitted" in tool_msg["content"]
+    assert "1080" not in tool_msg["content"]
 
 
-# ── the RBAC guarantee at the tool layer, model-free ─────────────────────────
+# ── the RBAC guarantee at the tool layer, model-free (provider-agnostic) ─────
 def _ctx(role: str, groups: list[str], scopes: list[ScopeOut]) -> UserContext:
     return UserContext(
         user_id=uuid.uuid4(),
@@ -252,7 +363,8 @@ async def test_run_tool_enforces_metric_permission(metrics_env: MetricsEnv) -> N
 
 
 async def test_run_tool_enforces_row_scope(metrics_env: MetricsEnv) -> None:
-    # A pod-scoped user (POD_A) must only ever see POD_A rows, even via the assistant.
+    # A pod-scoped user (POD_A) must only ever see POD_A rows — even via the assistant, and
+    # regardless of which LLM provider drives the loop (this is below the provider layer).
     qb = QueryBuilder(
         _ctx(
             "pod_owner",

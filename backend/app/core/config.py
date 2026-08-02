@@ -76,14 +76,25 @@ class Settings(BaseSettings):
     smtp_from: str | None = None
     smtp_use_tls: bool = True
 
-    # "Ask your data" assistant (chatbot). The API key is a SECRET — env / Secret Manager
-    # only, NEVER stored in the DB or shown in the UI. Its PRESENCE (plus the admin
-    # ``chat_enabled`` operational setting) is what makes the assistant available; absent,
-    # the endpoint returns a clean "not configured" and the UI hides the widget. The
-    # assistant only ever reads data through the caller's scoped QueryBuilder — it cannot
-    # see anything the user could not see themselves, and it never generates SQL.
+    # "Ask your data" assistant (chatbot). Every provider API key is a SECRET — env /
+    # Secret Manager only, NEVER stored in the DB or shown in the UI. A provider is
+    # "available" iff its key is set; the admin ``chat_enabled`` setting gates the feature
+    # overall. WHICHEVER provider the user picks, the assistant only ever reads data through
+    # the caller's scoped QueryBuilder — it cannot see anything the user could not see
+    # themselves, and it never generates SQL. The security boundary is provider-agnostic.
+    #
+    # Claude (Anthropic SDK):
     anthropic_api_key: str | None = None
     chat_model: str = "claude-opus-5"
+    # OpenAI / ChatGPT, and the two OpenAI-compatible providers below (xAI Grok + Google
+    # Gemini via its OpenAI-compat endpoint). Model ids are env-overridable because
+    # third-party model names change independently of this app — set them per deployment.
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
+    xai_api_key: str | None = None
+    grok_model: str = "grok-2-latest"
     # Bound on the tool-use loop (each iteration is one model call that may run tools) and
     # the answer length — caps the per-question cost of a hostile or runaway question.
     chat_max_iterations: int = 6

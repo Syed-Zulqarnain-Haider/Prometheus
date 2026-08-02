@@ -18,8 +18,11 @@ dependencies = [
     # production images and fresh installs (`pip install .`) always include it.
     "openpyxl>=3.1",
     # The ask-your-data assistant (services/chat_service) calls Claude via the official
-    # Anthropic SDK. Imported lazily, but a runtime dependency when the feature is used.
+    # Anthropic SDK, and OpenAI / xAI Grok / Google Gemini via the OpenAI SDK (Grok + Gemini
+    # through their OpenAI-compatible endpoints). Both are imported lazily, but are runtime
+    # dependencies when the corresponding provider is configured and used.
     "anthropic>=0.40",
+    "openai>=1.40",
     # Security floors for transitive deps (patch-level CVE fixes, non-breaking):
     #   starlette (via fastapi)        — CVE-2026-54283
     #   msgpack   (via firebase-admin) — GHSA-6v7p-g79w-8964
@@ -89,6 +92,9 @@ module = ["google.*"]
 ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["anthropic.*"]
+ignore_missing_imports = true
+[[tool.mypy.overrides]]
+module = ["openai.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

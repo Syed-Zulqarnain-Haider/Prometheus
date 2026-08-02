@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, Loader2, Send, Sparkles, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { type ChatMessage, useChatStatus, useSendChat } from "@/lib/api-hooks";
@@ -29,11 +29,19 @@ export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [provider, setProvider] = useState<string>("");
   const send = useSendChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const providers = useMemo(() => status.data?.providers ?? [], [status.data?.providers]);
+
   useEffect(() => setMounted(true), []);
+
+  // Default the picker to the first available provider once status resolves.
+  useEffect(() => {
+    if (!provider && providers.length > 0) setProvider(providers[0].id);
+  }, [provider, providers]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -55,7 +63,7 @@ export function ChatWidget() {
       // Send only the real turns (drop the local greeting) so the backend sees a clean
       // transcript ending in the user's question.
       const transcript = next.filter((m) => m !== GREETING);
-      const res = await send.mutateAsync(transcript);
+      const res = await send.mutateAsync({ messages: transcript, provider: provider || undefined });
       setMessages((prev) => [...prev, { role: "assistant", content: res.answer }]);
     } catch (err) {
       const msg =
@@ -75,23 +83,50 @@ export function ChatWidget() {
         <div className="flex h-[min(32rem,80vh)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <div>
+            <div className="flex min-w-0 items-center gap-2">
+              <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0">
                 <p className="text-sm font-semibold leading-none">Ask your data</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Answers respect your access
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              aria-label="Close assistant"
-              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setOpen(false)}
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {providers.length > 0 && (
+                <label className="sr-only" htmlFor="chat-provider">
+                  Choose model
+                </label>
+              )}
+              {providers.length > 1 && (
+                <select
+                  id="chat-provider"
+                  aria-label="Choose which LLM answers"
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value)}
+                  className="max-w-[7.5rem] rounded-md border bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {providers.length === 1 && (
+                <span className="rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground">
+                  {providers[0].label}
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label="Close assistant"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
