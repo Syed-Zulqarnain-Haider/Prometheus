@@ -107,8 +107,9 @@ async def chat(
             "The assistant is temporarily unavailable. Please try again.",
         ) from None
 
-    # Audit the question (append-only). Store only metadata — length, provider, and how many
-    # scoped lookups ran — not the raw transcript.
+    # Audit the question (append-only). Store metadata + a value-free forensic trace of what
+    # data the answer touched (metric/dimension/date window per scoped lookup) — never the raw
+    # transcript or any returned values. This makes every answer accountable.
     await audit.write(
         user_id=context.user_id,
         action="chat_query",
@@ -117,6 +118,7 @@ async def chat(
             "turns": len(body.messages),
             "tool_calls": answer.tool_calls,
             "provider": answer.provider,
+            "tools": answer.tool_trace,
         },
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),

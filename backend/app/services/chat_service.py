@@ -164,6 +164,10 @@ class ChatAnswer:
     text: str
     tool_calls: int
     provider: str
+    # A compact forensic trace of what the assistant actually queried (metric/dimension/date
+    # window per call) — NOT the returned values. Written to the audit log so every answer is
+    # accountable: you can see exactly what data each response touched.
+    tool_trace: list[dict[str, Any]]
 
 
 def is_configured(settings: Settings) -> bool:
@@ -236,6 +240,23 @@ def _tool_result_content(out: dict[str, Any]) -> str:
     return json.dumps(out, default=str)
 
 
+def _trace_call(name: str, args: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
+    """A compact, value-free summary of one tool call for the audit log — the metric,
+    dimension, date window, and which filter dimensions were used (never row values)."""
+    entry: dict[str, Any] = {"tool": name}
+    for key in ("date_from", "date_to", "group_by", "metric"):
+        if args.get(key) is not None:
+            entry[key] = args[key]
+    dims = [d for d in ("platform", "apps", "pods", "publishers", "hou") if args.get(d)]
+    if dims:
+        entry["filters"] = dims
+    if "error" in out:
+        entry["error"] = True
+    elif "rows" in out:
+        entry["rows"] = len(out["rows"])
+    return entry
+
+
 def _anthropic_text(content: Any) -> str:
     return "".join(getattr(b, "text", "") for b in content if getattr(b, "type", "") == "text")
 
@@ -248,6 +269,7 @@ async def _run_anthropic_loop(
     system: str,
     messages: list[ChatMessage],
     client: Any,
+    trace: list[dict[str, Any]],
 ) -> tuple[str, int]:
     tools = _anthropic_tools()
     model = chat_providers.model_id(settings, provider)
@@ -270,7 +292,9 @@ async def _run_anthropic_loop(
             if getattr(block, "type", "") != "tool_use":
                 continue
             tool_calls += 1
-            out = await _run_tool(db, qb, block.name, dict(block.input or {}))
+            args = dict(block.input or {})
+            out = await _run_tool(db, qb, block.name, args)
+            trace.append(_trace_call(block.name, args, out))
             results.append(
                 {
                     "type": "tool_result",
@@ -295,6 +319,7 @@ async def _run_openai_loop(
     system: str,
     messages: list[ChatMessage],
     client: Any,
+    trace: list[dict[str, Any]],
 ) -> tuple[str, int]:
     """OpenAI-compatible chat-completions loop — drives OpenAI, xAI Grok, and Gemini (via its
     OpenAI-compat endpoint). Uses the SAME ``_run_tool`` RBAC boundary as the Anthropic loop."""
@@ -336,6 +361,7 @@ async def _run_openai_loop(
             except json.JSONDecodeError:
                 args = {}
             out = await _run_tool(db, qb, c.function.name, args)
+            trace.append(_trace_call(c.function.name, args, out))
             convo.append(
                 {
                     "role": "tool",
@@ -371,16 +397,19 @@ async def answer_question(
 
     qb = QueryBuilder(context)
     system = _system_prompt(qb, date.today())
+    trace: list[dict[str, Any]] = []
 
     if provider.kind == chat_providers.ANTHROPIC:
         text, tool_calls = await _run_anthropic_loop(
-            db, qb, settings, provider, system, messages, client
+            db, qb, settings, provider, system, messages, client, trace
         )
     else:
         text, tool_calls = await _run_openai_loop(
-            db, qb, settings, provider, system, messages, client
+            db, qb, settings, provider, system, messages, client, trace
         )
 
     if not text.strip():
         text = "I couldn't produce an answer for that. Try rephrasing your question."
-    return ChatAnswer(text=text.strip(), tool_calls=tool_calls, provider=provider.id)
+    return ChatAnswer(
+        text=text.strip(), tool_calls=tool_calls, provider=provider.id, tool_trace=trace
+    )

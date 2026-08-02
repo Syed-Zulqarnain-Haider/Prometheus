@@ -388,6 +388,51 @@ async def test_run_tool_enforces_row_scope(metrics_env: MetricsEnv) -> None:
         assert pods == {"POD_A"}  # POD_B is invisible to this scope
 
 
+async def test_answer_records_forensic_trace(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every answer records a value-free trace of what it queried (metric/dimension/date/rows).
+    from app.core.config import get_settings
+    from app.schemas.chat import ChatMessage
+
+    _set_key(monkeypatch, "anthropic_api_key")
+    script = [
+        _Msg(
+            [
+                _Block(
+                    "tool_use",
+                    id="t1",
+                    name="get_breakdown",
+                    input={
+                        "date_from": "2026-06-01",
+                        "date_to": "2026-06-30",
+                        "group_by": "app",
+                        "metric": "store_total_installs",
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+        ),
+        _Msg([_Block("text", text="ok")], stop_reason="end_turn"),
+    ]
+    ctx = _ctx("admin", ["store_installs"], [ScopeOut(scope_type="all")])
+    async with metrics_env.sessionmaker() as s:
+        answer = await chat_service.answer_question(
+            s,
+            ctx,
+            get_settings(),
+            [ChatMessage(role="user", content="top apps by installs")],
+            provider_id="claude",
+            client=_FakeAnthropic(script),
+        )
+    assert len(answer.tool_trace) == 1
+    entry = answer.tool_trace[0]
+    assert entry["tool"] == "get_breakdown"
+    assert entry["metric"] == "store_total_installs"
+    assert entry["date_from"] == "2026-06-01"
+    assert "rows" in entry  # a value-free count, not the data itself
+
+
 async def test_run_tool_bad_dates_are_recoverable(metrics_env: MetricsEnv) -> None:
     qb = QueryBuilder(_ctx("admin", ["profitability"], [ScopeOut(scope_type="all")]))
     async with metrics_env.sessionmaker() as s:
