@@ -114,14 +114,14 @@ async def test_edit_writes_bigquery_then_postgres_and_audits(
 
     resp = await metrics_env.client.patch(
         "/api/v1/app-master/app-a",
-        json={"hou": "H9", "needs_review": True, "revenue_share_pct": 0.75},
+        json={"hou": "H9", "partner_name": "Acme", "pod_owner": "Neo"},
         headers=_auth("admin"),
     )
     assert resp.status_code == 200
     assert resp.json()["hou"] == "H9"
 
     # BigQuery was called with exactly the changed editable columns.
-    assert calls == [("app-a", {"hou": "H9", "needs_review": True, "revenue_share_pct": 0.75})]
+    assert calls == [("app-a", {"hou": "H9", "partner_name": "Acme", "pod_owner": "Neo"})]
 
     # Postgres serving copy reflects the change.
     async with metrics_env.sessionmaker() as s:
@@ -134,7 +134,7 @@ async def test_edit_writes_bigquery_then_postgres_and_audits(
             .mappings()
             .one()
         )
-    assert row["hou"] == "H9" and row["needs_review"] is True
+    assert row["hou"] == "H9" and row["partner_name"] == "Acme"
 
     # Audited.
     async with metrics_env.sessionmaker() as s:

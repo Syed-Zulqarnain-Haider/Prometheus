@@ -47,14 +47,14 @@ REGISTRY: list[AppMasterColumn] = [
     _c("apple_account", "text", "STRING"),
     _c("google_play_account", "text", "STRING"),
     _c("facebook_app_id", "double", "FLOAT64"),  # FLOAT64 in BigQuery (not STRING)
-    _c("type", "text", "STRING", editable=True),
+    _c("type", "text", "STRING"),
     _c("publisher", "text", "STRING", editable=True),
-    _c("developer", "text", "STRING", editable=True),
+    _c("developer", "text", "STRING"),
     _c("pod", "bigint", "INT64", editable=True),
     _c("pod_owner", "text", "STRING", editable=True),
     _c("hou", "text", "STRING", editable=True),
     _c("canonical_key", "text", "STRING"),  # PRIMARY KEY — never editable
-    _c("app_type", "text", "STRING", editable=True),
+    _c("app_type", "text", "STRING"),
     _c("apple_id", "bigint", "INT64"),
     _c("google_play_status", "text", "STRING"),
     _c("apple_status", "text", "STRING"),
@@ -76,22 +76,30 @@ REGISTRY: list[AppMasterColumn] = [
     _c("mintegral_adv_last_spend_at", "timestamptz", "TIMESTAMP"),
     _c("apero_active", "boolean", "BOOL"),
     _c("apero_last_revenue_at", "timestamptz", "TIMESTAMP"),
-    _c("needs_review", "boolean", "BOOL", editable=True),
-    _c("review_reason", "text", "STRING", editable=True),
+    _c("needs_review", "boolean", "BOOL"),
+    _c("review_reason", "text", "STRING"),
     _c("reviewed_at", "timestamptz", "TIMESTAMP"),
     _c("reviewed_by", "text", "STRING"),
-    _c("revenue_share_pct", "double", "FLOAT64", editable=True),
-    _c("cost_share_pct", "double", "FLOAT64", editable=True),
+    _c("revenue_share_pct", "double", "FLOAT64"),
+    _c("cost_share_pct", "double", "FLOAT64"),
     _c("partner_name", "text", "STRING", editable=True),
-    _c("partnership_terms", "text", "STRING", editable=True),
-    _c("in_apple_console", "boolean", "BOOL", editable=True),
-    _c("in_gp_console", "boolean", "BOOL", editable=True),
-    _c("ops_notes", "text", "STRING", editable=True),
+    _c("partnership_terms", "text", "STRING"),
+    _c("in_apple_console", "boolean", "BOOL"),
+    _c("in_gp_console", "boolean", "BOOL"),
+    _c("ops_notes", "text", "STRING"),
     # Newer app_master_v2 columns. net_revenue_share's BigQuery name has spaces/caps
     # ("Net Revenue Share") — carried via bq_name and back-quoted on read/write.
     _c("net_revenue_share", "double", "FLOAT64", editable=True, bq_name="Net Revenue Share"),
-    _c("console_owned_by", "text", "STRING", editable=True),
+    _c("console_owned_by", "text", "STRING"),
 ]
+
+# Owner-curated editable set (App Master): ALL columns are shown, only these 6 are editable —
+# publisher, hou, pod_owner, pod, partner_name, net_revenue_share. Everything else is read-only
+# (identity, store/pipeline-maintained fields, and share/partner metadata).
+_EXPECTED_EDITABLE = {"publisher", "hou", "pod_owner", "pod", "partner_name", "net_revenue_share"}
+assert {c.name for c in REGISTRY if c.editable} == _EXPECTED_EDITABLE, (
+    "App Master editable set drifted from the owner-approved 6 columns"
+)
 
 BY_NAME: dict[str, AppMasterColumn] = {c.name: c for c in REGISTRY}
 ALL_COLUMNS: list[str] = [c.name for c in REGISTRY]
