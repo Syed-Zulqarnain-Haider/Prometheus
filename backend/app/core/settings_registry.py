@@ -137,6 +137,15 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         description="Email admins + executives a daily performance summary (revenue, spend, "
         "profit, ROAS, top apps) once a day after the sync.",
     ),
+    "require_admin_2fa": SettingSpec(
+        key="require_admin_2fa",
+        type="bool",
+        default=False,
+        label="Require 2FA for admin actions",
+        description="When on, admin-panel actions require a sign-in that used a second factor "
+        "(2FA). BREAK-GLASS: the Settings tab itself stays reachable without 2FA so you can "
+        "always turn this back off. Turn on only after your admins have enrolled 2FA.",
+    ),
     "chat_enabled": SettingSpec(
         key="chat_enabled",
         type="bool",

@@ -51,6 +51,7 @@ from app.schemas.integration import (
 from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, SystemHealth
 from app.services import (
     access_service,
+    account_service,
     admin_service,
     alerts_service,
     digest_service,
@@ -66,11 +67,33 @@ from app.services.auth import user_context_cache_key
 
 logger = logging.getLogger("app.api.admin")
 
+async def enforce_admin_2fa(request: Request, context: CurrentUser, db: DbSession) -> None:
+    """When ``require_admin_2fa`` is on, admin actions require a 2FA sign-in.
+
+    BREAK-GLASS: the Settings routes are exempt, so an admin can always turn the requirement
+    back off even from a non-2FA session — this makes the toggle impossible to lock yourself
+    out of. ``request.state.two_factor`` is set by get_user_context from the verified token.
+    """
+    if "/settings" in request.url.path:  # break-glass: always allow settings read/write
+        return
+    if not bool(await settings_service.get_value(db, "require_admin_2fa")):
+        return
+    if not getattr(request.state, "two_factor", False):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Admin actions require two-factor authentication. Sign in again with 2FA.",
+        )
+
+
 # Router-level dependency enforces admin_panel; routes use CurrentUser for identity.
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
-    dependencies=[Depends(enforce_rate_limit), Depends(require_capability("admin_panel"))],
+    dependencies=[
+        Depends(enforce_rate_limit),
+        Depends(require_capability("admin_panel")),
+        Depends(enforce_admin_2fa),
+    ],
 )
 
 
@@ -102,6 +125,32 @@ def _reject_both_expiry(expires_at: datetime | None, duration_days: int | None) 
 @router.get("/users", response_model=list[UserSummary])
 async def list_users(db: DbSession) -> list[UserSummary]:
     return await admin_service.list_users(db)
+
+
+@router.post("/users/{user_id}/revoke-sessions")
+async def revoke_user_sessions(
+    user_id: uuid.UUID,
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> dict[str, str]:
+    """Force-sign-out a user from every device (offboarding / suspected compromise). Stamps
+    their revoke instant and busts their cached context so it takes effect immediately."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    revoked_at = await account_service.revoke_sessions(db, user_id)
+    await _bust_cache(redis, user.firebase_uid)
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_revoke_sessions",
+        resource=str(user_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"revoked_at": revoked_at.isoformat()}
 
 
 @router.post("/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)

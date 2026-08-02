@@ -245,7 +245,14 @@ _PAST_IAT = 1_700_000_000
 METRICS_TOKENS: dict[str, dict[str, Any]] = {
     f"valid-{role}": {"uid": f"{role}-uid", "iat": _PAST_IAT} for role in METRICS_ROLES
 }
-METRICS_TOKENS["valid-pod_owner_scoped"] = {"uid": "pod_owner_scoped-uid"}
+METRICS_TOKENS["valid-pod_owner_scoped"] = {"uid": "pod_owner_scoped-uid", "iat": _PAST_IAT}
+# Same admin identity, but a token whose sign-in used a second factor (2FA) — for the
+# require_admin_2fa enforcement tests.
+METRICS_TOKENS["valid-admin_2fa"] = {
+    "uid": "admin-uid",
+    "iat": _PAST_IAT,
+    "firebase": {"sign_in_second_factor": "phone"},
+}
 # An authenticated-but-UNPROVISIONED identity (not in the seed) — carries email + name
 # like a real Google token, for the access-request flow.
 METRICS_TOKENS["valid-newcomer"] = {
