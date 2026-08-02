@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from redis.asyncio import Redis
@@ -52,6 +52,7 @@ from app.schemas.system import SettingOut, SettingUpdate, SyncTriggerResult, Sys
 from app.services import (
     access_service,
     admin_service,
+    alerts_service,
     fact_schema,
     integration_service,
     notification_service,
@@ -577,6 +578,24 @@ async def run_sync_now(
         user_agent=request.headers.get("user-agent"),
     )
     return result
+
+
+# ── System: evaluate proactive alerts on demand (admin-only, audited) ───────────
+@router.post("/alerts/evaluate", dependencies=[Depends(enforce_diagnostics_rate_limit)])
+async def evaluate_alerts(
+    request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> dict[str, Any]:
+    """Run the anomaly-alert checks now (revenue drop, spend spike, low ROAS, stale data) and
+    notify admins/execs on anything fired. No-op returning [] when alerts are disabled."""
+    fired = await alerts_service.evaluate_and_notify(db, get_settings())
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_evaluate_alerts",
+        detail={"fired": [a["key"] for a in fired]},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"count": len(fired), "fired": fired}
 
 
 # ── Integration: status (BigQuery key presence + Postgres/Redis + sync history) ─

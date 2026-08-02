@@ -90,6 +90,45 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         label="Show demo widgets",
         description="Toggle the sample/demo widgets section on the dashboard.",
     ),
+    # ── Proactive alerts (evaluated daily against the fresh fact table) ──────────
+    "alerts_enabled": SettingSpec(
+        key="alerts_enabled",
+        type="bool",
+        default=False,
+        label="Proactive alerts",
+        description="Evaluate anomaly alerts (revenue drop, spend spike, low ROAS, stale data) "
+        "once a day after the sync and notify admins in-app + by email.",
+    ),
+    "alert_revenue_drop_pct": SettingSpec(
+        key="alert_revenue_drop_pct",
+        type="int",
+        default=30,
+        label="Revenue-drop alert threshold (%)",
+        description="Alert when the latest complete day's total revenue falls more than this "
+        "percent below the prior day.",
+        minimum=1,
+        maximum=100,
+    ),
+    "alert_spend_spike_pct": SettingSpec(
+        key="alert_spend_spike_pct",
+        type="int",
+        default=50,
+        label="Spend-spike alert threshold (%)",
+        description="Alert when the latest complete day's UA spend rises more than this percent "
+        "above the prior day.",
+        minimum=1,
+        maximum=1000,
+    ),
+    "alert_roas_floor_pct": SettingSpec(
+        key="alert_roas_floor_pct",
+        type="int",
+        default=100,
+        label="ROAS floor (×100)",
+        description="Alert when the latest complete day's ROAS falls below this ÷ 100 "
+        "(e.g. 100 = 1.0×, 120 = 1.2×). Set 0 to disable the ROAS check.",
+        minimum=0,
+        maximum=10000,
+    ),
     # ── Integration (Integration tab) — NON-SECRET sync parameters only ──────────
     "gcp_project": SettingSpec(
         key="gcp_project",

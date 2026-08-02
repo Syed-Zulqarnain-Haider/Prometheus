@@ -684,6 +684,28 @@ export interface SyncTriggerResult {
   configured: boolean;
   message: string;
 }
+export interface AlertFinding {
+  key: string;
+  severity: string;
+  title: string;
+  body: string;
+}
+export interface AlertsEvaluateResult {
+  count: number;
+  fired: AlertFinding[];
+}
+
+/** Run the anomaly-alert checks now (admin). Returns what fired; refreshes notifications. */
+export function useEvaluateAlerts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<AlertsEvaluateResult>("/api/v1/admin/alerts/evaluate", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
 export interface ClientSettings {
   data_freshness_threshold_hours: number;
   show_demo_widgets: boolean;

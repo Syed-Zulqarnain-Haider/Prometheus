@@ -14,17 +14,42 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
-from app.services import settings_service, sync_service
+from app.services import alerts_service, settings_service, sync_service
 
 log = logging.getLogger("app.scheduler")
 
 _TICK_SECONDS = 60
+# Fire alerts this long after the sync schedule time, so the fact table is fresh first.
+_ALERT_DELAY = timedelta(minutes=15)
+# Once-per-day guard (per process). Duplicate alerts across multiple instances are possible but
+# harmless; a DB marker could dedup if that ever matters.
+_last_alert_date: date | None = None
+
+
+async def _maybe_evaluate_alerts(
+    sessionmaker: async_sessionmaker[Any], settings: Settings, now: datetime
+) -> None:
+    """Evaluate anomaly alerts once per day, ~15 min after the scheduled sync (so the data is
+    fresh). Best-effort and isolated — never affects the sync tick."""
+    global _last_alert_date
+    async with sessionmaker() as db:
+        if not bool(await settings_service.get_value(db, "alerts_enabled")):
+            return
+        hhmm = str(await settings_service.get_value(db, "sync_schedule_time"))
+        tz_name = str(await settings_service.get_value(db, "sync_timezone"))
+        _, scheduled_utc = sync_service.is_due(now, hhmm, tz_name)
+        if now < scheduled_utc + _ALERT_DELAY or _last_alert_date == now.date():
+            return
+        fired = await alerts_service.evaluate_and_notify(db, settings)
+    _last_alert_date = now.date()
+    if fired:
+        log.info("alerts fired: %s", ", ".join(a["key"] for a in fired))
 
 
 async def _tick(sessionmaker: async_sessionmaker[Any], settings: Settings) -> None:
@@ -72,4 +97,10 @@ async def scheduler_loop(
             raise
         except Exception:  # noqa: BLE001 — a tick must never kill the loop
             log.exception("scheduler tick failed")
+        try:
+            await _maybe_evaluate_alerts(sessionmaker, settings, datetime.now(UTC))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — alert eval must never kill the loop
+            log.exception("alert evaluation failed")
         await asyncio.sleep(tick_seconds)

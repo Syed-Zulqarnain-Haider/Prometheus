@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Database, Play, RefreshCw, Server } from "lucide-react";
+import { Activity, BellRing, Database, Play, RefreshCw, Server } from "lucide-react";
 import { useState } from "react";
 
 import { DataHealthClient } from "@/components/admin/data-health-client";
@@ -10,10 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  type AlertsEvaluateResult,
   type AppSetting,
   type ConnectionStatus,
   type SyncTriggerResult,
   useAppSettings,
+  useEvaluateAlerts,
   useRunSync,
   useSystemHealth,
   useUpdateSetting,
@@ -113,6 +115,8 @@ export function SystemPanel() {
   const settings = useAppSettings();
   const runSync = useRunSync();
   const [syncResult, setSyncResult] = useState<SyncTriggerResult | null>(null);
+  const evalAlerts = useEvaluateAlerts();
+  const [alertsResult, setAlertsResult] = useState<AlertsEvaluateResult | null>(null);
 
   return (
     <div className="space-y-6">
@@ -164,6 +168,57 @@ export function SystemPanel() {
               >
                 {syncResult.message}
               </p>
+            </CardContent>
+          )}
+        </Card>
+      </section>
+
+      {/* C2) Evaluate alerts now */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Proactive alerts
+        </h2>
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              Run the anomaly checks now (revenue drop, spend spike, low ROAS, stale data). They
+              also run automatically each day after the sync when &quot;Proactive alerts&quot; is
+              enabled in the settings below.
+            </p>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={evalAlerts.isPending}
+              onClick={() => evalAlerts.mutate(undefined, { onSuccess: setAlertsResult })}
+            >
+              {evalAlerts.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <BellRing className="h-4 w-4" />
+              )}
+              Evaluate alerts now
+            </Button>
+          </CardContent>
+          {alertsResult && (
+            <CardContent className="pt-0 text-sm">
+              {alertsResult.count === 0 ? (
+                <p className="text-positive">No alerts — everything within thresholds.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {alertsResult.fired.map((a) => (
+                    <li key={a.key} className="text-muted-foreground">
+                      <span
+                        className={
+                          a.severity === "critical" ? "text-destructive" : "text-[color:var(--color-amber)]"
+                        }
+                      >
+                        ●
+                      </span>{" "}
+                      <span className="font-medium text-foreground">{a.title}</span> — {a.body}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           )}
         </Card>
