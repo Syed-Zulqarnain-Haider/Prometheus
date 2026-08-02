@@ -1,11 +1,12 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { HelpCircle, LogOut } from "lucide-react";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { FontControl } from "@/components/layout/font-control";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { ThemeSelector } from "@/components/layout/theme-selector";
+import { startProductTour } from "@/components/onboarding/product-tour";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 
@@ -26,7 +27,19 @@ export function Header() {
             {user.email}
           </span>
         )}
-        <NotificationBell />
+        <span data-tour="notifications">
+          <NotificationBell />
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Take a tour"
+          title="Take a tour"
+          data-tour="help"
+          onClick={() => startProductTour()}
+        >
+          <HelpCircle className="h-4 w-4" />
+        </Button>
         <FontControl />
         <ThemeSelector />
         <Button

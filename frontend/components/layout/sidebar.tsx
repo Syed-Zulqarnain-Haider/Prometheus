@@ -80,7 +80,7 @@ export function Sidebar() {
           <GripVertical className="h-4 w-4" />
         </button>
       </div>
-      <nav className="space-y-1 p-2">
+      <nav className="space-y-1 p-2" data-tour="nav">
         {items.map(({ href, label, icon: Icon }, index) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           if (reordering) {

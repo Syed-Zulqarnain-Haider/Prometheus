@@ -9,6 +9,7 @@ import { FreshnessBanner } from "@/components/layout/freshness-banner";
 import { Header } from "@/components/layout/header";
 import { NotProvisioned } from "@/components/layout/not-provisioned";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ProductTour } from "@/components/onboarding/product-tour";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api-client";
@@ -88,6 +89,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
         <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
+      <ProductTour />
     </div>
   );
 }

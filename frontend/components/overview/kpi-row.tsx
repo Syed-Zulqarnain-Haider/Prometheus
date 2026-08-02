@@ -63,7 +63,7 @@ export function KpiRow({ filters }: { filters: Filters }) {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-tour="kpis">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {kpis.map((kpi) => (
           <KpiCard
