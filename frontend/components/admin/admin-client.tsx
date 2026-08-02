@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { AccessRequestsPanel } from "@/components/admin/access-requests-panel";
@@ -23,9 +24,17 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "system", label: "System" },
 ];
 
+const TAB_VALUES = new Set<string>(TABS.map((t) => t.value));
+
 export function AdminClient() {
   const { data: me, isLoading } = useMe();
-  const [tab, setTab] = useState<Tab>("users");
+  // Honor a ?tab= deep-link (e.g. a notification linking straight to Integration) — falls
+  // back to Users for an unknown/absent value.
+  const searchParams = useSearchParams();
+  const requested = searchParams.get("tab");
+  const [tab, setTab] = useState<Tab>(
+    requested && TAB_VALUES.has(requested) ? (requested as Tab) : "users",
+  );
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;

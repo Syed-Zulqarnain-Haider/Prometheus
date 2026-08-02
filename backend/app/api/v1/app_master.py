@@ -314,7 +314,7 @@ async def _alert_new_apps(
         title=f"{len(new_apps)} new app(s) discovered",
         body=f"Set HOU / Pod Owner / Net Revenue Share for: {names}{more}",
         severity="warning",
-        link="/admin",
+        link="/app-master",
         actor_id=actor_id,
         resource="app_master",
     )
