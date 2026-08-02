@@ -53,6 +53,7 @@ from app.services import (
     access_service,
     admin_service,
     alerts_service,
+    digest_service,
     fact_schema,
     integration_service,
     notification_service,
@@ -596,6 +597,23 @@ async def evaluate_alerts(
         user_agent=request.headers.get("user-agent"),
     )
     return {"count": len(fired), "fired": fired}
+
+
+@router.post("/digest/send", dependencies=[Depends(enforce_diagnostics_rate_limit)])
+async def send_digest(
+    request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+) -> dict[str, Any]:
+    """Build + send the daily performance digest now (admin). No-op when the digest is disabled
+    or there's no data; returns a preview of what was sent."""
+    result = await digest_service.evaluate(db, get_settings())
+    await audit.log_admin_action(
+        user_id=context.user_id,
+        action="admin_send_digest",
+        detail={"sent": result["sent"]},
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return result
 
 
 # ── Integration: status (BigQuery key presence + Postgres/Redis + sync history) ─

@@ -83,6 +83,41 @@ async def test_revenue_drop_fires_and_emails_admins(
     assert sent, "admins should have been emailed the alert digest"
 
 
+async def _enable(env: MetricsEnv, key: str) -> None:
+    resp = await env.client.put(
+        f"/api/v1/admin/settings/{key}", json={"value": True}, headers=_auth("admin")
+    )
+    assert resp.status_code == 200
+
+
+async def test_digest_disabled_is_noop(metrics_env: MetricsEnv) -> None:
+    resp = await metrics_env.client.post("/api/v1/admin/digest/send", headers=_auth("admin"))
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": False, "preview": None}
+
+
+async def test_digest_sends_when_enabled(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed_two_days(metrics_env, rev_prev=800, rev_now=1000, spend=200)
+    await _enable(metrics_env, "digest_enabled")
+
+    sent: list[str] = []
+
+    async def fake_send(settings: Any, recipients: list[str], subject: str, body: str) -> bool:
+        sent.append(subject)
+        return True
+
+    monkeypatch.setattr(email_service, "send_email", fake_send)
+
+    resp = await metrics_env.client.post("/api/v1/admin/digest/send", headers=_auth("admin"))
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["sent"] is True
+    assert "digest" in payload["preview"].lower()
+    assert sent, "admins should have been emailed the digest"
+
+
 async def test_low_roas_fires(metrics_env: MetricsEnv) -> None:
     # Latest day ROAS = 50/100 = 0.5x, below the default 1.0x floor.
     await _seed_two_days(metrics_env, rev_prev=90, rev_now=50, spend=100)

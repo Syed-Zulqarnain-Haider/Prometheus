@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
-from app.services import alerts_service, settings_service, sync_service
+from app.services import alerts_service, digest_service, settings_service, sync_service
 
 log = logging.getLogger("app.scheduler")
 
@@ -46,7 +46,13 @@ async def _maybe_evaluate_alerts(
         _, scheduled_utc = sync_service.is_due(now, hhmm, tz_name)
         if now < scheduled_utc + _ALERT_DELAY or _last_alert_date == now.date():
             return
+        # Daily post-sync routines: anomaly alerts + the digest email (each best-effort,
+        # each gated by its own enabled setting; both no-op when disabled).
         fired = await alerts_service.evaluate_and_notify(db, settings)
+        try:
+            await digest_service.build_and_send(db, settings)
+        except Exception:  # noqa: BLE001 — the digest must never block alerts or the loop
+            log.exception("digest send failed")
     _last_alert_date = now.date()
     if fired:
         log.info("alerts fired: %s", ", ".join(a["key"] for a in fired))

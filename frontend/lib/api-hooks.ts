@@ -706,6 +706,18 @@ export function useEvaluateAlerts() {
     },
   });
 }
+
+export interface DigestResult {
+  sent: boolean;
+  preview: string | null;
+}
+
+/** Build + send the daily digest now (admin). Returns a preview of what was sent. */
+export function useSendDigest() {
+  return useMutation({
+    mutationFn: () => apiFetch<DigestResult>("/api/v1/admin/digest/send", { method: "POST" }),
+  });
+}
 export interface ClientSettings {
   data_freshness_threshold_hours: number;
   show_demo_widgets: boolean;

@@ -13,10 +13,12 @@ import {
   type AlertsEvaluateResult,
   type AppSetting,
   type ConnectionStatus,
+  type DigestResult,
   type SyncTriggerResult,
   useAppSettings,
   useEvaluateAlerts,
   useRunSync,
+  useSendDigest,
   useSystemHealth,
   useUpdateSetting,
 } from "@/lib/api-hooks";
@@ -117,6 +119,8 @@ export function SystemPanel() {
   const [syncResult, setSyncResult] = useState<SyncTriggerResult | null>(null);
   const evalAlerts = useEvaluateAlerts();
   const [alertsResult, setAlertsResult] = useState<AlertsEvaluateResult | null>(null);
+  const sendDigest = useSendDigest();
+  const [digestResult, setDigestResult] = useState<DigestResult | null>(null);
 
   return (
     <div className="space-y-6">
@@ -199,6 +203,38 @@ export function SystemPanel() {
               Evaluate alerts now
             </Button>
           </CardContent>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 border-t py-4">
+            <p className="text-sm text-muted-foreground">
+              Send the daily performance digest now. It also sends automatically each day when
+              &quot;Daily digest email&quot; is enabled below.
+            </p>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={sendDigest.isPending}
+              onClick={() => sendDigest.mutate(undefined, { onSuccess: setDigestResult })}
+            >
+              {sendDigest.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <BellRing className="h-4 w-4" />
+              )}
+              Send digest now
+            </Button>
+          </CardContent>
+          {digestResult && (
+            <CardContent className="pt-0 text-sm">
+              {digestResult.sent && digestResult.preview ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+                  {digestResult.preview}
+                </pre>
+              ) : (
+                <p className="text-muted-foreground">
+                  Digest is disabled or there&apos;s no data yet — nothing sent.
+                </p>
+              )}
+            </CardContent>
+          )}
           {alertsResult && (
             <CardContent className="pt-0 text-sm">
               {alertsResult.count === 0 ? (

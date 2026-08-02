@@ -129,6 +129,14 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         minimum=0,
         maximum=10000,
     ),
+    "digest_enabled": SettingSpec(
+        key="digest_enabled",
+        type="bool",
+        default=False,
+        label="Daily digest email",
+        description="Email admins + executives a daily performance summary (revenue, spend, "
+        "profit, ROAS, top apps) once a day after the sync.",
+    ),
     # ── Integration (Integration tab) — NON-SECRET sync parameters only ──────────
     "gcp_project": SettingSpec(
         key="gcp_project",
