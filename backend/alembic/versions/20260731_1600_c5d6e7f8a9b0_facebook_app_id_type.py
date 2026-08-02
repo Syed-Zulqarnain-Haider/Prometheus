@@ -25,11 +25,16 @@ _COL = "facebook_app_id"
 
 
 def upgrade() -> None:
-    # TEXT -> DOUBLE PRECISION. NULLIF drops empty strings to NULL; numeric strings cast cleanly.
+    # TEXT -> DOUBLE PRECISION. A per-row cast of arbitrary TEXT would ABORT the whole
+    # migration on any non-numeric value ("N/A", stray spaces/commas, legacy free text).
+    # Guard with a numeric regex so anything non-numeric becomes NULL instead of failing the
+    # deploy. btrim() tolerates surrounding whitespace; numeric strings cast cleanly.
+    numeric_re = r"^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$"
     op.execute(
         f'ALTER TABLE IF EXISTS {_TABLE} '
         f'ALTER COLUMN "{_COL}" TYPE DOUBLE PRECISION '
-        f"USING NULLIF({_COL}::text, '')::double precision"
+        f"USING CASE WHEN btrim({_COL}::text) ~ '{numeric_re}' "
+        f"THEN btrim({_COL}::text)::double precision ELSE NULL END"
     )
 
 

@@ -103,7 +103,11 @@ async def summary(
     async def produce() -> dict[str, Any]:
         return await metrics_service.run_summary(db, qb, filters)
 
-    result: dict[str, Any] = await cached_json(redis, key, produce)
+    try:
+        result: dict[str, Any] = await cached_json(redis, key, produce)
+    except ValueError as exc:
+        # e.g. a role with no permitted metric groups — a clean 400, not a 500.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return result
 
 

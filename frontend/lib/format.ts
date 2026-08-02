@@ -67,3 +67,14 @@ export function formatDateTime(value: string | null | undefined): string {
     timeStyle: "short",
   }).format(date);
 }
+
+/** Escape a string for safe interpolation into HTML (e.g. ECharts tooltips, which render
+ * their formatter's return value as innerHTML). Prevents XSS from data-derived values such
+ * as an app name containing `<img src=x onerror=…>`. */
+export function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
+  );
+}

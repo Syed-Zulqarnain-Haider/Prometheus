@@ -54,6 +54,9 @@ log = logging.getLogger("sync")
 
 FACT = "fact_daily_performance"
 STAGING = f"{FACT}_staging"
+# Advisory-lock key shared with the backend (app/services/sync_service.py _SYNC_LOCK_KEY)
+# so a URL-triggered/scheduled run and an admin "Run Sync Now" can never overlap.
+SYNC_ADVISORY_LOCK_KEY = 0x70726F6D  # "prom"
 ROW_DELTA_TOLERANCE = 0.30
 FRESHNESS_MAX_LAG_DAYS = 3
 BATCH_ROWS = 20_000
@@ -266,7 +269,13 @@ def integrity_checks(
             f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) FROM {STAGING}{pg_where}",
             tuple(pg_params))
         pg_sum = cur.fetchone()[0]
-    if float(bq_sum) != float(pg_sum):
+    # Compare with a tolerance, not strict equality: BQ sums FLOAT64 then rounds, while PG
+    # truncates each value to NUMERIC(18,4) on load then sums — so two legitimately-equal
+    # loads can differ by a few cents. A small relative epsilon (0.01% of the sum, min 1 cent)
+    # avoids spurious aborts (false 'failed' + page) on a good load, while still catching real
+    # drift: a dropped/duplicated day moves the window sum by orders of magnitude more.
+    tolerance = max(0.01, abs(float(bq_sum)) * 1e-4)
+    if abs(float(bq_sum) - float(pg_sum)) > tolerance:
         problems.append(f"revenue mismatch over window: BQ={bq_sum} PG={pg_sum}")
 
     return problems
@@ -440,6 +449,19 @@ def main() -> int:
 
     bq = bigquery.Client(project=project)
     pg = psycopg.connect(env("PG_DSN"))
+
+    # Self-guard: this job MUST NOT run concurrently with another sync (Cloud Run Jobs run in
+    # parallel by default, and the scheduled run can overlap an admin "Run Sync Now"). Two
+    # concurrent runs would DROP each other's staging mid-COPY and double-write the live
+    # window. A session-level advisory lock makes overlap a clean no-op instead of corruption.
+    # Key must match the backend's lock (app/services/sync_service.py SYNC_ADVISORY_LOCK_KEY).
+    with pg.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (SYNC_ADVISORY_LOCK_KEY,))
+        got_lock = cur.fetchone()[0]
+    if not got_lock:
+        log.warning("another sync holds the advisory lock — skipping this run (no-op)")
+        pg.close()
+        return 0
 
     with pg.cursor() as cur:
         cur.execute("INSERT INTO sync_runs (mode) VALUES (%s) RETURNING id", (mode,))

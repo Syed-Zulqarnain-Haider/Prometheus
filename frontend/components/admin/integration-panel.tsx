@@ -266,8 +266,11 @@ function SchemaDiffSection() {
     setAwaitingApproval(false);
     try {
       if (hasChanges) await sync.mutateAsync();
-    } finally {
+      // Only pull data once the schema actually applied — never sync against a
+      // failed/partial schema change. The schema error surfaces via sync.isError.
       runSync.mutate({ mode: "full" });
+    } catch {
+      /* schema apply failed — do NOT pull; error shown via sync.isError */
     }
   }
   // Schema already matches — just refresh the data.

@@ -33,15 +33,21 @@ export function Sidebar() {
   const [order, setOrder] = useState<string[]>([]);
   const [reordering, setReordering] = useState(false);
 
-  // Read saved order after mount only (SSR-safe — never touch localStorage during render).
+  // Persist PER USER (keyed by Firebase UID) so the nav order never leaks across account
+  // switches on a shared workstation. Null until the profile resolves.
+  const orderKey = me ? `${ORDER_KEY}:${me.user_id}` : null;
+
+  // Read this user's saved order after mount / when the user changes (SSR-safe — never touch
+  // localStorage during render).
   useEffect(() => {
+    if (!orderKey) return;
     try {
-      const raw = localStorage.getItem(ORDER_KEY);
-      if (raw) setOrder(JSON.parse(raw) as string[]);
+      const raw = localStorage.getItem(orderKey);
+      setOrder(raw ? (JSON.parse(raw) as string[]) : []);
     } catch {
-      /* corrupt/absent — fall back to default order */
+      setOrder([]); // corrupt/absent — fall back to default order
     }
-  }, []);
+  }, [orderKey]);
 
   const items = useMemo(() => applyOrder(visible, order), [visible, order]);
 
@@ -52,8 +58,9 @@ export function Sidebar() {
     [next[index], next[target]] = [next[target], next[index]];
     const hrefs = next.map((i) => i.href);
     setOrder(hrefs);
+    if (!orderKey) return;
     try {
-      localStorage.setItem(ORDER_KEY, JSON.stringify(hrefs));
+      localStorage.setItem(orderKey, JSON.stringify(hrefs));
     } catch {
       /* storage full/blocked — order still applies for this session */
     }

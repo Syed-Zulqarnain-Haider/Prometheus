@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AppIcon } from "@/components/ui/app-icon";
 import { StoreLinkIcon } from "@/components/ui/store-link-icon";
 import { useAppIcons, useTableInfinite } from "@/lib/api-hooks";
+import { useAuth } from "@/lib/auth-context";
 import type { Filters } from "@/lib/filters";
 import { formatNumber, formatUSD } from "@/lib/format";
 
@@ -114,16 +115,22 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 250);
 
-  // Restore the saved column order after mount only (SSR-safe — never touch localStorage
-  // during render). Unknown/new columns keep their natural position (TanStack appends them).
+  // Persist the column order PER USER (keyed by Firebase UID) so it never leaks across
+  // account switches on a shared workstation. Null until auth resolves.
+  const { user } = useAuth();
+  const orderKey = user ? `${COL_ORDER_KEY}:${user.uid}` : null;
+
+  // Restore this user's saved order after mount / when the user changes (SSR-safe — never
+  // touch localStorage during render). Unknown/new columns keep their natural position.
   useEffect(() => {
+    if (!orderKey) return;
     try {
-      const raw = localStorage.getItem(COL_ORDER_KEY);
-      if (raw) setColumnOrder(JSON.parse(raw) as string[]);
+      const raw = localStorage.getItem(orderKey);
+      setColumnOrder(raw ? (JSON.parse(raw) as string[]) : []);
     } catch {
-      /* absent/corrupt — fall back to natural order */
+      setColumnOrder([]); // absent/corrupt — fall back to natural order
     }
-  }, []);
+  }, [orderKey]);
 
   const sort = sorting[0]?.id ?? "app_name";
   const direction = sorting[0]?.desc ? "desc" : "asc";
@@ -183,8 +190,9 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
     if (at < 0) return;
     without.splice(at, 0, src);
     setColumnOrder(without);
+    if (!orderKey) return;
     try {
-      localStorage.setItem(COL_ORDER_KEY, JSON.stringify(without));
+      localStorage.setItem(orderKey, JSON.stringify(without));
     } catch {
       /* storage blocked — order still applies for this session */
     }
@@ -331,12 +339,16 @@ export function AppsExplorer({ filters }: { filters: Filters }) {
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualItems.map((vi) => {
                 const row = tableRows[vi.index];
-                const key = String(row.original.canonical_key);
+                const ck = row.original.canonical_key;
+                // A row missing canonical_key isn't navigable — don't route to /apps/undefined.
+                const key = ck == null ? null : String(ck);
                 return (
                   <div
                     key={row.id}
-                    onClick={() => router.push(`/apps/${encodeURIComponent(key)}`)}
-                    className="absolute left-0 grid w-full cursor-pointer items-center border-b border-border-faint text-sm hover:bg-accent"
+                    onClick={
+                      key ? () => router.push(`/apps/${encodeURIComponent(key)}`) : undefined
+                    }
+                    className={`absolute left-0 grid w-full items-center border-b border-border-faint text-sm hover:bg-accent ${key ? "cursor-pointer" : "cursor-default"}`}
                     style={{
                       gridTemplateColumns: gridTemplate,
                       height: vi.size,

@@ -6,7 +6,7 @@ import { useBreakdown } from "@/lib/api-hooks";
 import { num, token } from "@/lib/chart-helpers";
 import type { EChartsOption } from "@/lib/echarts";
 import type { Filters } from "@/lib/filters";
-import { formatCompact, formatUSD } from "@/lib/format";
+import { escapeHtml, formatCompact, formatUSD } from "@/lib/format";
 
 interface ScatterPoint {
   value: [number, number];
@@ -40,7 +40,10 @@ export function CpiVolumeScatter({ filters }: { filters: Filters }) {
       trigger: "item",
       formatter: (p: unknown) => {
         const point = (p as { data: ScatterPoint }).data;
-        return `${point.name}<br/>CPI ${formatUSD(point.value[1], { digits: 2 })}<br/>Installs ${formatCompact(point.value[0])}`;
+        // point.name is app_name from BigQuery / the editable app_master table. ECharts
+        // renders tooltip strings as HTML, so escape it — otherwise an app named
+        // `<img src=x onerror=…>` would execute script in the viewer's session (XSS).
+        return `${escapeHtml(point.name)}<br/>CPI ${formatUSD(point.value[1], { digits: 2 })}<br/>Installs ${formatCompact(point.value[0])}`;
       },
     },
     xAxis: {

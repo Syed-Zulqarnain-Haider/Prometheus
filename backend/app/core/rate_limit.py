@@ -28,23 +28,44 @@ ACCESS_REQUEST_RATE_LIMIT = 5
 WINDOW_SECONDS = 60
 
 
+# Atomic sliding-window check-and-add. Doing prune → count → (gate) → add as separate
+# round-trips let two concurrent requests both read count<limit before either added, so a
+# caller could exceed the window. This Lua script runs the whole decision atomically on
+# Redis. Returns {allowed(1|0), oldest_score} — oldest is used to compute Retry-After.
+_ENFORCE_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local member = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+local count = redis.call('ZCARD', key)
+if count >= limit then
+  local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+  return {0, oldest[2] or '0'}
+end
+redis.call('ZADD', key, now, member)
+redis.call('EXPIRE', key, window)
+return {1, '0'}
+"""
+
+
 async def _enforce(redis: Redis, key: str, limit: int) -> None:
     now = time.time()
-    await redis.zremrangebyscore(key, 0, now - WINDOW_SECONDS)
-    count = await redis.zcard(key)
-    if count >= limit:
-        oldest = await redis.zrange(key, 0, 0, withscores=True)
+    member = f"{now:.6f}-{uuid.uuid4().hex}"
+    res = await redis.eval(_ENFORCE_LUA, 1, key, now, WINDOW_SECONDS, limit, member)
+    allowed = int(res[0])
+    if not allowed:
+        raw = res[1]
+        oldest_score = float(raw.decode() if isinstance(raw, bytes) else raw)
         retry_after = WINDOW_SECONDS
-        if oldest:
-            oldest_score = float(oldest[0][1])
+        if oldest_score > 0:
             retry_after = max(1, int(WINDOW_SECONDS - (now - oldest_score)) + 1)
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Rate limit exceeded",
             headers={"Retry-After": str(retry_after)},
         )
-    await redis.zadd(key, {f"{now:.6f}-{uuid.uuid4().hex}": now})
-    await redis.expire(key, WINDOW_SECONDS)
 
 
 async def enforce_rate_limit(

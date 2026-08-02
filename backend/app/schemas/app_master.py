@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from app.core.app_master_columns import EDITABLE_SET
 
 
 class AppMasterColumnMeta(BaseModel):
@@ -55,25 +57,25 @@ class AppMasterEditOut(BaseModel):
 
 
 class AppMasterUpdate(BaseModel):
-    """Partial update — ONLY the owner-approved editable columns. Unknown or read-only
-    columns are rejected (``extra='forbid'``). Fields not provided are left unchanged;
-    a field explicitly set to null clears it. Applied to BigQuery first, then Postgres."""
+    """Partial update — ONLY the owner-approved editable columns (publisher, hou, pod_owner,
+    pod, partner_name, net_revenue_share). Unknown or read-only columns are rejected
+    (``extra='forbid'``). Fields not provided are left unchanged; a field explicitly set to
+    null clears it. Applied to BigQuery first, then Postgres.
+
+    These fields MUST stay in lockstep with ``app_master_columns.EDITABLE_SET`` — the
+    module-level assert below fails the import if they ever drift."""
 
     model_config = ConfigDict(extra="forbid")
 
-    type: str | None = None
     publisher: str | None = None
-    developer: str | None = None
-    pod: int | None = None
-    pod_owner: str | None = None
     hou: str | None = None
-    app_type: str | None = None
-    needs_review: bool | None = None
-    review_reason: str | None = None
-    revenue_share_pct: float | None = Field(default=None, ge=0)
-    cost_share_pct: float | None = Field(default=None, ge=0)
+    pod_owner: str | None = None
+    pod: int | None = None
     partner_name: str | None = None
-    partnership_terms: str | None = None
-    in_apple_console: bool | None = None
-    in_gp_console: bool | None = None
-    ops_notes: str | None = None
+    net_revenue_share: float | None = None
+
+
+# Drift guard: the editable API surface must equal the enforced editable set exactly.
+assert set(AppMasterUpdate.model_fields) == EDITABLE_SET, (
+    "AppMasterUpdate fields drifted from app_master_columns.EDITABLE_SET"
+)

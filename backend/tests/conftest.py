@@ -134,6 +134,23 @@ class FakeRedis:
     async def expire(self, key: str, seconds: int) -> bool:
         return True
 
+    async def eval(self, script: str, numkeys: int, *args: Any) -> list[Any]:
+        """Emulate the rate limiter's atomic sliding-window Lua (_ENFORCE_LUA):
+        prune → count → gate → add, returning [allowed(1|0), oldest_score_str]."""
+        key = str(args[0])
+        now, window, limit, member = (
+            float(args[1]),
+            float(args[2]),
+            int(args[3]),
+            str(args[4]),
+        )
+        await self.zremrangebyscore(key, 0, now - window)
+        if await self.zcard(key) >= limit:
+            oldest = await self.zrange(key, 0, 0, withscores=True)
+            return [0, str(oldest[0][1]) if oldest else "0"]
+        await self.zadd(key, {member: now})
+        return [1, "0"]
+
 
 class FakeVerifier:
     """Maps known tokens to decoded claims; raises on anything else."""
