@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import anyio
@@ -121,9 +121,12 @@ def _apply_filters(
     needs_review: bool | None,
     package: str | None,
     app_id: str | None,
+    synced_from: date | None = None,
+    synced_to: date | None = None,
 ) -> Any:
     """Apply the App Master filters. ``platform``/``hou``/``publisher`` are multi-select
-    (IN lists); ``package``/``app_id`` are substring matches across the relevant columns."""
+    (IN lists); ``package``/``app_id`` are substring matches across the relevant columns;
+    ``synced_from``/``synced_to`` bound ``last_synced_at`` (inclusive on both ends)."""
     if search:
         like = f"%{search}%"
         stmt = stmt.where(or_(*[_TABLE.c[col].cast(String).ilike(like) for col in _SEARCH_COLUMNS]))
@@ -147,6 +150,11 @@ def _apply_filters(
         stmt = stmt.where(
             or_(_TABLE.c.canonical_key.ilike(like), _TABLE.c.apple_id.cast(String).ilike(like))
         )
+    if synced_from is not None:
+        stmt = stmt.where(_TABLE.c.last_synced_at >= synced_from)
+    if synced_to is not None:
+        # Inclusive of the whole `synced_to` day (last_synced_at is a timestamp).
+        stmt = stmt.where(_TABLE.c.last_synced_at < synced_to + timedelta(days=1))
     return stmt
 
 
@@ -171,6 +179,8 @@ async def list_rows(
     needs_review: bool | None = None,
     package: str | None = None,
     app_id: str | None = None,
+    synced_from: date | None = None,
+    synced_to: date | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> AppMasterListResponse:
@@ -185,6 +195,8 @@ async def list_rows(
         "needs_review": needs_review,
         "package": package,
         "app_id": app_id,
+        "synced_from": synced_from,
+        "synced_to": synced_to,
     }
     names, meta = await _effective_columns(session)
     total_stmt = _apply_filters(select(func.count()).select_from(_TABLE), **flt)

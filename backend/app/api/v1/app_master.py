@@ -7,6 +7,7 @@ and are audit-logged. A refresh re-pulls the whole table from BigQuery.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -51,11 +52,15 @@ async def list_app_master(
     needs_review: bool | None = None,
     package: str | None = None,
     app_id: str | None = None,
+    synced_from: date | None = None,
+    synced_to: date | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AppMasterListResponse:
     """List rows with the App Master page's own filters (search / platform / HOU / publisher /
-    pod / needs-review / package / app-id). Multi-select filters accept repeated params."""
+    pod / needs-review / package / app-id / last-synced date range). Multi-select filters
+    accept repeated params; ``synced_from``/``synced_to`` are inclusive YYYY-MM-DD bounds on
+    ``last_synced_at``."""
     return await app_master_service.list_rows(
         db,
         search=search,
@@ -66,6 +71,8 @@ async def list_app_master(
         needs_review=needs_review,
         package=package,
         app_id=app_id,
+        synced_from=synced_from,
+        synced_to=synced_to,
         limit=limit,
         offset=offset,
     )

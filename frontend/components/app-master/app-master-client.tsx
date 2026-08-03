@@ -39,6 +39,8 @@ const EMPTY_FILTERS: AppMasterFilters = {
   needsReview: "",
   package: "",
   appId: "",
+  syncedFrom: "",
+  syncedTo: "",
 };
 
 function formatCell(value: unknown, type: AppMasterColumnMeta["type"]): string {
@@ -381,6 +383,26 @@ export function AppMasterClient() {
               <SelectItem value="false">No</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Last synced from</Label>
+          <Input
+            className="h-8 w-36"
+            type="date"
+            value={filters.syncedFrom}
+            max={filters.syncedTo || undefined}
+            onChange={(e) => setFilters((f) => ({ ...f, syncedFrom: e.target.value }))}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Last synced to</Label>
+          <Input
+            className="h-8 w-36"
+            type="date"
+            value={filters.syncedTo}
+            min={filters.syncedFrom || undefined}
+            onChange={(e) => setFilters((f) => ({ ...f, syncedTo: e.target.value }))}
+          />
         </div>
         <Button variant="outline" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
           Clear

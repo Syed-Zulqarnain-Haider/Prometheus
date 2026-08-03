@@ -394,6 +394,42 @@ async def test_list_new_filters(metrics_env: MetricsEnv) -> None:
     assert [row["canonical_key"] for row in r["rows"]] == ["app-c"]
 
 
+async def test_filter_by_last_synced_at_range(metrics_env: MetricsEnv) -> None:
+    from datetime import UTC, datetime
+
+    async with metrics_env.sessionmaker() as s:
+        await s.execute(
+            insert(APP_MASTER_TABLE),
+            [
+                {
+                    "canonical_key": "sync-old",
+                    "app_name": "Old",
+                    "platform": "ios",
+                    "last_synced_at": datetime(2026, 6, 1, 9, 0, tzinfo=UTC),
+                },
+                {
+                    "canonical_key": "sync-new",
+                    "app_name": "New",
+                    "platform": "ios",
+                    "last_synced_at": datetime(2026, 6, 15, 9, 0, tzinfo=UTC),
+                },
+            ],
+        )
+        await s.commit()
+    c = metrics_env.client
+
+    async def keys(qs: str) -> set[str]:
+        body = (await c.get(f"/api/v1/app-master?{qs}", headers=_auth("admin"))).json()
+        return {r["canonical_key"] for r in body["rows"]}
+
+    # from-bound excludes the older row; to-bound excludes the newer; the range includes both.
+    assert await keys("synced_from=2026-06-10") == {"sync-new"}
+    assert await keys("synced_to=2026-06-10") == {"sync-old"}
+    # to-bound is inclusive of the whole day (last_synced_at at 09:00 on the 15th is included).
+    both = await keys("synced_from=2026-06-01&synced_to=2026-06-15")
+    assert {"sync-old", "sync-new"} <= both
+
+
 async def test_filter_values(metrics_env: MetricsEnv) -> None:
     await _seed(metrics_env)
     body = (

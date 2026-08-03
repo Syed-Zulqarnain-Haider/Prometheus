@@ -1125,6 +1125,8 @@ export interface AppMasterFilters {
   needsReview: "" | "true" | "false";
   package: string;
   appId: string;
+  syncedFrom: string; // YYYY-MM-DD, inclusive lower bound on last_synced_at ("" = none)
+  syncedTo: string; // YYYY-MM-DD, inclusive upper bound on last_synced_at ("" = none)
 }
 
 export function useAppMaster(filters: AppMasterFilters, limit: number, offset: number) {
@@ -1138,6 +1140,8 @@ export function useAppMaster(filters: AppMasterFilters, limit: number, offset: n
   if (filters.needsReview) params.needs_review = filters.needsReview;
   if (filters.package.trim()) params.package = filters.package.trim();
   if (filters.appId.trim()) params.app_id = filters.appId.trim();
+  if (filters.syncedFrom) params.synced_from = filters.syncedFrom;
+  if (filters.syncedTo) params.synced_to = filters.syncedTo;
   return useQuery({
     queryKey: ["app-master", params],
     queryFn: () => apiFetch<AppMasterListResponse>(`/api/v1/app-master${buildQuery(params)}`),
