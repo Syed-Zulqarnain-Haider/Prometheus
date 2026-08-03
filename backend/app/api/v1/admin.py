@@ -74,7 +74,13 @@ async def enforce_admin_2fa(request: Request, context: CurrentUser, db: DbSessio
     back off even from a non-2FA session — this makes the toggle impossible to lock yourself
     out of. ``request.state.two_factor`` is set by get_user_context from the verified token.
     """
-    if "/settings" in request.url.path:  # break-glass: always allow settings read/write
+    # Break-glass, NARROW by design: only reading settings and toggling THIS requirement are
+    # exempt, so you can never lock yourself out — but a non-2FA admin still cannot change any
+    # other operational setting (e.g. bq_view / gcp_project / sync) or perform any admin action.
+    path = request.url.path
+    if request.method == "GET" and path.endswith("/admin/settings"):
+        return
+    if request.method == "PUT" and path.endswith("/admin/settings/require_admin_2fa"):
         return
     if not bool(await settings_service.get_value(db, "require_admin_2fa")):
         return

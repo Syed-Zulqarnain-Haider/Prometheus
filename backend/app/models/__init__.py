@@ -18,7 +18,7 @@ from app.models.dynamic_columns import DynamicColumn
 from app.models.identity import Role, User, UserRole
 from app.models.layouts import DashboardLayout
 from app.models.notifications import Notification, NotificationRead
-from app.models.operations import AuditLog, SyncRun
+from app.models.operations import AuditLog, JobRun, SyncRun
 from app.models.rbac import RoleCapability, RoleMetricPermission, UserScope
 from app.models.reports import ReportSchedule, ReportShare, SavedReport, SavedView
 from app.models.settings import AppSetting
@@ -49,4 +49,5 @@ __all__ = [
     "RevenueTarget",
     "AuditLog",
     "SyncRun",
+    "JobRun",
 ]

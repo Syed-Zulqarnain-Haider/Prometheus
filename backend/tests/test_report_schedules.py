@@ -154,6 +154,10 @@ async def test_evaluate_due_delivers_once_then_claims(
 ) -> None:
     await _make_report(metrics_env, "admin")
     now = datetime.now(UTC)
+    # Delivery only runs when a mail transport is configured; set one for this test.
+    settings = get_test_settings()
+    monkeypatch.setattr(settings, "smtp_host", "smtp.local")
+    monkeypatch.setattr(settings, "smtp_from", "prometheus@terafort.org")
     # A schedule due right now (this UTC hour), not yet run.
     from app.models import SavedReport
 

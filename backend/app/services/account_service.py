@@ -8,6 +8,7 @@ get_user_context) and best-effort revokes Firebase refresh tokens so the client 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -64,7 +65,9 @@ async def revoke_sessions(db: AsyncSession, user_id: uuid.UUID) -> datetime:
 
     firebase_uid = await db.scalar(select(User.firebase_uid).where(User.id == user_id))
     if firebase_uid:
-        _revoke_firebase(str(firebase_uid))
+        # The firebase-admin call is a BLOCKING HTTP request to Google — run it off the event
+        # loop so a slow/timing-out Firebase can't stall every other request on this instance.
+        await asyncio.to_thread(_revoke_firebase, str(firebase_uid))
     return now
 
 

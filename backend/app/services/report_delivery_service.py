@@ -27,6 +27,7 @@ from app.core.config import Settings
 from app.models import ReportSchedule, SavedReport, User
 from app.schemas.auth import UserContext
 from app.services import email_service, reports_service
+from app.services.audit import AuditService
 from app.services.auth import resolve_user_context
 from app.services.email_service import Attachment
 from app.services.query_builder import QueryBuilder
@@ -45,13 +46,19 @@ def local_now(now_utc: datetime, tz_name: str) -> datetime:
 
 
 def is_due(schedule: ReportSchedule, now_utc: datetime) -> bool:
-    """True when the schedule should fire in the current minute-tick and hasn't run today."""
+    """True when the schedule is due today and hasn't run yet.
+
+    A due-WINDOW (``local.hour >= schedule.hour``), not exact-hour equality — so a schedule is
+    never lost when its exact hour is skipped by DST spring-forward or a brief scheduler
+    outage; it fires on the next tick that day instead. The once-per-day claim dedups the
+    window, and DST fall-back (a duplicated hour) can't double-send for the same reason.
+    """
     if not schedule.enabled:
         return False
     local = local_now(now_utc, schedule.timezone)
-    if local.hour != schedule.hour:
-        return False
     if schedule.last_run_on is not None and schedule.last_run_on >= local.date():
+        return False
+    if local.hour < schedule.hour:
         return False
     if schedule.cadence == "weekly":
         return local.weekday() == schedule.day_of_week
@@ -91,6 +98,12 @@ async def build_and_email(
 ) -> bool:
     """Run ``report`` under ``context``'s RBAC and email it (as ``fmt``) to the context's own
     email. Returns True if the mail was accepted. Shared by the scheduler and 'send now'."""
+    # A scheduled delivery IS an export — enforce the export capability here too (defense in
+    # depth), so an owner who has since lost 'export' stops receiving files even if the
+    # schedule row still exists.
+    if "export" not in getattr(context, "capabilities", []):
+        log.info("skipping delivery for %s — owner lacks export capability", context.email)
+        return False
     qb = QueryBuilder(context)
     filters = reports_service.metric_filters_from_dict(
         _rolled_filters(report.filters, local_today)
@@ -142,38 +155,71 @@ async def _claim(
         return claimed
 
 
+async def _unclaim(
+    sessionmaker: async_sessionmaker[Any], schedule_id: Any, local_today: date
+) -> None:
+    """Release a claim we took but couldn't deliver on (transient send failure), so a later
+    tick retries TODAY instead of losing the delivery until tomorrow. Only clears OUR claim."""
+    async with sessionmaker() as db:
+        await db.execute(
+            update(ReportSchedule)
+            .where(ReportSchedule.id == schedule_id, ReportSchedule.last_run_on == local_today)
+            .values(last_run_on=None)
+        )
+        await db.commit()
+
+
 async def _deliver_claimed(
     sessionmaker: async_sessionmaker[Any], settings: Settings, schedule_id: Any, local_today: date
-) -> None:
+) -> str:
+    """Deliver a claimed schedule. Returns an outcome: 'sent' (done), 'skipped' (permanently
+    not deliverable — owner gone/inactive/expired/no-export, or email unconfigured; do NOT
+    retry), or 'failed' (a transient send failure — the caller should release the claim)."""
     async with sessionmaker() as db:
         schedule = await db.get(ReportSchedule, schedule_id)
         if schedule is None:
-            return
+            return "skipped"
         user = await db.get(User, schedule.user_id)
         if user is None or not user.is_active:
-            return
+            return "skipped"
         context = await resolve_user_context(db, user.firebase_uid)
         if context is None or not context.is_active:
-            return
+            return "skipped"
         if context.access_expires_at is not None and context.access_expires_at <= datetime.now(UTC):
-            return  # expired access → stop delivering
+            return "skipped"  # expired access → stop delivering
+        if "export" not in context.capabilities:
+            return "skipped"  # owner lost export → stop (no retry)
+        if not email_service.is_configured(settings):
+            return "skipped"  # no mail transport — retrying every tick would just spin
         report = await db.scalar(
             select(SavedReport).where(
                 SavedReport.id == schedule.report_id, SavedReport.user_id == schedule.user_id
             )
         )
         if report is None:
-            return  # report deleted / no longer owned
-        await build_and_email(
+            return "skipped"  # report deleted / no longer owned
+        sent = await build_and_email(
             db, settings, context, report, fmt=schedule.fmt, local_today=local_today
         )
+        if sent:
+            # A delivery IS an export — record it in the append-only audit trail.
+            await AuditService(sessionmaker).log_export(
+                user_id=context.user_id,
+                resource=str(report.id),
+                detail={"via": "report_schedule", "schedule_id": str(schedule_id)},
+            )
+        return "sent" if sent else "failed"
 
 
 async def evaluate_due(
     sessionmaker: async_sessionmaker[Any], settings: Settings, now_utc: datetime
 ) -> int:
     """Claim + deliver every due schedule. Each is isolated and best-effort; returns the count
-    delivered. Called once per scheduler tick — the per-schedule hour/date guards keep it cheap."""
+    delivered. Called once per scheduler tick — the per-schedule hour/date guards keep it cheap.
+
+    Claim-then-deliver is race-safe across instances (only one wins the conditional UPDATE); on
+    a TRANSIENT send failure the claim is RELEASED so the delivery isn't silently lost for the
+    day (it retries on a later tick). Permanent 'skipped' outcomes keep the claim (no spin)."""
     async with sessionmaker() as db:
         schedules = list(
             await db.scalars(select(ReportSchedule).where(ReportSchedule.enabled.is_(True)))
@@ -186,8 +232,12 @@ async def evaluate_due(
         try:
             if not await _claim(sessionmaker, schedule.id, today):
                 continue  # another instance took it
-            await _deliver_claimed(sessionmaker, settings, schedule.id, today)
-            delivered += 1
+            outcome = await _deliver_claimed(sessionmaker, settings, schedule.id, today)
+            if outcome == "sent":
+                delivered += 1
+            elif outcome == "failed":
+                await _unclaim(sessionmaker, schedule.id, today)
+                log.warning("scheduled report send failed (schedule=%s) — will retry", schedule.id)
         except Exception:  # noqa: BLE001 — one bad schedule must never break the loop
             log.exception("scheduled report delivery failed (schedule=%s)", schedule.id)
     return delivered

@@ -14,14 +14,15 @@ import { formatDateTime } from "@/lib/format";
 function deviceLabel(ua: string | null): string {
   if (!ua) return "Unknown device";
   // A light, dependency-free summary of the user agent.
+  // Check iOS/iPadOS BEFORE macOS: iPadOS 13+ reports a "Macintosh" UA.
   const os = /Windows/.test(ua)
     ? "Windows"
-    : /Mac OS X|Macintosh/.test(ua)
-      ? "macOS"
+    : /iPhone|iPad|iPod|iOS/.test(ua)
+      ? "iOS/iPadOS"
       : /Android/.test(ua)
         ? "Android"
-        : /iPhone|iPad|iOS/.test(ua)
-          ? "iOS"
+        : /Mac OS X|Macintosh/.test(ua)
+          ? "macOS"
           : /Linux/.test(ua)
             ? "Linux"
             : "Unknown OS";
@@ -44,7 +45,12 @@ export function SecurityClient() {
   const [confirming, setConfirming] = useState(false);
 
   async function doRevoke() {
-    await revoke.mutateAsync();
+    try {
+      await revoke.mutateAsync();
+    } catch {
+      // Surfaced via revoke.isError below — do NOT sign out on failure (nothing was revoked).
+      return;
+    }
     // The current session is now invalid too — sign out locally and return to login.
     await signOut();
   }
@@ -140,6 +146,11 @@ export function SecurityClient() {
                 Cancel
               </Button>
             </div>
+          )}
+          {revoke.isError && (
+            <p className="text-sm text-destructive">
+              Couldn&apos;t sign out everywhere — please try again. Your sessions were not changed.
+            </p>
           )}
         </CardContent>
       </Card>

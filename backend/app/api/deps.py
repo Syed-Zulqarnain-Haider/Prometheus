@@ -82,7 +82,10 @@ async def get_user_context(
     # timestamp). auth_time/iat are epoch seconds in the verified token.
     if context.sessions_revoked_at is not None:
         issued = decoded.get("auth_time") or decoded.get("iat")
-        if issued is not None and float(issued) < context.sessions_revoked_at.timestamp():
+        # Fail CLOSED: if the token carries no issued-at we cannot prove it post-dates the
+        # revoke, so we reject rather than accept. (Genuine Firebase ID tokens always carry
+        # iat/auth_time; this only bites a malformed/atypical token — exactly when to be strict.)
+        if issued is None or float(issued) < context.sessions_revoked_at.timestamp():
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, "Session was signed out — please sign in again"
             )

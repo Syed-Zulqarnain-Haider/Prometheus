@@ -113,6 +113,19 @@ async def run_table(
     limit: int,
     cursor: tuple[Any, str] | None,
 ) -> dict[str, Any]:
+    if cursor is not None:
+        # Coerce the (client-supplied, tamper-able) cursor value to the sort column's type, so a
+        # crafted cursor (e.g. a string against a numeric column, or a nested list) is a clean
+        # 400, not a driver-level 500. String columns keep strings; measures must be numeric.
+        last_sort, last_key = cursor
+        if sort in ("canonical_key", "app_name"):
+            cursor = (str(last_sort), last_key)
+        else:
+            try:
+                cursor = (float(last_sort), last_key)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid cursor") from exc
+
     stmt = qb.table(params, sort=sort, direction=direction, limit=limit, cursor=cursor)
     rows = (await session.execute(stmt)).mappings().all()
     data = [_row_dict(r) for r in rows]

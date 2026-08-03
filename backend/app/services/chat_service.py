@@ -305,8 +305,16 @@ async def _run_anthropic_loop(
             )
         convo.append({"role": "user", "content": results})
     else:
+        # Loop hit the iteration cap while the model still wanted a tool. The final wrap-up call
+        # MUST still pass `tools` (the convo contains tool_use/tool_result blocks and Anthropic
+        # 400s otherwise); `tool_choice: none` forces a text answer instead of another tool.
         response = await client.messages.create(
-            model=model, max_tokens=settings.chat_max_tokens, system=system, messages=convo
+            model=model,
+            max_tokens=settings.chat_max_tokens,
+            system=system,
+            tools=tools,
+            tool_choice={"type": "none"},
+            messages=convo,
         )
     return (_anthropic_text(response.content) if response is not None else ""), tool_calls
 
@@ -359,6 +367,10 @@ async def _run_openai_loop(
             try:
                 args = json.loads(c.function.arguments or "{}")
             except json.JSONDecodeError:
+                args = {}
+            # A model may return valid JSON that isn't an object (e.g. "null"/"5"/"[...]");
+            # coerce to a dict so _parse_filters returns a recoverable tool error, not a 500.
+            if not isinstance(args, dict):
                 args = {}
             out = await _run_tool(db, qb, c.function.name, args)
             trace.append(_trace_call(c.function.name, args, out))

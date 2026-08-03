@@ -49,6 +49,9 @@ ADMIN_CAPABILITY = "admin_panel"
 # Capability-gated caller contexts (Annotated to avoid B008 default-call lint).
 AdminUser = Annotated[UserContext, Depends(require_capability(ADMIN_CAPABILITY))]
 ShareUser = Annotated[UserContext, Depends(require_capability("share_report"))]
+# Scheduling a report emails a CSV/XLSX export, so it is an EXPORT — gated on the same
+# capability (a viewer, who has no export, must not be able to receive files by email).
+ExportUser = Annotated[UserContext, Depends(require_capability("export"))]
 
 
 def _is_admin(context: UserContext) -> bool:
@@ -412,14 +415,18 @@ def _schedule_out(schedule: ReportSchedule) -> ReportScheduleOut:
     )
 
 
-async def _owned_report(db: DbSession, report_id: uuid.UUID, context: UserContext) -> SavedReport:
+async def _owned_report(
+    db: DbSession, report_id: uuid.UUID, context: UserContext, *, lock: bool = False
+) -> SavedReport:
     """A report the CALLER owns — scheduling is owner-only (a schedule runs as its owner).
-    404 (not 403) for anything else, so it never reveals another user's report exists."""
-    report = await db.scalar(
-        select(SavedReport).where(
-            and_(SavedReport.id == report_id, SavedReport.user_id == context.user_id)
-        )
+    404 (not 403) for anything else, so it never reveals another user's report exists.
+    ``lock=True`` takes a row lock so concurrent schedule creates serialize (accurate cap)."""
+    stmt = select(SavedReport).where(
+        and_(SavedReport.id == report_id, SavedReport.user_id == context.user_id)
     )
+    if lock:
+        stmt = stmt.with_for_update()
+    report = await db.scalar(stmt)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     return report
@@ -452,11 +459,13 @@ async def create_schedule(
     report_id: uuid.UUID,
     body: ReportScheduleCreate,
     request: Request,
-    context: CurrentUser,
+    context: ExportUser,
     db: DbSession,
     audit: AuditDep,
 ) -> ReportScheduleOut:
-    await _owned_report(db, report_id, context)
+    # Lock the report row so two concurrent creates can't both pass the cap check (which would
+    # let a report exceed MAX_SCHEDULES and amplify emails).
+    await _owned_report(db, report_id, context, lock=True)
     existing = await db.scalar(
         select(func.count())
         .select_from(ReportSchedule)
@@ -532,7 +541,7 @@ async def delete_schedule(
 
 @router.post("/schedules/{schedule_id}/run-now")
 async def run_schedule_now(
-    schedule_id: uuid.UUID, request: Request, context: CurrentUser, db: DbSession, audit: AuditDep
+    schedule_id: uuid.UUID, request: Request, context: ExportUser, db: DbSession, audit: AuditDep
 ) -> dict[str, bool]:
     """Send this schedule's report to the owner now (a test send). Runs under the caller's own
     RBAC and emails only the caller — so it can never deliver another user's data."""
@@ -545,11 +554,11 @@ async def run_schedule_now(
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    await audit.write(
+    # A delivery IS an export — log it as one (re-runs through the caller's RBAC server-side).
+    await audit.log_export(
         user_id=context.user_id,
-        action="report_schedule_run_now",
-        resource=str(schedule_id),
-        detail={"sent": sent},
+        resource=str(report.id),
+        detail={"via": "report_schedule_run_now", "schedule_id": str(schedule_id), "sent": sent},
         ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )

@@ -87,7 +87,14 @@ export function ScheduleDialog({ reportId }: { reportId: string }) {
         setOpen(next);
         if (!next) {
           create.reset();
+          del.reset();
+          runNow.reset();
           setSentMsg(null);
+          setCadence("daily");
+          setHour(8);
+          setDow(0);
+          setDom(1);
+          setFmt("xlsx");
         }
       }}
     >
@@ -125,6 +132,7 @@ export function ScheduleDialog({ reportId }: { reportId: string }) {
                               ? "Sent — check your inbox."
                               : "Email isn't configured on the server yet.",
                           ),
+                        onError: () => setSentMsg("Couldn't send just now — please try again."),
                       })
                     }
                     disabled={runNow.isPending}
@@ -222,6 +230,9 @@ export function ScheduleDialog({ reportId }: { reportId: string }) {
           <p className="text-xs text-destructive">
             {create.error instanceof Error ? create.error.message : "Could not add schedule."}
           </p>
+        )}
+        {del.isError && (
+          <p className="text-xs text-destructive">Couldn&apos;t remove that schedule — retry.</p>
         )}
         {sentMsg && <p className="text-xs text-muted-foreground">{sentMsg}</p>}
         <p className="text-[11px] text-muted-foreground">

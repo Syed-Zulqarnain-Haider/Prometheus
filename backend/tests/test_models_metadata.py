@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "revenue_targets",
     "audit_log",
     "sync_runs",
+    "job_runs",
     "access_requests",
     "dynamic_columns",
 }

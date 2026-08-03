@@ -19,20 +19,50 @@ from app.schemas.metrics import MetricFilters
 from app.services.metrics_service import _row_dict
 from app.services.query_builder import QueryBuilder
 
+# Every narrowing dimension the filter bar can set (API-query / MetricFilters shape). Kept in
+# lockstep with schemas.metrics.MetricFilters — a drift guard asserts this below.
+_LIST_FILTER_FIELDS: tuple[str, ...] = (
+    "pods",
+    "publishers",
+    "apps",
+    "hou",
+    "pod_owners",
+    "consoles",
+    "developers",
+    "google_play_accounts",
+    "apple_accounts",
+    "packages",
+    "bundles",
+)
+
 
 def metric_filters_from_dict(filters: dict[str, Any]) -> MetricFilters:
-    """Build MetricFilters from a stored report's filter JSON (API-query shape)."""
+    """Build MetricFilters from a stored report's filter JSON (API-query shape).
+
+    CRITICAL: this must reconstruct the FULL filter set. Dropping any narrowing dimension here
+    would silently WIDEN a saved report / export / scheduled email versus what the author
+    configured and previewed (they'd get all HOUs when they picked one). So every dimension is
+    carried through, not just a subset.
+    """
     try:
-        return MetricFilters(
-            date_from=filters["date_from"],
-            date_to=filters["date_to"],
-            platform=filters.get("platform"),
-            pods=filters.get("pods") or [],
-            publishers=filters.get("publishers") or [],
-            apps=filters.get("apps") or [],
-        )
+        payload: dict[str, Any] = {
+            "date_from": filters["date_from"],
+            "date_to": filters["date_to"],
+        }
+        if filters.get("platform"):
+            payload["platform"] = filters["platform"]
+        for field in _LIST_FILTER_FIELDS:
+            payload[field] = filters.get(field) or []
+        return MetricFilters.model_validate(payload)
     except (KeyError, ValidationError, ValueError) as exc:
         raise ValueError("report filters must include a valid date_from/date_to") from exc
+
+
+# Drift guard: if a new narrowing dimension is added to MetricFilters, it MUST be added above
+# too, or saved reports would silently ignore (widen past) it.
+assert set(_LIST_FILTER_FIELDS) | {"date_from", "date_to", "compare", "platform"} == set(
+    MetricFilters.model_fields
+), "reports_service._LIST_FILTER_FIELDS is out of sync with MetricFilters — reports would widen"
 
 
 def validate_columns(columns: list[str], permitted: set[str]) -> None:

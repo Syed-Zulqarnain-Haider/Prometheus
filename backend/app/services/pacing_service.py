@@ -70,11 +70,15 @@ async def compute(
     else:
         days_elapsed = (today - month_start).days + 1
 
-    target = await _month_target(db, year, month)
+    qb = QueryBuilder(context)
+    # The target is a revenue figure — only disclose it to callers permitted a revenue measure,
+    # so a store-installs-only role never learns the org's revenue goal (parity with how
+    # forbidden metrics are never serialized elsewhere).
+    can_see_revenue = _REVENUE in qb.permitted_measures
+    target = await _month_target(db, year, month) if can_see_revenue else None
 
     actual: float | None = None
-    qb = QueryBuilder(context)
-    if _REVENUE in qb.permitted_measures and days_elapsed > 0:
+    if can_see_revenue and days_elapsed > 0:
         window_end = min(today, month_end)
         filters = MetricFilters(date_from=month_start, date_to=window_end)
         summary = await metrics_service.run_summary(db, qb, filters)

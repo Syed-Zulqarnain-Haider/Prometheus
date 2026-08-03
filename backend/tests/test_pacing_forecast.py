@@ -42,15 +42,16 @@ async def test_pacing_full_past_month(metrics_env: MetricsEnv) -> None:
     assert abs(body["attainment_pct"] - 0.54) < 1e-6
 
 
-async def test_pacing_target_only_when_revenue_not_permitted(metrics_env: MetricsEnv) -> None:
-    # A viewer (store_installs only) can't see revenue → actual/projection are null, target shows.
+async def test_pacing_hides_everything_from_non_revenue_role(metrics_env: MetricsEnv) -> None:
+    # A viewer (store_installs only) can't see revenue → NOT the actual, NOT the projection, and
+    # NOT the org revenue TARGET (a revenue figure must never leak to a role without revenue).
     await _set_month_target(metrics_env, 2026, 6, 2000.0)
     resp = await metrics_env.client.get(
         "/api/v1/metrics/pacing?year=2026&month=6", headers=_auth("viewer")
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["target_usd"] == 2000.0
+    assert body["target_usd"] is None
     assert body["actual_usd"] is None
     assert body["projected_usd"] is None
 
@@ -104,7 +105,7 @@ async def test_forecast_forbidden_metric_is_400(metrics_env: MetricsEnv) -> None
 
 
 def test_linear_fit_recovers_a_known_line() -> None:
-    # y = 2x + 1 → slope 2, intercept 1.
-    slope, intercept = forecast_service._linear_fit([1.0, 3.0, 5.0, 7.0])
+    # y = 2x + 1 over x = 0,1,2,3 → slope 2, intercept 1.
+    slope, intercept = forecast_service._linear_fit([0, 1, 2, 3], [1.0, 3.0, 5.0, 7.0])
     assert abs(slope - 2.0) < 1e-9
     assert abs(intercept - 1.0) < 1e-9

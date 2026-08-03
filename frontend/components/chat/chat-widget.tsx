@@ -8,7 +8,14 @@ import { type ChatMessage, useChatStatus, useSendChat } from "@/lib/api-hooks";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-const GREETING: ChatMessage = {
+// A local UI message may be flagged as a client-side error bubble; those are shown but never
+// sent back to the model (they aren't real assistant turns).
+type UiMessage = ChatMessage & { error?: boolean };
+
+// Backend caps a transcript at 20 messages — keep the sent history comfortably under that.
+const MAX_SENT_TURNS = 18;
+
+const GREETING: UiMessage = {
   role: "assistant",
   content:
     "Hi! Ask me about your performance data — e.g. “What was total revenue last month?” " +
@@ -28,7 +35,7 @@ export function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [messages, setMessages] = useState<UiMessage[]>([GREETING]);
   const [provider, setProvider] = useState<string>("");
   const send = useSendChat();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -56,13 +63,17 @@ export function ChatWidget() {
   async function submit(question: string) {
     const q = question.trim();
     if (!q || send.isPending) return;
-    const next: ChatMessage[] = [...messages, { role: "user", content: q }];
+    const next: UiMessage[] = [...messages, { role: "user", content: q }];
     setMessages(next);
     setInput("");
     try {
-      // Send only the real turns (drop the local greeting) so the backend sees a clean
-      // transcript ending in the user's question.
-      const transcript = next.filter((m) => m !== GREETING);
+      // Send only REAL turns: drop the local greeting and any prior error bubbles (they aren't
+      // genuine assistant turns), strip the UI-only `error` flag, and cap the history length so
+      // the request stays within the backend's transcript limit and payload/token cost is bounded.
+      const transcript = next
+        .filter((m) => m !== GREETING && !m.error)
+        .slice(-MAX_SENT_TURNS)
+        .map(({ role, content }) => ({ role, content }));
       const res = await send.mutateAsync({ messages: transcript, provider: provider || undefined });
       setMessages((prev) => [...prev, { role: "assistant", content: res.answer }]);
     } catch (err) {
@@ -70,10 +81,7 @@ export function ChatWidget() {
         err instanceof ApiError
           ? err.message
           : "Something went wrong. Please try again in a moment.";
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `⚠️ ${msg}` },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${msg}`, error: true }]);
     }
   }
 

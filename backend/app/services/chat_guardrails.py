@@ -82,11 +82,13 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Concrete SQL SHAPES only — NOT the bare word "select … from", which matches ordinary
+        # English ("select the top 5 apps from June"). Real analytics questions never match.
         "raw_sql",
         re.compile(
-            r"(\bselect\b[^;]{0,80}\bfrom\b|\bunion\s+select\b|\bdrop\s+table\b|"
-            r"\bdelete\s+from\b|\binsert\s+into\b|\btruncate\b|;\s*--|\brun\b[^.]{0,15}"
-            r"\b(raw\s+)?sql\b|\bexecute\b[^.]{0,15}\bsql\b)",
+            r"(\bunion\s+select\b|\bdrop\s+table\b|\bdelete\s+from\b|\binsert\s+into\b|"
+            r"\btruncate\s+table\b|\bselect\s+\*\s+from\b|\bfrom\s+\w+\.\w+|;\s*--|"
+            r"\brun\b[^.]{0,15}\bsql\b|\bexecute\b[^.]{0,15}\bsql\b)",
             re.I,
         ),
     ),
@@ -94,16 +96,19 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def screen(messages: list[ChatMessage]) -> GuardVerdict:
-    """Return a blocking verdict if any USER message contains an obvious manipulation attempt.
+    """Return a blocking verdict if the CURRENT user message is an obvious manipulation attempt.
 
-    Assistant turns are model-authored and not screened. The first matching pattern wins; the
-    reason is a stable slug for auditing, not something shown to the user."""
-    for message in messages:
-        if message.role != "user":
-            continue
-        for name, pattern in _PATTERNS:
-            if pattern.search(message.content):
-                return GuardVerdict(blocked=True, reason=name)
+    Only the latest user turn is screened — each message is screened once, at submission time
+    (when it is the latest). Screening the whole history instead would let a single earlier
+    false-positive permanently 'poison' a conversation (every later question refused). Assistant
+    turns are model-authored and never screened. The RBAC boundary — not this heuristic — is
+    what actually protects data, so this can be lenient without loss of safety."""
+    latest = next((m for m in reversed(messages) if m.role == "user"), None)
+    if latest is None:
+        return GuardVerdict(blocked=False)
+    for name, pattern in _PATTERNS:
+        if pattern.search(latest.content):
+            return GuardVerdict(blocked=True, reason=name)
     return GuardVerdict(blocked=False)
 
 

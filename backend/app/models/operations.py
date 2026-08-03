@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Identity,
@@ -74,4 +75,22 @@ class SyncRun(Base):
             name="status_valid",
         ),
         CheckConstraint("mode IN ('full','incremental','range')", name="mode_valid"),
+    )
+
+
+class JobRun(Base):
+    """Cluster-wide once-per-day claim for scheduled background routines.
+
+    A row is the atomic proof that ``job`` already ran for ``run_date``. Instances race to
+    ``INSERT ... ON CONFLICT DO NOTHING``; exactly one wins and does the work. This makes daily
+    routines (proactive alerts, the digest) fire ONCE across all instances AND across restarts —
+    replacing the per-process in-memory guard that duplicated emails per instance and per boot.
+    """
+
+    __tablename__ = "job_runs"
+
+    job: Mapped[str] = mapped_column(Text, primary_key=True)
+    run_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

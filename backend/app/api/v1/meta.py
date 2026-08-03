@@ -7,8 +7,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, RedisClient
 from app.api.v1.metrics import get_filters
+from app.core.cache import aggregate_cache_key, cached_json, scope_token
 from app.core.rate_limit import enforce_rate_limit
 from app.models import SyncRun
 from app.schemas.admin import TargetsResponse
@@ -38,21 +39,39 @@ _OPTION_DIMS: list[tuple[str, str, str]] = [
 async def filter_options(
     context: CurrentUser,
     db: DbSession,
+    redis: RedisClient,
     filters: Annotated[MetricFilters, Depends(get_filters)],
 ) -> FilterOptions:
     """Cascading options for every filter dropdown — each dimension's values reflect the
     other active filters + the caller's scope + the date window. Fixes 'platform=iOS still
-    lists non-iOS HOUs': each list is computed with its OWN selection cleared."""
+    lists non-iOS HOUs': each list is computed with its OWN selection cleared.
+
+    Cached (agg:*, TTL-aligned to the daily rebuild) like the other aggregate endpoints — the
+    frontend refetches this on every filter change, and it is otherwise 11 GROUP BY/DISTINCT
+    scans per request. The key varies by scope + filters; it is dimension-only, so no perms
+    token is needed."""
     qb = QueryBuilder(context)
-    result = FilterOptions()
-    for field, column, self_key in _OPTION_DIMS:
-        rows = (await db.execute(qb.distinct_values(filters, column, self_key))).all()
-        setattr(result, field, [r.value for r in rows if r.value is not None])
-    app_rows = (
-        await db.execute(qb.distinct_values(filters, "canonical_key", "apps", label="app_name"))
-    ).all()
-    result.apps = [AppOption(value=r.value, label=r.label) for r in app_rows if r.value is not None]
-    return result
+    key = aggregate_cache_key(
+        "meta.filter-options", scope_token(context.scopes), "", filters.model_dump(mode="json")
+    )
+
+    async def produce() -> dict[str, Any]:
+        result = FilterOptions()
+        for field, column, self_key in _OPTION_DIMS:
+            rows = (await db.execute(qb.distinct_values(filters, column, self_key))).all()
+            setattr(result, field, [r.value for r in rows if r.value is not None])
+        app_rows = (
+            await db.execute(
+                qb.distinct_values(filters, "canonical_key", "apps", label="app_name")
+            )
+        ).all()
+        result.apps = [
+            AppOption(value=r.value, label=r.label) for r in app_rows if r.value is not None
+        ]
+        return result.model_dump(mode="json")
+
+    data: dict[str, Any] = await cached_json(redis, key, produce)
+    return FilterOptions.model_validate(data)
 
 
 @router.get("/freshness")
