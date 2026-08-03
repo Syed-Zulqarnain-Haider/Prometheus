@@ -467,14 +467,21 @@ async def schema_diff(session: AsyncSession, settings: Settings) -> SchemaDiff:
         return SchemaDiff(configured=True, message=error or "Schema check failed.")
 
     expected = _EXPECTED_BQ_SCHEMA
-    missing = [c for c in expected if c not in actual]
+    # Match case-insensitively: BigQuery may report a registry column under a different case
+    # (e.g. "net revenue share" vs our bq_name "Net Revenue Share"). Without this, the column
+    # is falsely reported as both missing AND unregistered on every check.
+    actual_by_lower = {k.lower(): (k, v) for k, v in actual.items()}
+    expected_lower = {c.lower() for c in expected}
+    missing = [c for c in expected if c.lower() not in actual_by_lower]
     mismatches = [
-        SchemaColumnDiff(column=c, expected=expected[c], actual=actual[c])
+        SchemaColumnDiff(column=c, expected=expected[c], actual=actual_by_lower[c.lower()][1])
         for c in expected
-        if c in actual and actual[c] != expected[c]
+        if c.lower() in actual_by_lower and actual_by_lower[c.lower()][1] != expected[c]
     ]
     unregistered = [
-        BigQueryColumn(column=c, data_type=t) for c, t in actual.items() if c not in expected
+        BigQueryColumn(column=c, data_type=t)
+        for c, t in actual.items()
+        if c.lower() not in expected_lower
     ]
     return SchemaDiff(
         configured=True,
@@ -503,6 +510,10 @@ async def reconcile_schema(
         static_types=_APP_MASTER_STATIC_TYPES,
         table_obj=_TABLE,
         added_by=admin_id,
+        # Map each column's real BigQuery name (which may have spaces/caps, e.g.
+        # "Net Revenue Share") to its sanitized Postgres column, so the reconcile recognises it
+        # as a known static column instead of an "unsafe name" it can't add.
+        bq_aliases={c.bq_name: c.name for c in REGISTRY},
     )
 
 

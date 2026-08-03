@@ -124,6 +124,11 @@ async def test_app_master_schema_sync_adds_and_skips(
     skipped = {c["name"] for c in body["unsupported_types"]}
     assert "bad name" in skipped or "Bad Name" in skipped  # lowercased before matching
     assert "blob_col" in skipped
+    # net_revenue_share's real BigQuery name has spaces ("Net Revenue Share") — it must be
+    # recognised as the KNOWN static column via its bq_name alias, NOT skipped as an unsafe
+    # name nor flagged missing (the "Skipped (unsupported): net revenue share" bug).
+    assert "net revenue share" not in skipped
+    assert "net_revenue_share" not in body["missing_in_bigquery"]
 
     # The dynamic column is now persisted and served (read-only) in the grid.
     async with metrics_env.sessionmaker() as s:

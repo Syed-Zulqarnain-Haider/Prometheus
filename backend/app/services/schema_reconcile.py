@@ -134,6 +134,7 @@ async def reconcile(
     static_types: dict[str, str],
     table_obj: Table,
     added_by: Any = None,
+    bq_aliases: dict[str, str] | None = None,
 ) -> SchemaSyncResult:
     """Reconcile ``pg_table`` to the live BigQuery schema. Additive + non-destructive.
 
@@ -158,6 +159,21 @@ async def reconcile(
     bq_by_lower: dict[str, str] = {name.lower(): dtype for name, dtype in actual.items()}
     bq_lower = set(bq_by_lower)
 
+    # Map a (lowercased) BigQuery column to the static registry column it satisfies — via an
+    # explicit bq_name alias (e.g. "net revenue share" → "net_revenue_share"), else itself when
+    # it already IS a static name. This lets a BigQuery column whose real name differs from our
+    # sanitized column (spaces / caps) be recognised as the KNOWN static column, not treated as a
+    # new/"unsafe-name" one — which was flagging net_revenue_share as missing + skipping the BQ
+    # column every reconcile.
+    aliases = {k.lower(): v for k, v in (bq_aliases or {}).items()}
+
+    def _static_for(lname: str) -> str | None:
+        if lname in aliases:
+            return aliases[lname]
+        return lname if lname in static_names else None
+
+    present_static = {s for lname in bq_lower if (s := _static_for(lname)) is not None}
+
     tracked = {c.name: c for c in await load_active_dynamic_all(session, table_kind)}
     physical = await _physical_columns(session, pg_table)
 
@@ -179,10 +195,13 @@ async def reconcile(
             healed_static.append(name)
 
     # 2) Static columns the BigQuery source no longer exposes — flag only (keep the column).
-    missing_in_bq = sorted(n for n in static_names if n not in bq_lower)
+    #    Present if a BQ column maps to it directly OR via a bq_name alias.
+    missing_in_bq = sorted(n for n in static_names if n not in present_static)
 
-    # 3) BigQuery columns not covered by the static registry -> dynamic columns.
-    for lname in sorted(bq_lower - static_names):
+    # 3) BigQuery columns not covered by the static registry (directly or by alias) -> dynamic.
+    for lname in sorted(bq_lower):
+        if _static_for(lname) is not None:
+            continue  # a known static column (possibly under a spaced/cased BigQuery name)
         bq_type = bq_by_lower[lname]
         existing = tracked.get(lname)
         if not _IDENT_RE.match(lname):

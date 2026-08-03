@@ -332,6 +332,27 @@ async def test_schema_diff_reports_match(
     assert body["missing_in_view"] == [] and body["type_mismatches"] == []
 
 
+async def test_schema_diff_matches_case_insensitively(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BigQuery reports column names in a different case than our bq_name — e.g. the real column
+    # is "net revenue share" while the registry's bq_name is "Net Revenue Share". This must NOT
+    # be reported as both missing AND unregistered (the "Not in BigQuery / Skipped" bug).
+    monkeypatch.setattr(app_master_service, "_key_present", lambda _p: True)
+    actual = {c.bq_name.lower(): c.bq_type for c in REGISTRY}  # every BQ name lowercased
+
+    def fake_run(key_path: str, project: str, table: str) -> tuple[dict[str, str] | None, None]:
+        return (actual, None)
+
+    monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
+    body = (
+        await metrics_env.client.get("/api/v1/app-master/schema-diff", headers=_auth("admin"))
+    ).json()
+    assert body["in_sync"] is True
+    assert body["missing_in_view"] == []
+    assert body["unregistered_in_view"] == []
+
+
 async def test_schema_diff_flags_missing_and_mismatch(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
