@@ -36,7 +36,8 @@ backend ↔ frontend and serving ↔ analytics.
 | **Serving DB** | **Neon** Postgres (serverless, **pooled**, TLS over the public internet) |
 | **Cache** | **Upstash** Redis (serverless, TLS `rediss://`) — key prefix `agg:*`, busted by the daily sync |
 | **Auth** | **Firebase Auth**; ID tokens verified server-side (`firebase-admin`) on every route |
-| **Source** | **BigQuery** view `daily_performance_v1` (the only thing the sync reads) |
+| **Assistant** | Optional **ask-your-data** chatbot — Claude / ChatGPT / Gemini / Grok, whichever provider keys are set (see §3) |
+| **Source** | **BigQuery** — the admin-set `bq_view` setting: a view **or** the raw `unified_daily_performance` table (the sync computes derived metrics itself, so a table works directly) |
 
 ### Data flow
 
@@ -57,8 +58,9 @@ The API **never** queries BigQuery; users only ever read the materialized Postgr
 ## 3. Key concepts
 
 ### Metric registry — single source of truth
-`backend/app/core/metric_registry.py` (mirrored by `sync/metric_registry.py`) defines all
-**79 fact columns** and their metric groups. Generated from it: the Postgres fact DDL,
+`backend/app/core/metric_registry.py` (mirrored by `sync/metric_registry.py`) defines
+**every fact column** (the curated registry — grown to include the reported `rpt_*` finance
+ladder) and their metric groups. Generated from it: the Postgres fact DDL,
 the per-role Pydantic response models, the RBAC column filters, and the fact indexes
 (including the date covering index). A **drift guard** test
 (`tests/test_metric_registry_parity.py`) fails CI if the two copies ever diverge in
@@ -119,6 +121,62 @@ and its history are kept, marked inactive in `dynamic_columns`). Adopted columns
 notify admins, and bust the aggregate cache. Engine: `app/services/schema_reconcile.py`
 (+ `fact_schema.py` for the fact-table side).
 
+### Ask-your-data assistant (chatbot)
+A natural-language assistant ("what was total revenue last month?", "top 5 apps by ROAS")
+that answers **only** from data the asking user is permitted to see. The user picks the model —
+**Claude, ChatGPT, Gemini, or Grok** — from whichever providers have an API key configured.
+RBAC is not bolted on: every model runs a tool-use loop whose tools execute through the
+caller's scoped `QueryBuilder`, so there is **no text-to-SQL and no raw-SQL path**. The same
+row-scope + metric-group limits apply identically for every provider, and hold even under
+prompt injection (a jailbroken model has no out-of-scope data to reveal). Defense in depth: a
+conservative input guardrail refuses obvious jailbreak / "reveal your prompt" / raw-SQL
+attempts **before** any model call; the system prompt treats all message + tool content as
+untrusted data; and every answer writes a **value-free forensic trace** (metric / dimension /
+date window it touched — never the values) to the audit log. Off by default — needs the admin
+`chat_enabled` setting **and** ≥1 provider key. Endpoints `POST /chat`, `GET /chat/status`;
+engine `services/chat_service.py`, `chat_providers.py`, `chat_guardrails.py`.
+
+### Proactive alerts, daily digest & scheduled reports
+- **Anomaly alerts** (revenue drop, spend spike, low ROAS, stale data) evaluated once a day
+  after the sync → in-app notifications to admins/execs + email.
+- **Daily digest** email (opt-in): revenue, spend, profit, ROAS, top apps.
+- **Scheduled report delivery**: email a saved report to yourself daily / weekly / monthly
+  (CSV or XLSX). RBAC-safe — it always runs under the **owner's** access and is delivered
+  **only** to the owner, so it can never leak data around RBAC.
+- All three fire **exactly once cluster-wide** via a DB `job_runs` claim (no duplicate emails
+  per instance or per restart). Mail is stdlib SMTP — a graceful no-op when unconfigured.
+
+### Budget pacing & forecasting
+- `GET /metrics/pacing` — month-to-date revenue vs the admin target, days elapsed, a linear
+  month-end **projection**, attainment %, and on/off-pace — scoped to the caller (the revenue
+  target is hidden from roles without revenue permission).
+- `GET /metrics/forecast` — daily history plus an OLS linear-trend projection fit on
+  **calendar-day offsets** (so gaps in the series don't skew the slope).
+
+### Session security & 2FA
+- Self-service **Security page**: whether this sign-in used **2FA** (from the token's
+  second-factor claim), recent **device/activity**, and **"sign out of all devices"** —
+  which stamps `users.sessions_revoked_at` (tokens issued earlier are rejected **live**) and
+  best-effort revokes Firebase refresh tokens.
+- **Admins** can force-sign-out any user.
+- Optional `require_admin_2fa` setting gates admin actions behind a 2FA sign-in, with a
+  **narrow break-glass** (only reading settings + toggling the requirement itself is exempt)
+  so an admin can never lock themselves out.
+
+### Observability
+Every request gets a **trace id** (`X-Request-ID`, honored from the edge or generated) that
+appears on every log line and in the error envelope (so a user can quote it to support);
+**structured JSON logs** in production (`LOG_JSON`); optional **Sentry** error reporting
+(env-gated, PII off). The frontend has route + global **error boundaries**. Engine
+`core/observability.py`.
+
+### App Master editing
+The admin App Master page shows every `app_master_v2` column and allows editing exactly six —
+`publisher`, `hou`, `pod_owner`, `pod`, `partner_name`, `net_revenue_share` — writing to
+BigQuery first, then the Postgres copy, with full change history + undo. The edit drawer uses
+**dropdowns** (pick an existing value or type a new one) for the categorical fields, and
+**validates** `pod > 0` and `net_revenue_share ∈ [0.0, 1.0]` on both the client and the server.
+
 ---
 
 ## 4. Repository structure
@@ -161,6 +219,9 @@ Three terminals: **(0)** database + cache, **(1)** backend, **(2)** frontend.
 | `backend/.env` | `ENV`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS` |
 | backend shell | `GOOGLE_APPLICATION_CREDENTIALS` (path to the Firebase Admin key, **outside** the repo) |
 | backend (optional, prod) | `BIGQUERY_PROJECT`, `SYNC_TRIGGER_URL`, `SYNC_TRIGGER_TOKEN` |
+| backend (optional — assistant) | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` (a provider appears in the chat picker only when its key is set), `CHAT_MODEL` |
+| backend (optional — email) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_USE_TLS` (powers new-app alerts, the digest, and scheduled reports) |
+| backend (optional — observability) | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LOG_LEVEL`, `LOG_JSON` |
 | `frontend/.env.local` | `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_SHOW_DEMO_WIDGETS` |
 | `sync/.env` (real data) | `GCP_PROJECT`, `BQ_VIEW`, `PG_DSN`, `REDIS_URL`, `ALERT_WEBHOOK_URL` |
 
@@ -242,9 +303,18 @@ pytest -q
 Coverage includes the **RBAC matrix** (every role × representative endpoints), auth,
 cache (incl. cross-role isolation), the query builder (scope-first, narrow-only,
 keyset pagination), financial-ratio math (recomputed from totals, zero-denominator →
-null), registry parity, layouts, and the admin System tab. CI also runs `ruff`,
-`ruff format --check`, and `mypy --strict`. The frontend CI runs `next lint`,
-`tsc --noEmit`, and `next build`.
+null), registry parity, layouts, the admin System tab, the **RBAC-safe chatbot** (both
+provider loops, guardrails, forensic trace), **scheduled report delivery**, **pacing /
+forecast**, and **session security / 2FA**. CI also runs `ruff`, `ruff format --check`, and
+`mypy --strict`.
+
+**Frontend tests** — Vitest + React Testing Library:
+```bash
+cd frontend && npm test
+```
+Cover the pure lib (formatting, filters, nav **RBAC gating**, XSS-escape) and feature/
+RBAC visibility gating (e.g. the assistant widget only renders when enabled). The frontend
+CI also runs `next lint`, `tsc --noEmit`, and `next build`.
 
 **Security posture (summary).** Server-side RBAC on every route; row-scope injected into
 SQL before data leaves the DB; fully parameterized queries with allow-listed
