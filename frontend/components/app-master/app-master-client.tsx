@@ -71,8 +71,19 @@ function EditDrawer({
 }) {
   const update = useUpdateAppMaster();
   const undo = useUndoAppMaster();
+  const filterValues = useAppMasterFilterValues();
   const editable = useMemo(() => columns.filter((c) => c.editable), [columns]);
   const key = String(row[primaryKey] ?? "");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Column name -> existing values, so these edit fields render as dropdowns (pick a known
+  // value, or type a new one). Keeps HOU / pod owner / publisher / partner consistent.
+  const OPTIONS: Record<string, string[] | undefined> = {
+    publisher: filterValues.data?.publishers,
+    pod_owner: filterValues.data?.pod_owners,
+    hou: filterValues.data?.hou,
+    partner_name: filterValues.data?.partner_names,
+  };
 
   // Local form state seeded from the row (strings for text/number inputs, booleans for checks).
   const [form, setForm] = useState<Record<string, string | boolean>>(() => {
@@ -85,6 +96,24 @@ function EditDrawer({
   });
 
   function onSave() {
+    setLocalError(null);
+    // Client-side guards matching the backend: pod > 0, net_revenue_share in [0.0, 1.0].
+    const podRaw = String(form["pod"] ?? "").trim();
+    if (podRaw !== "") {
+      const n = Number(podRaw);
+      if (!Number.isInteger(n) || n <= 0) {
+        setLocalError("Pod must be a whole number greater than 0.");
+        return;
+      }
+    }
+    const nrsRaw = String(form["net_revenue_share"] ?? "").trim();
+    if (nrsRaw !== "") {
+      const n = Number(nrsRaw);
+      if (Number.isNaN(n) || n < 0 || n > 1) {
+        setLocalError("Net revenue share must be a number between 0.0 and 1.0.");
+        return;
+      }
+    }
     const body: Record<string, unknown> = {};
     for (const c of editable) {
       const next = parseField(form[c.name], c.type);
@@ -134,6 +163,43 @@ function EditDrawer({
                   />
                   {form[c.name] ? "Yes" : "No"}
                 </label>
+              ) : OPTIONS[c.name] ? (
+                <>
+                  {/* Dropdown of existing values — you can also type a new one. */}
+                  <Input
+                    id={`f-${c.name}`}
+                    list={`dl-${c.name}`}
+                    value={String(form[c.name] ?? "")}
+                    onChange={(e) => setForm((f) => ({ ...f, [c.name]: e.target.value }))}
+                    placeholder="Select or type…"
+                  />
+                  <datalist id={`dl-${c.name}`}>
+                    {(OPTIONS[c.name] ?? []).map((o) => (
+                      <option key={o} value={o} />
+                    ))}
+                  </datalist>
+                </>
+              ) : c.name === "pod" ? (
+                <Input
+                  id={`f-${c.name}`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(form[c.name] ?? "")}
+                  onChange={(e) => setForm((f) => ({ ...f, [c.name]: e.target.value }))}
+                  placeholder="Pod number (> 0)"
+                />
+              ) : c.name === "net_revenue_share" ? (
+                <Input
+                  id={`f-${c.name}`}
+                  type="number"
+                  min={0}
+                  max={1}
+                  step="0.01"
+                  value={String(form[c.name] ?? "")}
+                  onChange={(e) => setForm((f) => ({ ...f, [c.name]: e.target.value }))}
+                  placeholder="0.0 – 1.0"
+                />
               ) : (
                 <Input
                   id={`f-${c.name}`}
@@ -148,6 +214,11 @@ function EditDrawer({
         </div>
 
         <div className="shrink-0 space-y-2 border-t p-4">
+          {localError && (
+            <p className="text-xs text-destructive" role="alert">
+              {localError}
+            </p>
+          )}
           {update.isError && (
             <p className="text-xs text-destructive" role="alert">
               {update.error instanceof ApiError

@@ -1150,6 +1150,8 @@ export interface AppMasterFilterValues {
   hou: string[];
   publishers: string[];
   pods: number[];
+  pod_owners: string[];
+  partner_names: string[];
 }
 
 /** Distinct values for the App Master filter dropdowns. */

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.app_master_columns import EDITABLE_SET
 
@@ -29,12 +29,15 @@ class AppMasterListResponse(BaseModel):
 
 
 class AppMasterFilterValues(BaseModel):
-    """Distinct values for the App Master filter dropdowns."""
+    """Distinct values for the App Master filter + edit dropdowns."""
 
     platforms: list[str]
     hou: list[str]
     publishers: list[str]
     pods: list[int]
+    # Also used to populate the edit-drawer dropdowns (pick an existing value or type a new one).
+    pod_owners: list[str]
+    partner_names: list[str]
 
 
 class ColumnOrderUpdate(BaseModel):
@@ -70,9 +73,11 @@ class AppMasterUpdate(BaseModel):
     publisher: str | None = None
     hou: str | None = None
     pod_owner: str | None = None
-    pod: int | None = None
+    # pod is a positive pod NUMBER (must be > 0).
+    pod: int | None = Field(default=None, gt=0)
     partner_name: str | None = None
-    net_revenue_share: float | None = None
+    # net_revenue_share is a fraction in [0.0, 1.0] (e.g. 0.7 = a 70% share).
+    net_revenue_share: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 # Drift guard: the editable API surface must equal the enforced editable set exactly.

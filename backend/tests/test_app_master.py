@@ -164,6 +164,29 @@ async def test_edit_rejects_non_editable_or_unknown_columns(metrics_env: Metrics
     ).status_code == 422
 
 
+async def test_edit_validates_pod_and_net_revenue_share(metrics_env: MetricsEnv) -> None:
+    await _seed(metrics_env)
+    c = metrics_env.client
+    # pod must be > 0.
+    assert (
+        await c.patch("/api/v1/app-master/app-a", json={"pod": 0}, headers=_auth("admin"))
+    ).status_code == 422
+    assert (
+        await c.patch("/api/v1/app-master/app-a", json={"pod": -3}, headers=_auth("admin"))
+    ).status_code == 422
+    # net_revenue_share must be within [0.0, 1.0].
+    assert (
+        await c.patch(
+            "/api/v1/app-master/app-a", json={"net_revenue_share": 1.5}, headers=_auth("admin")
+        )
+    ).status_code == 422
+    assert (
+        await c.patch(
+            "/api/v1/app-master/app-a", json={"net_revenue_share": -0.1}, headers=_auth("admin")
+        )
+    ).status_code == 422
+
+
 async def test_edit_unknown_key_404(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:

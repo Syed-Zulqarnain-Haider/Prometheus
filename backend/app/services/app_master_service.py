@@ -218,6 +218,8 @@ async def filter_values(session: AsyncSession) -> AppMasterFilterValues:
         hou=[str(v) for v in await _distinct(_TABLE.c.hou)],
         publishers=[str(v) for v in await _distinct(_TABLE.c.publisher)],
         pods=[int(v) for v in await _distinct(_TABLE.c.pod)],
+        pod_owners=[str(v) for v in await _distinct(_TABLE.c.pod_owner)],
+        partner_names=[str(v) for v in await _distinct(_TABLE.c.partner_name)],
     )
 
 
