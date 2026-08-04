@@ -212,8 +212,13 @@ def dynamic_columns() -> list[Col]:
 
 def effective_registry() -> list[Col]:
     """The static registry plus any active dynamic columns — what RBAC, response models and
-    the query builder actually operate over."""
-    return [*REGISTRY, *_DYNAMIC]
+    the query builder actually operate over.
+
+    Deduped by name with the STATIC registry winning: a dynamic column that is later
+    promoted into the registry (e.g. apple_account) must not appear twice — the curated
+    entry (with its proper metric group / RBAC) is authoritative."""
+    static_names = {c.name.lower() for c in REGISTRY}
+    return [*REGISTRY, *[c for c in _DYNAMIC if c.name.lower() not in static_names]]
 
 
 # Registry columns the BigQuery view may not expose yet — the sync defaults them to 0

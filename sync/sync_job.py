@@ -142,7 +142,24 @@ def fact_dynamic_columns(pg: psycopg.Connection) -> list[tuple[str, str]]:
     except psycopg.Error:
         pg.rollback()  # table absent or unreadable — proceed with registry columns only
         return []
-    return [(r[0], r[1]) for r in rows if _IDENT_RE.match(r[0])]
+    # A dynamic column can be PROMOTED into the static registry later (e.g. apple_account was
+    # adopted from BigQuery first, then added to the registry). If its dynamic_columns row is
+    # still active, naively appending it would put the column in the COPY list TWICE →
+    # `DuplicateColumn: column "…" specified more than once` and a failed sync every day.
+    # The registry version is authoritative — skip any overlap (and dedupe within dynamic).
+    registry_names = {c.lower() for c in COLUMN_NAMES}
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for name, pg_type in ((r[0], r[1]) for r in rows if _IDENT_RE.match(r[0])):
+        lname = name.lower()
+        if lname in registry_names:
+            log.info("dynamic column %r is now in the static registry — skipping (promoted)", name)
+            continue
+        if lname in seen:
+            continue
+        seen.add(lname)
+        out.append((name, pg_type))
+    return out
 
 
 # ── Step 3: load into staging ────────────────────────────────────────────────

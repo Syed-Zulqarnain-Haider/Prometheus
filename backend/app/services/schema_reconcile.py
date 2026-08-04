@@ -237,8 +237,12 @@ async def reconcile(
         to_attach.append((lname, mapped))
 
     # 4) Previously-adopted dynamic columns now gone from BigQuery -> flag (keep data).
+    #    ALSO deactivate any dynamic column that has since been PROMOTED into the static
+    #    registry (e.g. apple_account): leaving it active makes the sync's column list carry
+    #    the name twice ("DuplicateColumn … specified more than once" → failed sync daily).
+    #    The static column serves the data from here on; nothing is dropped.
     for name, col in tracked.items():
-        if name not in bq_lower:
+        if (col.active and name in static_names) or name not in bq_lower:
             col.active = False
             deactivated.append(name)
 

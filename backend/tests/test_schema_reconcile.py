@@ -192,6 +192,67 @@ async def test_fact_schema_sync_adds_unclassified_column(
     assert "new_kpi" in cols
 
 
+async def test_fact_schema_sync_deactivates_promoted_column(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dynamic column later PROMOTED into the static registry (the apple_account case) is
+    deactivated by the reconcile — leaving it active made the sync's COPY column list carry
+    the name twice → 'DuplicateColumn … specified more than once' and a failed sync daily."""
+    monkeypatch.setattr(integration_service, "_bq_key_present", lambda _s: True)
+    async with metrics_env.sessionmaker() as s:
+        await s.execute(
+            insert(DynamicColumn).values(
+                table_kind="fact",
+                name="apple_account",  # now a STATIC registry column
+                pg_type="TEXT",
+                bq_type="STRING",
+                active=True,
+            )
+        )
+        await s.commit()
+
+    actual = {c.name: c.bq_type for c in metric_registry.REGISTRY}  # incl. apple_account
+
+    def fake_run(key_path: str, project: str, view: str) -> tuple[dict[str, str] | None, None]:
+        return (actual, None)
+
+    monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
+
+    body = (
+        await metrics_env.client.post(
+            "/api/v1/admin/integration/schema-sync", headers=_auth("admin")
+        )
+    ).json()
+    assert body["ok"] is True
+    assert "apple_account" in body["deactivated"]
+    async with metrics_env.sessionmaker() as s:
+        row = (
+            await s.execute(
+                select(DynamicColumn).where(
+                    DynamicColumn.table_kind == "fact", DynamicColumn.name == "apple_account"
+                )
+            )
+        ).scalar_one()
+    assert row.active is False  # healed — the static column serves it from now on
+
+
+def test_effective_registry_dedupes_promoted_dynamic() -> None:
+    """Static registry wins over a dynamic column of the same name — never served twice."""
+    from app.core.metric_registry import Col, set_dynamic_columns
+
+    try:
+        set_dynamic_columns(
+            [Col("apple_account", "STRING", "TEXT", Group.UNCLASSIFIED)]
+        )
+        names = [c.name for c in effective_registry()]
+        assert names.count("apple_account") == 1
+        # And the surviving entry is the curated static one (dimension), not unclassified.
+        col = next(c for c in effective_registry() if c.name == "apple_account")
+        assert col.group is not Group.UNCLASSIFIED
+    finally:
+        set_dynamic_columns([])  # never leak state into other tests
+
+
 async def test_fact_schema_sync_flags_removed_column(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
