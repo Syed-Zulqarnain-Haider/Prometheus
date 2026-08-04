@@ -176,6 +176,26 @@ The admin App Master page shows every `app_master_v2` column and allows editing 
 BigQuery first, then the Postgres copy, with full change history + undo. The edit drawer uses
 **dropdowns** (pick an existing value or type a new one) for the categorical fields, and
 **validates** `pod > 0` and `net_revenue_share ∈ [0.0, 1.0]` on both the client and the server.
+The page also filters by a **`last_synced_at` date range**, and columns are drag-reorderable
+(admin-set global order). The schema-match compares BigQuery names **case-insensitively and
+through `bq_name` aliases** (so a column like "Net Revenue Share" with spaces/caps is
+recognised as the known `net_revenue_share`, never mis-flagged as missing/unsupported).
+
+### Explore — user-configurable breakdown
+An **Explore** page where the user picks the **dimension** (App / Pod / Publisher / Platform /
+HOU) and up to 8 **metrics** from dropdowns — every permitted measure, including the full
+reported `rpt_*` ladder — rendered as a server-sorted breakdown table under the global filter
+bar. Only permitted metrics are offered and the server re-validates every request. The same
+`rpt_*` catalog is pickable in the Report Builder.
+
+### Sync self-healing (promoted dynamic columns)
+A BigQuery-discovered dynamic column can later be **promoted** into the curated static
+registry (e.g. `apple_account`). Three layers keep that from ever breaking the pipeline:
+the sync **skips** any active dynamic column whose name is now static (the registry wins);
+`effective_registry()` **dedupes** the same way for serving; and the schema-reconcile
+**deactivates** the stale `dynamic_columns` row permanently. (Historically this overlap made
+the sync's COPY list carry a column twice — `DuplicateColumn` — and fail daily; the fail-safe
+correctly kept serving yesterday's data, and this class of failure is now handled end-to-end.)
 
 ---
 

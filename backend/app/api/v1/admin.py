@@ -67,6 +67,7 @@ from app.services.auth import user_context_cache_key
 
 logger = logging.getLogger("app.api.admin")
 
+
 async def enforce_admin_2fa(request: Request, context: CurrentUser, db: DbSession) -> None:
     """When ``require_admin_2fa`` is on, admin actions require a 2FA sign-in.
 

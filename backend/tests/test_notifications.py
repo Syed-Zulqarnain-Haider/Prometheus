@@ -1,4 +1,5 @@
 """Notifications: RBAC-scoped visibility + read state."""
+
 from typing import Any
 
 from app.models import Notification
@@ -84,23 +85,20 @@ async def test_severity_and_link_surface_in_api(metrics_env: MetricsEnv) -> None
     assert item["link"] == "/admin?tab=integration"
 
 
-async def test_notify_role_routes_to_pod_owners(
-    metrics_env: MetricsEnv, monkeypatch: Any
-) -> None:
+async def test_notify_role_routes_to_pod_owners(metrics_env: MetricsEnv, monkeypatch: Any) -> None:
     """Hierarchy routing: notify_role('pod_owner') reaches pod-owner users, not others."""
     from app.services import notification_service
 
     # The service writes on its own session; point it at the test DB.
-    monkeypatch.setattr(
-        notification_service, "get_sessionmaker", lambda: metrics_env.sessionmaker
-    )
+    monkeypatch.setattr(notification_service, "get_sessionmaker", lambda: metrics_env.sessionmaker)
     await notification_service.notify_role(
         "pod_owner", type="share_request", title="needs approval", link="/reports?tab=shares"
     )
 
     po = (await metrics_env.client.get("/api/v1/notifications", headers=_auth("pod_owner"))).json()
-    assert any(n["title"] == "needs approval" and n["link"] == "/reports?tab=shares"
-               for n in po["items"])
+    assert any(
+        n["title"] == "needs approval" and n["link"] == "/reports?tab=shares" for n in po["items"]
+    )
     # A viewer (not a pod owner) must NOT receive it.
     viewer = (await metrics_env.client.get("/api/v1/notifications", headers=_auth("viewer"))).json()
     assert all(n["title"] != "needs approval" for n in viewer["items"])

@@ -38,9 +38,7 @@ _ALERT_DELAY = timedelta(minutes=15)
 _POST_SYNC_JOB = "post_sync_routines"
 
 
-async def _claim_daily_job(
-    sessionmaker: async_sessionmaker[Any], job: str, run_date: date
-) -> bool:
+async def _claim_daily_job(sessionmaker: async_sessionmaker[Any], job: str, run_date: date) -> bool:
     """Atomically claim ``job`` for ``run_date`` across ALL instances and restarts. Returns True
     only for the single winner (INSERT ... ON CONFLICT DO NOTHING). This is what makes the daily
     routines fire exactly once cluster-wide — not once per process."""

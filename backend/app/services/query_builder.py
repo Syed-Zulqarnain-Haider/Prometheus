@@ -76,6 +76,7 @@ def additive_measures() -> dict[str, Col]:
     Recomputed per call so a freshly-reconciled dynamic column is summable immediately."""
     return {c.name: c for c in effective_registry() if _is_additive(c)}
 
+
 # group_by token -> fact column to group on.
 _GROUP_BY_COLUMN: dict[str, str] = {
     "app": "canonical_key",

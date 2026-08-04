@@ -213,17 +213,52 @@ async def test_incremental_overwrites_window_and_retains_older(db_session: Any) 
     await _setup(db_session, reg)
     since = date(2026, 6, 10)
     # Fact: one row BEFORE the window (must survive) + two IN the window.
-    await _insert(db_session, _FACT, date=date(2026, 6, 1), platform="ios",
-                  canonical_key="old", app_name="Old", total_revenue_usd=10)
-    await _insert(db_session, _FACT, date=date(2026, 6, 12), platform="ios",
-                  canonical_key="appA", app_name="Stale", total_revenue_usd=1)
-    await _insert(db_session, _FACT, date=date(2026, 6, 12), platform="ios",
-                  canonical_key="gone", app_name="Vanished", total_revenue_usd=5)
+    await _insert(
+        db_session,
+        _FACT,
+        date=date(2026, 6, 1),
+        platform="ios",
+        canonical_key="old",
+        app_name="Old",
+        total_revenue_usd=10,
+    )
+    await _insert(
+        db_session,
+        _FACT,
+        date=date(2026, 6, 12),
+        platform="ios",
+        canonical_key="appA",
+        app_name="Stale",
+        total_revenue_usd=1,
+    )
+    await _insert(
+        db_session,
+        _FACT,
+        date=date(2026, 6, 12),
+        platform="ios",
+        canonical_key="gone",
+        app_name="Vanished",
+        total_revenue_usd=5,
+    )
     # Staging = a fresh window pull: appA revised, 'gone' absent, a brand-new row.
-    await _insert(db_session, _STG, date=date(2026, 6, 12), platform="ios",
-                  canonical_key="appA", app_name="Fresh", total_revenue_usd=777)
-    await _insert(db_session, _STG, date=date(2026, 6, 15), platform="android",
-                  canonical_key="appB", app_name="New", total_revenue_usd=50)
+    await _insert(
+        db_session,
+        _STG,
+        date=date(2026, 6, 12),
+        platform="ios",
+        canonical_key="appA",
+        app_name="Fresh",
+        total_revenue_usd=777,
+    )
+    await _insert(
+        db_session,
+        _STG,
+        date=date(2026, 6, 15),
+        platform="android",
+        canonical_key="appB",
+        app_name="New",
+        total_revenue_usd=50,
+    )
 
     await _overwrite_window(db_session, reg, since)
 
@@ -252,14 +287,35 @@ async def test_staging_dedupes_duplicate_natural_keys(db_session: Any) -> None:
     await db_session.commit()
 
     # Two rows with the SAME natural key (date, platform, canonical_key→app_key) + one distinct.
-    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="android",
-                  canonical_key="dupapp", app_name="Poor", total_revenue_usd=5,
-                  store_total_installs=10)
-    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="android",
-                  canonical_key="dupapp", app_name="Rich", total_revenue_usd=999,
-                  store_total_installs=20)
-    await _insert(db_session, _STG, date=date(2026, 6, 24), platform="ios",
-                  canonical_key="other", app_name="Solo", total_revenue_usd=1)
+    await _insert(
+        db_session,
+        _STG,
+        date=date(2026, 6, 24),
+        platform="android",
+        canonical_key="dupapp",
+        app_name="Poor",
+        total_revenue_usd=5,
+        store_total_installs=10,
+    )
+    await _insert(
+        db_session,
+        _STG,
+        date=date(2026, 6, 24),
+        platform="android",
+        canonical_key="dupapp",
+        app_name="Rich",
+        total_revenue_usd=999,
+        store_total_installs=20,
+    )
+    await _insert(
+        db_session,
+        _STG,
+        date=date(2026, 6, 24),
+        platform="ios",
+        canonical_key="other",
+        app_name="Solo",
+        total_revenue_usd=1,
+    )
 
     result = await db_session.execute(text(reg.generate_dedupe_sql(_STG)))
     await db_session.commit()
@@ -267,8 +323,7 @@ async def test_staging_dedupes_duplicate_natural_keys(db_session: Any) -> None:
 
     kept = (
         await db_session.execute(
-            text(f"SELECT canonical_key, app_name, total_revenue_usd FROM {_STG} "
-                 f"ORDER BY app_key")
+            text(f"SELECT canonical_key, app_name, total_revenue_usd FROM {_STG} ORDER BY app_key")
         )
     ).all()
     assert len(kept) == 2

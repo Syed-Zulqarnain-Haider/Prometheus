@@ -247,9 +247,7 @@ async def test_refresh_replaces_serving_copy_and_skips_keyless_rows(
     body = resp.json()
     assert body["synced"] == 1 and body["skipped"] == 1
     # app-c wasn't in the seeded master → detected as a NEW app (alerts admins to set HOU/pod/rev).
-    assert body["new_apps"] == [
-        {"canonical_key": "app-c", "app_name": "Gamma", "platform": "ios"}
-    ]
+    assert body["new_apps"] == [{"canonical_key": "app-c", "app_name": "Gamma", "platform": "ios"}]
 
     # Full refresh: old rows gone, only the keyed fetched row remains.
     listing = (await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))).json()

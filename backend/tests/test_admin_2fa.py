@@ -48,9 +48,7 @@ async def test_settings_route_is_breakglass(metrics_env: MetricsEnv) -> None:
 
 
 async def test_admin_force_logout_user(metrics_env: MetricsEnv) -> None:
-    users = (
-        await metrics_env.client.get("/api/v1/admin/users", headers=_auth("admin"))
-    ).json()
+    users = (await metrics_env.client.get("/api/v1/admin/users", headers=_auth("admin"))).json()
     exec_id = next(u["id"] for u in users if u["email"] == "executive-uid@terafort.org")
 
     revoke = await metrics_env.client.post(

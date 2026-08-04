@@ -264,7 +264,9 @@ async def reconcile(
 async def load_active_dynamic_all(session: AsyncSession, table_kind: str) -> list[DynamicColumn]:
     """All dynamic rows for a table_kind (active AND inactive) — the reconcile needs the
     inactive ones to detect reactivation."""
-    stmt = select(DynamicColumn).where(DynamicColumn.table_kind == table_kind).order_by(
-        DynamicColumn.id
+    stmt = (
+        select(DynamicColumn)
+        .where(DynamicColumn.table_kind == table_kind)
+        .order_by(DynamicColumn.id)
     )
     return list((await session.execute(stmt)).scalars().all())

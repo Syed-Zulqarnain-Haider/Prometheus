@@ -101,13 +101,17 @@ async def active_admin_emails(db: AsyncSession) -> list[str]:
     """Distinct emails of all active admins — recipients for admin email alerts (e.g. a new
     app discovered on refresh). Deduplicated, order-stable."""
     rows = (
-        await db.execute(
-            select(User.email)
-            .join(UserRole, UserRole.user_id == User.id)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(Role.name == "admin", User.is_active.is_(True), User.email.isnot(None))
+        (
+            await db.execute(
+                select(User.email)
+                .join(UserRole, UserRole.user_id == User.id)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(Role.name == "admin", User.is_active.is_(True), User.email.isnot(None))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(dict.fromkeys(e for e in rows if e))
 
 

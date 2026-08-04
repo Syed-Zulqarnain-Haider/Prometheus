@@ -22,10 +22,22 @@ def _auth(role: str) -> dict[str, str]:
 
 async def _seed_platforms(env: MetricsEnv) -> None:
     rows: list[dict[str, Any]] = [
-        {"date": date(2026, 6, 1), "canonical_key": "ios-a", "platform": "ios",
-         "hou": "HOU_IOS", "rpt_console": "Apple Console", "app_name": "iOS A"},
-        {"date": date(2026, 6, 1), "canonical_key": "and-a", "platform": "android",
-         "hou": "HOU_AND", "rpt_console": "Google Play Console", "app_name": "Android A"},
+        {
+            "date": date(2026, 6, 1),
+            "canonical_key": "ios-a",
+            "platform": "ios",
+            "hou": "HOU_IOS",
+            "rpt_console": "Apple Console",
+            "app_name": "iOS A",
+        },
+        {
+            "date": date(2026, 6, 1),
+            "canonical_key": "and-a",
+            "platform": "android",
+            "hou": "HOU_AND",
+            "rpt_console": "Google Play Console",
+            "app_name": "Android A",
+        },
     ]
     async with env.sessionmaker() as s:
         for r in rows:

@@ -105,8 +105,14 @@ async def _effective_columns(
     dynamic = await schema_reconcile.load_active_dynamic(session, _KIND_APP_MASTER)
     schema_reconcile.attach_columns(_TABLE, [(c.name, c.pg_type) for c in dynamic])
     names = [*ALL_COLUMNS, *[c.name for c in dynamic if c.name not in set(ALL_COLUMNS)]]
-    meta = [*_COLUMN_META, *[AppMasterColumnMeta(name=c.name, type=c.pg_type, editable=False)
-                             for c in dynamic if c.name not in set(ALL_COLUMNS)]]
+    meta = [
+        *_COLUMN_META,
+        *[
+            AppMasterColumnMeta(name=c.name, type=c.pg_type, editable=False)
+            for c in dynamic
+            if c.name not in set(ALL_COLUMNS)
+        ],
+    ]
     return names, meta
 
 

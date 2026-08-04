@@ -105,9 +105,7 @@ async def build_and_email(
         log.info("skipping delivery for %s — owner lacks export capability", context.email)
         return False
     qb = QueryBuilder(context)
-    filters = reports_service.metric_filters_from_dict(
-        _rolled_filters(report.filters, local_today)
-    )
+    filters = reports_service.metric_filters_from_dict(_rolled_filters(report.filters, local_today))
     result = await reports_service.run_report(db, qb, filters, report.group_by, report.columns)
 
     if fmt == "csv":
@@ -119,14 +117,12 @@ async def build_and_email(
     filename = f"{_safe_stem(report.name)}_{local_today.isoformat()}.{fmt}"
 
     body = (
-        f"Your scheduled report \"{report.name}\" is attached "
+        f'Your scheduled report "{report.name}" is attached '
         f"({filters.date_from} to {filters.date_to}).\n\n"
         "It reflects only the data you have access to. You are receiving this because you "
         "scheduled it in Prometheus; remove the schedule there to stop these emails."
     )
-    attachment = Attachment(
-        filename=filename, content=content, maintype=maintype, subtype=subtype
-    )
+    attachment = Attachment(filename=filename, content=content, maintype=maintype, subtype=subtype)
     return await email_service.send_email(
         settings,
         [context.email],

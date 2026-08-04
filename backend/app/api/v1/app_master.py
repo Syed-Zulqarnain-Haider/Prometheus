@@ -182,8 +182,7 @@ async def app_master_schema_sync(
             type="app_master_schema_sync",
             title="App Master schema updated from BigQuery",
             body=(
-                f"Added {len(result.added)} column(s), "
-                f"flagged {len(result.deactivated)} removed"
+                f"Added {len(result.added)} column(s), flagged {len(result.deactivated)} removed"
             ),
             actor_id=context.user_id,
             resource="app_master",
@@ -311,9 +310,7 @@ def _new_apps_email_body(new_apps: list[dict[str, Any]], app_url: str | None) ->
     return "\n".join(lines)
 
 
-async def _alert_new_apps(
-    db: DbSession, new_apps: list[dict[str, Any]], *, actor_id: Any
-) -> None:
+async def _alert_new_apps(db: DbSession, new_apps: list[dict[str, Any]], *, actor_id: Any) -> None:
     names = ", ".join(a.get("app_name") or a.get("canonical_key") or "?" for a in new_apps[:10])
     more = f" (+{len(new_apps) - 10} more)" if len(new_apps) > 10 else ""
     await notification_service.notify_admins(

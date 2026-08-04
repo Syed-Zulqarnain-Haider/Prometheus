@@ -33,8 +33,7 @@ async def chat_status(context: CurrentUser, db: DbSession) -> ChatStatus:
     configured = chat_service.is_configured(settings)
     enabled = bool(await settings_service.get_value(db, "chat_enabled"))
     providers = [
-        ProviderInfo(id=p.id, label=p.label)
-        for p in chat_providers.available_providers(settings)
+        ProviderInfo(id=p.id, label=p.label) for p in chat_providers.available_providers(settings)
     ]
     reason: str | None = None
     if not enabled:

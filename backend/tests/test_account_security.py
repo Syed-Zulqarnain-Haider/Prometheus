@@ -42,8 +42,6 @@ async def test_revoke_sessions_signs_out_old_tokens(metrics_env: MetricsEnv) -> 
 
 async def test_revoke_is_scoped_to_caller(metrics_env: MetricsEnv) -> None:
     # Marketing revokes only their own sessions; the viewer keeps working.
-    await metrics_env.client.post(
-        "/api/v1/me/security/revoke-sessions", headers=_auth("marketing")
-    )
+    await metrics_env.client.post("/api/v1/me/security/revoke-sessions", headers=_auth("marketing"))
     viewer = await metrics_env.client.get("/api/v1/me/security", headers=_auth("viewer"))
     assert viewer.status_code == 200

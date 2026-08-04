@@ -61,9 +61,7 @@ async def filter_options(
             rows = (await db.execute(qb.distinct_values(filters, column, self_key))).all()
             setattr(result, field, [r.value for r in rows if r.value is not None])
         app_rows = (
-            await db.execute(
-                qb.distinct_values(filters, "canonical_key", "apps", label="app_name")
-            )
+            await db.execute(qb.distinct_values(filters, "canonical_key", "apps", label="app_name"))
         ).all()
         result.apps = [
             AppOption(value=r.value, label=r.label) for r in app_rows if r.value is not None

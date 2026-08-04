@@ -60,13 +60,15 @@ async def evaluate_and_notify(db: AsyncSession, settings: Settings) -> list[dict
     # 1) Stale data — the newest fact date is older than the freshness threshold.
     age_hours = (datetime.now(UTC).date() - latest_date).days * 24
     if age_hours > freshness_hours:
-        alerts.append({
-            "key": "stale_data",
-            "severity": "critical",
-            "title": "Data is stale",
-            "body": f"Latest data is {latest_date} (~{age_hours}h old, "
-                    f"threshold {freshness_hours}h). The sync may be failing.",
-        })
+        alerts.append(
+            {
+                "key": "stale_data",
+                "severity": "critical",
+                "title": "Data is stale",
+                "body": f"Latest data is {latest_date} (~{age_hours}h old, "
+                f"threshold {freshness_hours}h). The sync may be failing.",
+            }
+        )
 
     if len(rows) >= 2:
         prior = rows[1]
@@ -77,36 +79,42 @@ async def evaluate_and_notify(db: AsyncSession, settings: Settings) -> list[dict
         if rev_prev > 0:
             change = (rev_now - rev_prev) / rev_prev * 100.0
             if change <= -drop_pct:
-                alerts.append({
-                    "key": "revenue_drop",
-                    "severity": "warning",
-                    "title": "Revenue dropped",
-                    "body": f"Revenue on {latest_date} fell {abs(change):.0f}% vs {prior.date} "
-                            f"(${rev_now:,.0f} vs ${rev_prev:,.0f}, threshold {drop_pct}%).",
-                })
+                alerts.append(
+                    {
+                        "key": "revenue_drop",
+                        "severity": "warning",
+                        "title": "Revenue dropped",
+                        "body": f"Revenue on {latest_date} fell {abs(change):.0f}% vs {prior.date} "
+                        f"(${rev_now:,.0f} vs ${rev_prev:,.0f}, threshold {drop_pct}%).",
+                    }
+                )
 
         # 3) Spend spike vs prior day.
         if spend_prev > 0:
             change = (spend_now - spend_prev) / spend_prev * 100.0
             if change >= spike_pct:
-                alerts.append({
-                    "key": "spend_spike",
-                    "severity": "warning",
-                    "title": "UA spend spiked",
-                    "body": f"Spend on {latest_date} rose {change:.0f}% vs {prior.date} "
-                            f"(${spend_now:,.0f} vs ${spend_prev:,.0f}, threshold {spike_pct}%).",
-                })
+                alerts.append(
+                    {
+                        "key": "spend_spike",
+                        "severity": "warning",
+                        "title": "UA spend spiked",
+                        "body": f"Spend on {latest_date} rose {change:.0f}% vs {prior.date} "
+                        f"(${spend_now:,.0f} vs ${spend_prev:,.0f}, threshold {spike_pct}%).",
+                    }
+                )
 
     # 4) ROAS below floor (latest day). Disabled when floor is 0.
     if roas_floor > 0 and float(latest.spend) > 0:
         roas = float(latest.rev) / float(latest.spend)
         if roas < roas_floor:
-            alerts.append({
-                "key": "low_roas",
-                "severity": "warning",
-                "title": "ROAS below floor",
-                "body": f"ROAS on {latest_date} was {roas:.2f}× (floor {roas_floor:.2f}×).",
-            })
+            alerts.append(
+                {
+                    "key": "low_roas",
+                    "severity": "warning",
+                    "title": "ROAS below floor",
+                    "body": f"ROAS on {latest_date} was {roas:.2f}× (floor {roas_floor:.2f}×).",
+                }
+            )
 
     if alerts:
         await _dispatch(db, settings, alerts)

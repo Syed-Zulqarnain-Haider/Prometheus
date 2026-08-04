@@ -58,9 +58,7 @@ def test_identifier_guard() -> None:
 
 # ── SECURITY: a dynamic (unclassified) column reaches admins ONLY ────────────────
 def test_unclassified_dynamic_column_is_admin_only() -> None:
-    set_dynamic_columns(
-        [Col("secret_new_metric", "FLOAT64", "NUMERIC(18,4)", Group.UNCLASSIFIED)]
-    )
+    set_dynamic_columns([Col("secret_new_metric", "FLOAT64", "NUMERIC(18,4)", Group.UNCLASSIFIED)])
     build_response_model.cache_clear()
 
     admin_groups = frozenset(
@@ -113,9 +111,7 @@ async def test_app_master_schema_sync_adds_and_skips(
 
     monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
 
-    resp = await metrics_env.client.post(
-        "/api/v1/app-master/schema-sync", headers=_auth("admin")
-    )
+    resp = await metrics_env.client.post("/api/v1/app-master/schema-sync", headers=_auth("admin"))
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["configured"] is True and body["ok"] is True
@@ -133,24 +129,20 @@ async def test_app_master_schema_sync_adds_and_skips(
     # The dynamic column is now persisted and served (read-only) in the grid.
     async with metrics_env.sessionmaker() as s:
         rows = (
-            await s.execute(
-                select(DynamicColumn).where(DynamicColumn.table_kind == "app_master")
-            )
-        ).scalars().all()
+            (await s.execute(select(DynamicColumn).where(DynamicColumn.table_kind == "app_master")))
+            .scalars()
+            .all()
+        )
     assert [r.name for r in rows] == ["extra_metric"]
 
-    listing = (
-        await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))
-    ).json()
+    listing = (await metrics_env.client.get("/api/v1/app-master", headers=_auth("admin"))).json()
     col_meta = {c["name"]: c for c in listing["columns"]}
     assert "extra_metric" in col_meta
     assert col_meta["extra_metric"]["editable"] is False
 
 
 async def test_app_master_schema_sync_requires_admin(metrics_env: MetricsEnv) -> None:
-    resp = await metrics_env.client.post(
-        "/api/v1/app-master/schema-sync", headers=_auth("viewer")
-    )
+    resp = await metrics_env.client.post("/api/v1/app-master/schema-sync", headers=_auth("viewer"))
     assert resp.status_code == 403
 
 
@@ -180,8 +172,10 @@ async def test_fact_schema_sync_adds_unclassified_column(
     # and now a summable measure — for the admin (unclassified) group only.
     async with metrics_env.sessionmaker() as s:
         rows = (
-            await s.execute(select(DynamicColumn).where(DynamicColumn.table_kind == "fact"))
-        ).scalars().all()
+            (await s.execute(select(DynamicColumn).where(DynamicColumn.table_kind == "fact")))
+            .scalars()
+            .all()
+        )
     assert [(r.name, r.active) for r in rows] == [("new_kpi", True)]
     assert any(c.name == "new_kpi" and c.group is Group.UNCLASSIFIED for c in effective_registry())
     assert "new_kpi" in query_builder.additive_measures()
@@ -241,9 +235,7 @@ def test_effective_registry_dedupes_promoted_dynamic() -> None:
     from app.core.metric_registry import Col, set_dynamic_columns
 
     try:
-        set_dynamic_columns(
-            [Col("apple_account", "STRING", "TEXT", Group.UNCLASSIFIED)]
-        )
+        set_dynamic_columns([Col("apple_account", "STRING", "TEXT", Group.UNCLASSIFIED)])
         names = [c.name for c in effective_registry()]
         assert names.count("apple_account") == 1
         # And the surviving entry is the curated static one (dimension), not unclassified.
@@ -282,8 +274,6 @@ async def test_fact_schema_sync_flags_removed_column(
     # Flagged, NOT dropped — the row and its data are kept.
     async with metrics_env.sessionmaker() as s:
         row = (
-            await s.execute(
-                select(DynamicColumn).where(DynamicColumn.name == "old_metric")
-            )
+            await s.execute(select(DynamicColumn).where(DynamicColumn.name == "old_metric"))
         ).scalar_one()
     assert row.active is False

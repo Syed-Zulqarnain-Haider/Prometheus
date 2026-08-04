@@ -205,9 +205,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         "unhandled error on %s %s (request_id=%s)", request.method, request.url.path, rid
     )
     capture_exception(exc)
-    return _error_response(
-        "internal_error", "An unexpected error occurred.", 500, request_id=rid
-    )
+    return _error_response("internal_error", "An unexpected error occurred.", 500, request_id=rid)
 
 
 @app.get("/health")
