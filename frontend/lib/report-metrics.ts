@@ -84,6 +84,36 @@ export const REPORT_METRICS: ReportMetric[] = [
   // profitability
   { name: "total_revenue_usd", label: "Total revenue", group: "profitability" },
   { name: "profit_usd", label: "Profit", group: "profitability" },
+  { name: "tech_cost_usd", label: "Tech cost", group: "profitability" },
+  // ── Reported finance ladder (rpt_*) — the reported figures from the source table.
+  // store_installs (reported)
+  { name: "rpt_total_installs", label: "Reported total installs", group: "store_installs" },
+  { name: "rpt_first_time_installs", label: "Reported first-time installs", group: "store_installs" },
+  { name: "rpt_redownloads", label: "Reported redownloads", group: "store_installs" },
+  { name: "rpt_organic_installs", label: "Reported organic installs", group: "store_installs" },
+  // ua_spend (reported)
+  { name: "rpt_ua_cost_usd", label: "Reported UA cost", group: "ua_spend" },
+  // ad_revenue (reported)
+  { name: "rpt_ad_revenue_usd", label: "Reported ad revenue", group: "ad_revenue" },
+  { name: "rpt_ad_revenue_after_share_usd", label: "Reported ad revenue after share", group: "ad_revenue" },
+  // profitability (reported)
+  { name: "rpt_total_revenue_usd", label: "Reported total revenue", group: "profitability" },
+  { name: "rpt_gross_revenue_usd", label: "Reported gross revenue", group: "profitability" },
+  { name: "rpt_net_revenue_usd", label: "Reported net revenue", group: "profitability" },
+  { name: "rpt_net_revenue_terafort_usd", label: "Reported net revenue (Terafort)", group: "profitability" },
+  { name: "rpt_gross_profit_usd", label: "Reported gross profit", group: "profitability" },
+  { name: "rpt_net_profit_usd", label: "Reported net profit", group: "profitability" },
+  { name: "rpt_tf_profit_usd", label: "Reported TF profit", group: "profitability" },
+  { name: "rpt_total_cost_usd", label: "Reported total cost", group: "profitability" },
+  { name: "rpt_total_deductions_usd", label: "Reported total deductions", group: "profitability" },
+  { name: "rpt_shares_fees_taxes_usd", label: "Reported shares/fees/taxes", group: "profitability" },
+  { name: "rpt_tax_fees_usd", label: "Reported tax & fees", group: "profitability" },
+  { name: "rpt_withholding_tax_usd", label: "Reported withholding tax", group: "profitability" },
+  { name: "rpt_store_fee_usd", label: "Reported store fee", group: "profitability" },
+  { name: "rpt_partner_fees_usd", label: "Reported partner fees", group: "profitability" },
+  { name: "rpt_partner_share_usd", label: "Reported partner share", group: "profitability" },
+  { name: "rpt_partner_share_app_usd", label: "Reported partner share (app)", group: "profitability" },
+  { name: "rpt_partner_share_transsion_usd", label: "Reported partner share (Transsion)", group: "profitability" },
 ];
 
 const LABEL_BY_NAME = new Map(REPORT_METRICS.map((m) => [m.name, m.label]));
