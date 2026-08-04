@@ -186,6 +186,46 @@ async def test_fact_schema_sync_adds_unclassified_column(
     assert "new_kpi" in cols
 
 
+async def test_reconcile_does_not_rereport_inactive_columns(
+    metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A vanished column is reported 'deactivated' ONCE — the next reconcile is quiet
+    ('Already in sync'), not a permanent re-report/notification on every click."""
+    monkeypatch.setattr(integration_service, "_bq_key_present", lambda _s: True)
+    async with metrics_env.sessionmaker() as s:
+        await s.execute(
+            insert(DynamicColumn).values(
+                table_kind="fact",
+                name="gone_metric",
+                pg_type="BIGINT",
+                bq_type="INT64",
+                active=True,
+            )
+        )
+        await s.commit()
+
+    actual = {c.name: c.bq_type for c in metric_registry.REGISTRY}  # gone_metric absent
+
+    def fake_run(key_path: str, project: str, view: str) -> tuple[dict[str, str] | None, None]:
+        return (actual, None)
+
+    monkeypatch.setattr(integration_service, "_run_schema_diff", fake_run)
+
+    first = (
+        await metrics_env.client.post(
+            "/api/v1/admin/integration/schema-sync", headers=_auth("admin")
+        )
+    ).json()
+    assert first["deactivated"] == ["gone_metric"]
+
+    second = (
+        await metrics_env.client.post(
+            "/api/v1/admin/integration/schema-sync", headers=_auth("admin")
+        )
+    ).json()
+    assert second["deactivated"] == []  # already inactive — not re-reported
+
+
 async def test_fact_schema_sync_deactivates_promoted_column(
     metrics_env: MetricsEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:

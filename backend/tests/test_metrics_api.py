@@ -170,6 +170,24 @@ async def test_breakdown_by_pod(metrics_env: MetricsEnv) -> None:
     ]
 
 
+async def test_breakdown_cache_respects_metric_order(metrics_env: MetricsEnv) -> None:
+    """[A, B] and [B, A] are DIFFERENT results (sort + top-N follow metrics[0]) — they must
+    not share a cache entry. Regression for the Explore-era cache collision."""
+    for metrics in (
+        ["total_revenue_usd", "store_total_installs"],
+        ["store_total_installs", "total_revenue_usd"],
+    ):
+        resp = await metrics_env.client.get(
+            "/api/v1/metrics/breakdown",
+            params={**RANGE, "group_by": "app", "metrics": metrics},
+            headers=_auth("admin"),
+        )
+        assert resp.status_code == 200
+    agg_keys = [k async for k in metrics_env.redis.scan_iter(match="agg:*")]
+    # Two distinct cache entries — the reversed order did NOT reuse the first key.
+    assert len(agg_keys) == 2
+
+
 async def test_table_keyset_pagination(metrics_env: MetricsEnv) -> None:
     page1 = await metrics_env.client.get(
         "/api/v1/metrics/table",

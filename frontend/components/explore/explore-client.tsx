@@ -76,7 +76,11 @@ export function ExploreClient() {
 
   function addMetric(name: string) {
     setMetrics((prev) => {
-      const base = prev.length > 0 ? prev : effectiveMetrics;
+      // Filter by CURRENT permissions: metrics revoked mid-session must not linger in the
+      // raw state and silently block adds against the MAX_METRICS cap.
+      const base = (prev.length > 0 ? prev : effectiveMetrics).filter((m) =>
+        allPermitted.has(m),
+      );
       if (base.includes(name) || base.length >= MAX_METRICS) return base;
       return [...base, name];
     });
@@ -215,16 +219,26 @@ export function ExploreClient() {
                     </td>
                   </tr>
                 )}
-                {!query.isLoading && !query.isError && rows.length === 0 && (
+                {effectiveMetrics.length === 0 && !query.isLoading && (
                   <tr>
-                    <td
-                      className="px-3 py-6 text-center text-muted-foreground"
-                      colSpan={1 + effectiveMetrics.length}
-                    >
-                      No data for the selected filters
+                    <td className="px-3 py-6 text-center text-muted-foreground" colSpan={1}>
+                      {me ? "No permitted metrics to show." : "Loading your permissions…"}
                     </td>
                   </tr>
                 )}
+                {effectiveMetrics.length > 0 &&
+                  !query.isLoading &&
+                  !query.isError &&
+                  rows.length === 0 && (
+                    <tr>
+                      <td
+                        className="px-3 py-6 text-center text-muted-foreground"
+                        colSpan={1 + effectiveMetrics.length}
+                      >
+                        No data for the selected filters
+                      </td>
+                    </tr>
+                  )}
                 {rows.map((row, i) => (
                   <tr key={i} className="border-b border-border-faint hover:bg-accent">
                     <td className="whitespace-nowrap px-3 py-2 font-medium">

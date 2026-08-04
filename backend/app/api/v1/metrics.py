@@ -121,11 +121,13 @@ async def timeseries(
     bucket: Bucket = "day",
 ) -> dict[str, Any]:
     qb = QueryBuilder(context)
+    # Ordered metrics in the key (not sorted): the cached payload embeds the request's
+    # metric order ("metrics" field + series keys), so different orders must not share it.
     key = aggregate_cache_key(
         "metrics.timeseries",
         scope_token(context.scopes),
         perms_token(context.metric_groups),
-        _params(filters, metrics=sorted(metrics), bucket=bucket),
+        _params(filters, metrics=metrics, bucket=bucket),
     )
 
     async def produce() -> dict[str, Any]:
@@ -149,11 +151,14 @@ async def breakdown(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, Any]:
     qb = QueryBuilder(context)
+    # The key uses the ORDERED metrics list, not a sorted set: the SQL sorts by metrics[0]
+    # and truncates to `limit`, so [A, B] and [B, A] are genuinely different results —
+    # sharing one cache entry served rows sorted (and top-N'd) by the wrong metric.
     key = aggregate_cache_key(
         "metrics.breakdown",
         scope_token(context.scopes),
         perms_token(context.metric_groups),
-        _params(filters, group_by=group_by, metrics=sorted(metrics), limit=limit),
+        _params(filters, group_by=group_by, metrics=metrics, limit=limit),
     )
 
     async def produce() -> dict[str, Any]:

@@ -242,7 +242,10 @@ async def reconcile(
     #    the name twice ("DuplicateColumn … specified more than once" → failed sync daily).
     #    The static column serves the data from here on; nothing is dropped.
     for name, col in tracked.items():
-        if (col.active and name in static_names) or name not in bq_lower:
+        # Only rows that are CURRENTLY active can be "newly deactivated" — an already-inactive
+        # row must not be re-reported on every reconcile (it spammed the admin notification and
+        # made the "Already in sync" state unreachable once any column had ever vanished).
+        if col.active and (name in static_names or name not in bq_lower):
             col.active = False
             deactivated.append(name)
 
