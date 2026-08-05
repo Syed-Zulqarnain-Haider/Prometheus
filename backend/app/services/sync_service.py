@@ -204,8 +204,11 @@ async def _drain_local(proc: asyncio.subprocess.Process) -> None:
     starts. The child's lock is the real mutual exclusion for the duration of a run.
     """
     try:
-        if proc.stdout is not None:
-            async for raw in proc.stdout:
+        # getattr, not proc.stdout: a stubbed process in tests may not define the attribute
+        # at all, and losing the exit-code check to an AttributeError would be silly.
+        stdout = getattr(proc, "stdout", None)
+        if stdout is not None:
+            async for raw in stdout:
                 line = raw.decode(errors="replace").rstrip()
                 if line:
                     log.info("[sync] %s", line)
