@@ -6,10 +6,15 @@ run the sync locally (BigQuery reader key mounted + ``SYNC_PG_DSN`` + a GCP proj
 the vendored ``sync/sync_job.py`` as a subprocess; otherwise report an honest
 'not configured' result (never a faked success).
 
+Locking: the backend takes a Postgres SESSION advisory lock ONLY to serialize the trigger
+decision, and RELEASES it before the spawned job starts. ``sync/sync_job.py`` takes the
+same key itself and no-ops if it cannot get it, so a lock held across the spawn made every
+backend-triggered run a silent no-op — the child always lost to its own parent.
+
 Exactly-once-per-day is guaranteed regardless of how many backend instances run the
-scheduler: every run is wrapped in a Postgres SESSION advisory lock, and the scheduler
-additionally passes ``skip_if_ran_after`` so that — re-checked UNDER the lock — a second
-instance that wins the race still won't double-run for the same day. That check is
+scheduler: the advisory lock serializes triggers, the job's own lock serializes runs, and
+the scheduler additionally passes ``skip_if_ran_after`` so that — re-checked UNDER the
+lock — a second instance that wins the race still won't double-run for the day. That check is
 status-aware: a SUCCESSFUL run ends the day, an in-flight run blocks while it lasts, but a
 FAILED run is retried (after a backoff) instead of wedging the pipeline until tomorrow.
 
@@ -187,14 +192,16 @@ async def _release_and_close(db: AsyncSession) -> None:
         await db.close()
 
 
-async def _finalize_local(proc: asyncio.subprocess.Process, lock_db: AsyncSession) -> None:
-    """Background: stream the sync's own output into the backend log, await it, then release
-    the lock it holds. Holding the lock for the subprocess's lifetime is what makes a
-    concurrent run report 'already running' until this one finishes.
+async def _drain_local(proc: asyncio.subprocess.Process) -> None:
+    """Background: stream the sync's own output into the backend log and await its exit.
 
     Draining the pipe is REQUIRED, not just useful: with ``stdout=PIPE`` an undrained pipe
     would eventually block the child. It is also the only way a crash before the job writes
     its ``sync_runs`` row is ever visible.
+
+    This deliberately does NOT hold the advisory lock: the job takes the SAME key itself
+    and no-ops when it cannot acquire it, so ``run_sync`` must release before the child
+    starts. The child's lock is the real mutual exclusion for the duration of a run.
     """
     try:
         if proc.stdout is not None:
@@ -207,10 +214,8 @@ async def _finalize_local(proc: asyncio.subprocess.Process, lock_db: AsyncSessio
             log.error("local sync exited with code %s", returncode)
         else:
             log.info("local sync finished cleanly")
-    except Exception:  # noqa: BLE001 — the lock MUST still be released below
-        log.exception("local sync finalizer failed")
-    finally:
-        await _release_and_close(lock_db)
+    except Exception:  # noqa: BLE001 — a drain failure must never escape the background task
+        log.exception("local sync output drain failed")
 
 
 async def run_sync(
@@ -269,10 +274,16 @@ async def run_sync(
         proc = await _spawn_local(
             settings, gcp_project, bq_view, mode, window_days, start_date, end_date
         )
-        task = asyncio.create_task(_finalize_local(proc, lock_db))
+        # Release OUR lock BEFORE the child reaches for it. sync_job.py takes the SAME key
+        # (its SYNC_ADVISORY_LOCK_KEY == _SYNC_LOCK_KEY) and cleanly no-ops when it cannot
+        # acquire it — so holding this across the spawn made EVERY backend-triggered run a
+        # silent do-nothing ("another sync holds the advisory lock — skipping"). Our lock
+        # only serializes the trigger decision above; the child's lock guards the run.
+        await _release_and_close(lock_db)
+        handed_off = True
+        task = asyncio.create_task(_drain_local(proc))
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_TASKS.discard)
-        handed_off = True
         return SyncTriggerResult(triggered=True, configured=True, message="Sync started.")
     finally:
         if not handed_off:
