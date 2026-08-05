@@ -9,18 +9,22 @@ the vendored ``sync/sync_job.py`` as a subprocess; otherwise report an honest
 Exactly-once-per-day is guaranteed regardless of how many backend instances run the
 scheduler: every run is wrapped in a Postgres SESSION advisory lock, and the scheduler
 additionally passes ``skip_if_ran_after`` so that — re-checked UNDER the lock — a second
-instance that wins the race still won't double-run for the same day.
+instance that wins the race still won't double-run for the same day. That check is
+status-aware: a SUCCESSFUL run ends the day, an in-flight run blocks while it lasts, but a
+FAILED run is retried (after a backoff) instead of wedging the pipeline until tomorrow.
 
 Security: the subprocess loads the BigQuery key EXPLICITLY from ``bq_credentials_path``
 (set as the child's ``GOOGLE_APPLICATION_CREDENTIALS`` — a SEPARATE identity from the
 backend's own Firebase credentials, which are left untouched). Child stdout/stderr are
-discarded so a DSN or credential can never reach the backend logs; the authoritative,
-sanitized record is the ``sync_runs`` row the job writes itself.
+STREAMED INTO THE BACKEND LOG (prefixed ``[sync]``): the job logs no DSN or credential, only
+mode/warnings/row counts, and discarding them previously made a day-long outage invisible.
+The authoritative, sanitized record remains the ``sync_runs`` row the job writes itself.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -47,6 +51,21 @@ _SYNC_LOCK_KEY = 0x70726F6D
 
 # Strong refs to in-flight local-sync finalizers so the loop never GCs them mid-run.
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+# Scheduler skip rule. A run at/after the scheduled instant blocks a re-fire ONLY when it
+# succeeded, is genuinely still in flight, or failed very recently:
+#   * status='success'                      -> today's run is done, stop for the day
+#   * status='running' and started < 2h ago -> a real run is in progress (a stranded
+#                                              'running' row therefore cannot wedge us)
+#   * any run started < 30 min ago          -> backoff, so a crash retries periodically
+#                                              instead of every 60s (or never at all)
+_SKIP_SQL = (
+    "SELECT 1 FROM sync_runs WHERE started_at >= :t AND ("
+    "  status = 'success'"
+    "  OR (status = 'running' AND started_at > now() - interval '2 hours')"
+    "  OR started_at > now() - interval '30 minutes'"
+    ") LIMIT 1"
+)
 
 _NOT_CONFIGURED_MSG = (
     "Data source not configured — set SYNC_TRIGGER_URL, or mount the BigQuery reader key "
@@ -91,7 +110,15 @@ def _local_run_configured(settings: Settings, gcp_project: str) -> bool:
         return False
 
 
-def _child_env(settings: Settings, gcp_project: str, bq_view: str) -> dict[str, str]:
+def _child_env(
+    settings: Settings,
+    gcp_project: str,
+    bq_view: str,
+    mode: str,
+    window_days: int,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict[str, str]:
     """Environment for the vendored sync subprocess. Overrides GOOGLE_APPLICATION_
     CREDENTIALS with the BigQuery reader key (NOT the backend's Firebase key)."""
     env = dict(os.environ)
@@ -100,12 +127,24 @@ def _child_env(settings: Settings, gcp_project: str, bq_view: str) -> dict[str, 
     env["BQ_VIEW"] = bq_view
     env["PG_DSN"] = settings.sync_pg_dsn or ""
     env["REDIS_URL"] = settings.redis_url
+    env["SYNC_MODE"] = mode
+    env["SYNC_WINDOW_DAYS"] = str(window_days)
+    env["SYNC_START_DATE"] = start_date or ""
+    env["SYNC_END_DATE"] = end_date or ""
+    # Unbuffered, so the child's log lines reach our reader as they happen rather than
+    # only at exit — a job that dies early must still show why.
+    env["PYTHONUNBUFFERED"] = "1"
     return env
 
 
-def _post_trigger(url: str, token: str | None) -> tuple[bool, str]:
-    """Blocking POST to the operator-configured sync-trigger URL (run in a thread)."""
-    request = urllib.request.Request(url, data=b"{}", method="POST")  # noqa: S310 — operator URL
+def _post_trigger(
+    url: str, token: str | None, mode: str = "incremental", window_days: int = 40
+) -> tuple[bool, str]:
+    """Blocking POST to the operator-configured sync-trigger URL (run in a thread). The mode
+    + window are sent in the body so a Cloud Run Job endpoint can honor them (forward-compat;
+    the vendored local job reads them from env)."""
+    body = json.dumps({"mode": mode, "window_days": window_days}).encode()
+    request = urllib.request.Request(url, data=body, method="POST")  # noqa: S310 — operator URL
     request.add_header("Content-Type", "application/json")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -119,17 +158,24 @@ def _post_trigger(url: str, token: str | None) -> tuple[bool, str]:
 
 
 async def _spawn_local(
-    settings: Settings, gcp_project: str, bq_view: str
+    settings: Settings,
+    gcp_project: str,
+    bq_view: str,
+    mode: str,
+    window_days: int,
+    start_date: str | None,
+    end_date: str | None,
 ) -> asyncio.subprocess.Process:
-    """Spawn the vendored sync subprocess. stdout/stderr are discarded so no DSN or
-    credential can leak into the backend logs; the job records its own ``sync_runs`` row."""
+    """Spawn the vendored sync subprocess with its output piped back to us, so
+    ``_finalize_local`` can stream the job's own log into the backend log."""
+    log.info("spawning local sync: mode=%s window_days=%s view=%s", mode, window_days, bq_view)
     return await asyncio.create_subprocess_exec(
         sys.executable,
         str(_SYNC_JOB),
-        env=_child_env(settings, gcp_project, bq_view),
+        env=_child_env(settings, gcp_project, bq_view, mode, window_days, start_date, end_date),
         cwd=str(_SYNC_JOB.parent),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
 
 
@@ -142,13 +188,27 @@ async def _release_and_close(db: AsyncSession) -> None:
 
 
 async def _finalize_local(proc: asyncio.subprocess.Process, lock_db: AsyncSession) -> None:
-    """Background: await the running sync, then release the lock it holds. Holding the
-    lock for the subprocess's lifetime is what makes a concurrent run report 'already
-    running' until this one finishes."""
+    """Background: stream the sync's own output into the backend log, await it, then release
+    the lock it holds. Holding the lock for the subprocess's lifetime is what makes a
+    concurrent run report 'already running' until this one finishes.
+
+    Draining the pipe is REQUIRED, not just useful: with ``stdout=PIPE`` an undrained pipe
+    would eventually block the child. It is also the only way a crash before the job writes
+    its ``sync_runs`` row is ever visible.
+    """
     try:
+        if proc.stdout is not None:
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").rstrip()
+                if line:
+                    log.info("[sync] %s", line)
         returncode = await proc.wait()
         if returncode != 0:
-            log.warning("local sync exited with code %s", returncode)
+            log.error("local sync exited with code %s", returncode)
+        else:
+            log.info("local sync finished cleanly")
+    except Exception:  # noqa: BLE001 — the lock MUST still be released below
+        log.exception("local sync finalizer failed")
     finally:
         await _release_and_close(lock_db)
 
@@ -159,6 +219,10 @@ async def run_sync(
     *,
     gcp_project: str,
     bq_view: str,
+    mode: str = "incremental",
+    window_days: int = 40,
+    start_date: str | None = None,
+    end_date: str | None = None,
     skip_if_ran_after: datetime | None = None,
 ) -> SyncTriggerResult:
     """Trigger the sync once, under a Postgres advisory lock. Returns as soon as the sync
@@ -166,8 +230,9 @@ async def run_sync(
     local path spawns the subprocess and hands the lock to a background finalizer. Honest
     'not configured' when no execution path is available — never a faked success.
 
-    ``skip_if_ran_after`` (scheduler only): if a ``sync_runs`` row already started at/after
-    this instant, skip — so the daily run fires exactly once even across instances.
+    ``skip_if_ran_after`` (scheduler only): skip when a ``sync_runs`` row at/after this
+    instant shows the day is already handled — see ``_SKIP_SQL``. A FAILED run does not
+    count as handled, so a crash is retried rather than blocking until tomorrow.
     """
     trigger_url = settings.sync_trigger_url
     has_local = _local_run_configured(settings, gcp_project)
@@ -185,17 +250,14 @@ async def run_sync(
     handed_off = False
     try:
         if skip_if_ran_after is not None:
-            already = await lock_db.scalar(
-                text("SELECT 1 FROM sync_runs WHERE started_at >= :t LIMIT 1"),
-                {"t": skip_if_ran_after},
-            )
+            already = await lock_db.scalar(text(_SKIP_SQL), {"t": skip_if_ran_after})
             if already:
                 return SyncTriggerResult(
                     triggered=False, configured=True, message="A sync already ran for this period."
                 )
         if trigger_url:  # delegate to the configured Cloud Run Job execution endpoint
             ok, detail = await anyio.to_thread.run_sync(
-                _post_trigger, trigger_url, settings.sync_trigger_token
+                _post_trigger, trigger_url, settings.sync_trigger_token, mode, window_days
             )
             if ok:
                 return SyncTriggerResult(triggered=True, configured=True, message="Sync triggered.")
@@ -204,7 +266,9 @@ async def run_sync(
             )
         # Local: kick off the subprocess and hand the lock to a background finalizer so
         # the request/scheduler tick returns immediately instead of blocking on the run.
-        proc = await _spawn_local(settings, gcp_project, bq_view)
+        proc = await _spawn_local(
+            settings, gcp_project, bq_view, mode, window_days, start_date, end_date
+        )
         task = asyncio.create_task(_finalize_local(proc, lock_db))
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_TASKS.discard)
