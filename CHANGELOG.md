@@ -5,6 +5,60 @@ matters — **how to tell it's working**, so an incident can be traced back late
 
 ---
 
+## 2026-08-06 (later)
+
+### Filters — a split-screen panel, a Clear button, and a real date picker
+
+**Split-screen filter panel** (`components/filters/filter-panel.tsx`). The dashboard stays
+visible on the left, every filter is on the right, opened from a **Filters** button carrying
+the active count. It edits a private draft and **Apply** produces exactly one URL write and
+one refetch — the inline dropdowns commit per click, so setting up a ten-dimension view used
+to mean ten round trips. Each dimension is a collapsible section with its own search,
+`Showing N of M`, and Select/Deselect shown, which act on the *filtered* list. Apply is
+disabled until something actually changed, so it can't fire a no-op refetch.
+
+**Clear filters.** `activeFilterCount()` in `lib/filters.ts` iterates `LIST_FILTER_KEYS`
+rather than a hand-written list, so a new dimension can't go uncounted. The button appears
+only when something is applied — a permanently-visible "Clear" on an unfiltered page reads
+as broken.
+
+**Date range picker rebuilt** to the Looker layout: preset list, start/end inputs, month
+calendar with range highlighting, prev/next + jump-to-month, an inline Compare checkbox (it
+was a separate button in the bar), Cancel/Apply. The old version fired `onChange` on every
+keystroke and every preset click, so each interaction rewrote the URL and refetched every
+chart on the page — that was the "not smooth" complaint. Future dates are disabled; an
+inverted range blocks Apply with a message instead of being queried.
+
+**Named presets are now recomputed, not read back from the URL.** A bookmark or saved view
+carrying `preset=today&from=2026-08-05` rendered yesterday's numbers under a "Today so far"
+label. `parseFilters()` derives the range from the preset and trusts stored dates only when
+`preset=custom`.
+
+**Dimension list centralised** in `components/filters/dimensions.ts` — order, labels and
+option sources in one place, rendered by both the bar and the panel so they can't disagree.
+Apps now leads the list.
+
+### Responsive
+
+- Filter bar: Date · Filters · Platform · Clear · Saved views at every width; the ten inline
+  dropdowns show from `xl` up only.
+- Dropdowns disable only until the **first** options arrive. Keying that off `isFetching`
+  greyed out all ten on every background refresh, mid-click — most of why the filters felt
+  unreliable. A refresh is now a pulse on the Filters button.
+- Panel is full-width below `sm`, a 26rem drawer above.
+- `paid-organic-table` and `network-efficiency` tables scroll in their own container instead
+  of pushing the page sideways; the ROAS/Ad ROAS/CPI cards stack below `sm`.
+
+> **Not done:** the app shell. `sidebar.tsx` is `hidden md:block` with no mobile
+> alternative — there is no navigation below `md`. `header.tsx`, `sidebar.tsx` and
+> `app/(app)/layout.tsx` have all diverged from the GitHub mirror (the live layout has
+> `ChatWidget`, `CommandPalette` and `hideGlobalFilters`, none of which exist in the mirror),
+> so they were deliberately left untouched rather than overwritten from a stale copy.
+
+Verified with `tsc --noEmit`, `eslint` and a full `next build` — all clean.
+
+---
+
 ## 2026-08-06
 
 ### Charts — more control over how data is shown

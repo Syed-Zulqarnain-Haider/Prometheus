@@ -246,6 +246,64 @@ value**, so an app is findable by name or by key; already-selected items sort to
 ticked); only the option list scrolls, keeping the search box and Clear pinned. Selection,
 the `only` quick-pick, URL sync and the cascading option refresh are unchanged.
 
+**Apps leads the dimension list.** Order, labels and option sources for all ten dimensions
+live in one place — `components/filters/dimensions.ts` — and both the inline bar and the
+slide-over panel render from it, so the two can't drift apart.
+
+### Filter panel — set everything in one go
+`components/filters/filter-panel.tsx` is a **split-screen** panel: the dashboard stays
+visible on the left, every filter is on the right. Open it from the **Filters** button in
+the bar (it carries the active-filter count).
+
+- The panel edits a **private draft**; **Apply** produces exactly one URL write and one
+  refetch. The inline dropdowns commit per click, so setting up a ten-dimension view meant
+  ten round trips — this is the difference between "set up my view" and "wait ten times".
+- Each dimension is a collapsible section with its own search, a running
+  `Showing N of M`, and **Select shown / Deselect shown** — which act on the *filtered*
+  list, so "select all" after typing `puzzle` means all puzzle apps, not all 150.
+- Date range (the picker below) and Platform sit at the top; **Clear all** resets the draft;
+  **Cancel** discards it. Escape closes, and an abandoned edit is never carried forward.
+- Apply is disabled until something actually changed, so the panel can't fire a no-op
+  refetch.
+
+### Clear filters
+A **Clear filters (N)** button appears in the bar only when something is applied, and resets
+the date range, Compare, Platform and every dimension to their defaults in one click. The
+count comes from `activeFilterCount()` in `lib/filters.ts`, which iterates `LIST_FILTER_KEYS`
+rather than a hand-written list — adding a dimension to `Filters` and forgetting to count it
+is not possible.
+
+### Date range picker
+`components/filters/date-range-picker.tsx` is a Looker-style range picker: preset list down
+the left, start/end inputs, a month calendar with the selected range highlighted, prev/next
+arrows and a jump-to-month dropdown, a **Compare to previous period** checkbox, and
+Cancel/Apply.
+
+**Nothing commits until Apply.** The previous version called `onChange` on every keystroke
+and every preset click, so each interaction rewrote the URL and refetched every chart on the
+page — that is what made picking a range feel jumpy. The popover now owns a draft and the
+page sees a single update. Dates after today are disabled (there is no data ahead of the
+sync), and an inverted range blocks Apply with a message rather than silently querying it.
+
+**Named presets are recomputed, never read back from the URL.** A bookmark or saved view
+carrying `preset=today&from=2026-08-05` used to render yesterday's numbers under a "Today so
+far" label. `parseFilters()` now derives the range from the preset and only trusts stored
+dates when `preset=custom` — the label is the intent, the dates are just its cache.
+
+### Responsive layout
+- The filter bar keeps **Date · Filters · Platform · Clear · Saved views** at every width;
+  the ten inline dropdowns appear from `xl` up and are hidden below it, where the panel is
+  the way in. Ten dropdowns wrapped onto a phone is not a filter bar.
+- Dropdowns are disabled only until the **first** set of options arrives. Keying that off
+  `isFetching` greyed out all ten on every background refresh, mid-click; a refresh now
+  shows as a pulse on the Filters button instead.
+- The panel is full-width below `sm` and a 26rem drawer above it.
+- Wide tables scroll inside their own container (`overflow-x-auto`) rather than pushing the
+  page sideways; the ROAS/Ad ROAS/CPI cards stack on narrow screens.
+
+> Open: the **app shell** (sidebar, header, page grids) is not part of this pass. The sidebar
+> is `hidden md:block` with no mobile alternative, so there is no navigation below `md`.
+
 ### Chart controls — "Adjust chart"
 Every chart derives what's adjustable from its own ECharts `option`, and the viewer's
 choices are applied as a **pure transform** (`lib/chart-adjust.ts`) — no chart was rewritten,

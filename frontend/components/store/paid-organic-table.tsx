@@ -24,7 +24,7 @@ export function PaidOrganicTable({ filters }: { filters: Filters }) {
       <CardHeader>
         <CardTitle>Paid vs Organic by App</CardTitle>
       </CardHeader>
-      <CardContent className="px-0">
+      <CardContent className="overflow-x-auto px-0">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-[11px] uppercase tracking-wider text-muted-foreground">
