@@ -66,7 +66,12 @@ export function Chart({
   onEvents,
   adjustable = true,
 }: ChartProps) {
-  const [adjustments, setAdjustments] = useState<Adjustments>(DEFAULT_ADJUSTMENTS);
+  // Sparklines (under 100px) host no controls, so the house bar default would be a change
+  // the viewer couldn't undo — and a 60px bar chart reads worse than a 60px line. They keep
+  // the author's shape; every full-size chart gets bars.
+  const [adjustments, setAdjustments] = useState<Adjustments>(() =>
+    height >= 100 ? DEFAULT_ADJUSTMENTS : { ...DEFAULT_ADJUSTMENTS, type: "auto" },
+  );
   const [heightOverride, setHeightOverride] = useState<number | null>(null);
 
   const capabilities = useMemo(() => detectCapabilities(option), [option]);

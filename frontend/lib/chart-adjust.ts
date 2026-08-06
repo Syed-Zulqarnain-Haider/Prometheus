@@ -143,8 +143,13 @@ export interface Adjustments {
   transform: TransformMode;
 }
 
+/** House default for every convertible chart. Owner decision: the dashboard reads as bars,
+ *  not lines. "auto" (the chart author's own shape) is still one click away in the panel,
+ *  and charts that mix types deliberately are left alone — see ``applyAdjustments``. */
+export const DEFAULT_CHART_TYPE: TypeOverride = "bar";
+
 export const DEFAULT_ADJUSTMENTS: Adjustments = {
-  type: "auto",
+  type: DEFAULT_CHART_TYPE,
   scale: "auto",
   hidden: [],
   stack: "none",
@@ -152,15 +157,17 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = {
   transform: "none",
 };
 
-/** Is any adjustment active? (Drives the "modified" dot on the control button.) */
+/** Is any adjustment active? (Drives the "modified" dot on the control button.)
+ *  Compared against the defaults rather than hardcoded "auto", so the house bar default
+ *  doesn't light up every chart as "modified". */
 export function isAdjusted(a: Adjustments): boolean {
   return (
-    a.type !== "auto" ||
-    a.scale !== "auto" ||
+    a.type !== DEFAULT_ADJUSTMENTS.type ||
+    a.scale !== DEFAULT_ADJUSTMENTS.scale ||
     a.hidden.length > 0 ||
-    a.stack !== "none" ||
-    a.labels ||
-    a.transform !== "none"
+    a.stack !== DEFAULT_ADJUSTMENTS.stack ||
+    a.labels !== DEFAULT_ADJUSTMENTS.labels ||
+    a.transform !== DEFAULT_ADJUSTMENTS.transform
   );
 }
 
@@ -284,7 +291,11 @@ export function applyAdjustments(option: EChartsOption, adj: Adjustments): EChar
 
   if (percent) series = toPercent(series);
 
-  if (adj.type !== "auto") {
+  // Retype only when EVERY series is convertible. A chart that mixes types on purpose — bars
+  // plus a trend or break-even line, or a scatter with an overlay — keeps the shape its
+  // author gave it, and is exactly the chart whose type switcher we don't offer either
+  // (``canSwitchType`` gates the control), so nothing becomes unswitchable.
+  if (adj.type !== "auto" && caps.canSwitchType) {
     series = series.map((s) => retypeSeries(s, adj.type as Exclude<TypeOverride, "auto">));
   }
 
