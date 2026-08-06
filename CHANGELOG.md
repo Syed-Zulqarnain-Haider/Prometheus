@@ -7,6 +7,27 @@ matters — **how to tell it's working**, so an incident can be traced back late
 
 ## 2026-08-06 (later)
 
+### Admin — row scopes are picked, not typed
+
+`components/admin/scope-editor.tsx`. The scope **type** was already a dropdown; the **value**
+was a free-text box, so granting access to an app meant knowing its canonical key by heart
+and a typo produced a grant that silently matched nothing.
+
+- The value is now a searchable picker fed from `/apps` — the **dimension** table, so a pod
+  or publisher with no rows in the current date window still appears. A scope grant is about
+  the org chart, not about who happened to have revenue last month.
+- Apps list by **name**, with the canonical key on hover; hou / pod / publisher list their
+  distinct values, sorted.
+- It stays typeable on purpose. A grant may legitimately name a pod or publisher that has no
+  apps mapped to it yet — something the old free-text field could express. Typing a value the
+  list doesn't contain offers **Use "…" anyway** rather than silently dropping it.
+- Changing the scope type now clears the value. It used to carry across, and a pod name is
+  not a publisher name — that quietly granted something nobody chose.
+- `all` shows "— whole org" instead of a disabled empty box.
+- A stored value the list doesn't recognise is still displayed, never blanked.
+
+Used by both the users panel and the access-requests panel, so both get it.
+
 ### Fixed — two of the four frontend bugs from the review
 
 **The UA "CPI vs Install Volume" chart was blank, and the break-even ROAS line never drew.**
