@@ -9,15 +9,30 @@ and the dashboard keeps serving yesterday's data with a visible freshness banner
   2. validate view schema vs metric_registry  → mismatch: 'schema_mismatch', alert, STOP
   3. stream view → fact_daily_performance_staging (COPY, batched)
   4. integrity checks (row delta ±30%, freshness, 7-day revenue penny-match vs BQ)
-  5. UPSERT staging → fact_daily_performance by natural key (date, platform, app_key)
-     in one transaction — history ACCUMULATES (never a destructive swap/replace)
+  5. collapse per-channel rows to one row per (date, platform, app_key), then merge staging
+     → fact_daily_performance in one transaction — history ACCUMULATES (never a
+     destructive swap/replace)
   6. refresh dim_app, re-grant SELECT to api_service, drop staging
   7. bust Redis 'agg:*' keys
   8. record success + bq_built_at  (the UI's "data as of")
 
+The source emits one row per app-day PER CHANNEL (e.g. `store`/Google Play and
+`dlight`/Dlightek). The fact table stores one row per (date, platform, app_key), so those
+rows are SUMMED into a single row before the merge — measures added, derived ratios
+recomputed from the summed components. (This previously kept only the richest row and
+discarded the rest, silently losing ~1.5% of gross revenue a month.)
+
+Two modes (SYNC_MODE):
+  • 'incremental' (default, the daily job): pull only the last SYNC_WINDOW_DAYS days from the
+    view and OVERWRITE that window in Postgres (delete those dates + reload) — so revised
+    recent numbers get corrected and rows that disappeared are removed. Older data untouched.
+  • 'full' (the on-demand backfill button): pull ALL history and UPSERT/accumulate — never
+    deletes anything.
+
 Env vars (all injected from Secret Manager / job config — never hardcoded):
   GCP_PROJECT, BQ_VIEW (default terafort.api.daily_performance_v1),
   PG_DSN (postgresql://sync_service:...@<private-ip>:5432/terafort?sslmode=require),
+  SYNC_MODE ('incremental'|'full', default 'incremental'), SYNC_WINDOW_DAYS (default 40),
   REDIS_URL (optional), ALERT_WEBHOOK_URL (optional Slack/Chat webhook)
 """
 from __future__ import annotations
@@ -27,6 +42,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import urllib.request
 from datetime import date, timedelta
@@ -35,8 +51,9 @@ import psycopg
 from google.cloud import bigquery
 
 from metric_registry import (
-    COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, expected_bq_schema,
-    generate_fact_ddl, generate_indexes, generate_upsert_sql,
+    COLUMN_NAMES, OPTIONAL_SOURCE_COLUMNS, SOURCE_EXPR, expected_bq_schema,
+    generate_fact_ddl, generate_indexes, generate_merge_rows_sql, generate_upsert_sql,
+    optional_default_expr,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -44,9 +61,16 @@ log = logging.getLogger("sync")
 
 FACT = "fact_daily_performance"
 STAGING = f"{FACT}_staging"
+# Advisory-lock key shared with the backend (app/services/sync_service.py _SYNC_LOCK_KEY)
+# so a URL-triggered/scheduled run and an admin "Run Sync Now" can never overlap.
+SYNC_ADVISORY_LOCK_KEY = 0x70726F6D  # "prom"
 ROW_DELTA_TOLERANCE = 0.30
 FRESHNESS_MAX_LAG_DAYS = 3
 BATCH_ROWS = 20_000
+DEFAULT_WINDOW_DAYS = 40
+# If this share of loaded rows collapses during the channel merge, something has changed in
+# the source's grain — worth an alert even though the run succeeded.
+MERGE_ALERT_RATIO = 0.50
 
 
 def env(name: str, default: str | None = None) -> str:
@@ -107,25 +131,101 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
     return problems, set(actual)
 
 
+# Guard for dynamic (BigQuery-discovered) column names before they touch any DDL/SQL.
+_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+def fact_dynamic_columns(pg: psycopg.Connection) -> list[tuple[str, str]]:
+    """Active BigQuery-discovered fact columns as ``(name, pg_type)`` from the serving DB,
+    or ``[]`` if the ``dynamic_columns`` table doesn't exist yet (fresh DB / pre-migration).
+
+    These were adopted by the admin "Match Database & BigQuery Schema" button; the sync
+    loads their values so the columns aren't left NULL. Names are identifier-safe (validated
+    on insert by the API and re-checked here)."""
+    try:
+        with pg.cursor() as cur:
+            cur.execute(
+                "SELECT name, pg_type FROM dynamic_columns "
+                "WHERE table_kind = 'fact' AND active = true ORDER BY id"
+            )
+            rows = cur.fetchall()
+    except psycopg.Error:
+        pg.rollback()  # table absent or unreadable — proceed with registry columns only
+        return []
+    # A dynamic column can be PROMOTED into the static registry later (e.g. apple_account was
+    # adopted from BigQuery first, then added to the registry). If its dynamic_columns row is
+    # still active, naively appending it would put the column in the COPY list TWICE →
+    # `DuplicateColumn: column "…" specified more than once` and a failed sync every day.
+    # The registry version is authoritative — skip any overlap (and dedupe within dynamic).
+    registry_names = {c.lower() for c in COLUMN_NAMES}
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for name, pg_type in ((r[0], r[1]) for r in rows if _IDENT_RE.match(r[0])):
+        lname = name.lower()
+        if lname in registry_names:
+            log.info("dynamic column %r is now in the static registry — skipping (promoted)", name)
+            continue
+        if lname in seen:
+            continue
+        seen.add(lname)
+        out.append((name, pg_type))
+    return out
+
+
 # ── Step 3: load into staging ────────────────────────────────────────────────
+def _window_sql(since: date | None, until: date | None) -> str:
+    """A ``WHERE date …`` clause for the load window (``since``/``until`` are sync-computed
+    dates, never user input, so DATE literals are safe). Empty string = full table."""
+    conds = []
+    if since is not None:
+        conds.append(f"date >= '{since.isoformat()}'")
+    if until is not None:
+        conds.append(f"date <= '{until.isoformat()}'")
+    return (" WHERE " + " AND ".join(conds)) if conds else ""
+
+
 def load_staging(
-    bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str]
+    bq: bigquery.Client, pg: psycopg.Connection, view: str, present: set[str],
+    since: date | None = None, until: date | None = None,
+    dyn: list[tuple[str, str]] | None = None,
 ) -> int:
-    cols_sql = ", ".join(COLUMN_NAMES)
+    """Stream the view into staging. ``since``/``until`` restrict the pull to that date window
+    (incremental = rolling window; range = explicit start..end); both ``None`` pulls all.
+    ``dyn`` are BigQuery-discovered dynamic columns (name, pg_type) to also load."""
+    dyn = dyn or []
+    all_cols = [*COLUMN_NAMES, *[n for n, _ in dyn]]
+    cols_sql = ", ".join(all_cols)
     with pg.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
-        cur.execute(generate_fact_ddl(STAGING))
+        # Staging has NO primary key: the COPY must never crash on several source rows
+        # sharing a natural key (one per channel). They are SUMMED into a single row before
+        # the merge (see generate_merge_rows_sql); the LIVE table keeps its PK for the UPSERT.
+        cur.execute(generate_fact_ddl(STAGING, with_pk=False))
+        # Add the dynamic columns to staging so its shape matches the SELECT + COPY below.
+        for name, pg_type in dyn:
+            cur.execute(f'ALTER TABLE {STAGING} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
     pg.commit()
 
-    # Select every registry column from the view; for optional columns the view
-    # doesn't expose yet (e.g. tech_cost_usd) substitute a literal 0 so the column
-    # order/shape still matches the staging table.
-    select_terms = [
-        col if col in present else f"CAST(0 AS FLOAT64) AS {col}"
-        for col in COLUMN_NAMES
-    ]
-    rows_iter = bq.query(f"SELECT {', '.join(select_terms)} FROM `{view}`").result(
-        page_size=BATCH_ROWS)
+    # Build the SELECT term for each registry column, in order:
+    #   • computed columns (SOURCE_EXPR: pod cast + every derived metric) → their BigQuery
+    #     expression aliased to the column name. This is the view's old math, inlined — so
+    #     reading the raw source table directly (no view) never drops a derived metric.
+    #   • plain columns present in the source → selected by name.
+    #   • optional columns the source lacks (e.g. tech_cost_usd) → a type-matched literal
+    #     (0 for numerics, typed NULL for text) so the staging shape still lines up.
+    # Dynamic columns are selected by name (BigQuery resolves references case-insensitively).
+    select_terms = []
+    for col in COLUMN_NAMES:
+        if col in SOURCE_EXPR:
+            select_terms.append(f"{SOURCE_EXPR[col]} AS {col}")
+        elif col in present:
+            select_terms.append(col)
+        else:
+            select_terms.append(optional_default_expr(col))
+    select_terms += [name for name, _ in dyn]
+    rows_iter = bq.query(
+        f"SELECT {', '.join(select_terms)} FROM `{view}`{_window_sql(since, until)}"
+    ).result(page_size=BATCH_ROWS)
 
     total = 0
     copy_sql = f"COPY {STAGING} ({cols_sql}) FROM STDIN WITH (FORMAT csv, NULL '\\N')"
@@ -152,8 +252,11 @@ def load_staging(
 
 
 # ── Step 4: integrity checks ─────────────────────────────────────────────────
-def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
-                     view: str, rows_loaded: int, rows_previous: int | None) -> list[str]:
+def integrity_checks(
+    bq: bigquery.Client, pg: psycopg.Connection, view: str, rows_loaded: int,
+    rows_previous: int | None, since: date | None, until: date | None,
+    check_freshness: bool,
+) -> list[str]:
     problems: list[str] = []
 
     if rows_loaded == 0:
@@ -166,45 +269,107 @@ def integrity_checks(bq: bigquery.Client, pg: psycopg.Connection,
                 f"row count {rows_loaded} deviates {delta:.0%} from previous "
                 f"{rows_previous} (tolerance {ROW_DELTA_TOLERANCE:.0%})")
 
-    with pg.cursor() as cur:
-        cur.execute(f"SELECT MAX(date) FROM {STAGING}")
-        max_date: date | None = cur.fetchone()[0]
-    if max_date is None or (date.today() - max_date).days > FRESHNESS_MAX_LAG_DAYS:
-        problems.append(f"stale data: max(date)={max_date}")
+    # Freshness: skipped for an explicit historical range (its data is deliberately old).
+    if check_freshness:
+        with pg.cursor() as cur:
+            cur.execute(f"SELECT MAX(date) FROM {STAGING}")
+            max_date: date | None = cur.fetchone()[0]
+        if max_date is None or (date.today() - max_date).days > FRESHNESS_MAX_LAG_DAYS:
+            problems.append(f"stale data: max(date)={max_date}")
 
-    # Penny-exact 7-day revenue match between what BQ says and what we loaded.
-    since = (date.today() - timedelta(days=7)).isoformat()
+    # Penny-exact revenue match over exactly what we loaded (the window for a windowed load,
+    # else the last 7 days for a full backfill) — proves the load fetched every row. This runs
+    # BEFORE the channel merge, so staging still holds one row per source row and the two
+    # sides are directly comparable.
+    if since is not None:
+        bq_where = _window_sql(since, until)
+        pg_where, pg_params = " WHERE date >= %s", [since]
+        if until is not None:
+            pg_where, pg_params = " WHERE date >= %s AND date <= %s", [since, until]
+    else:
+        seven = (date.today() - timedelta(days=7)).isoformat()
+        bq_where = f" WHERE date >= '{seven}'"
+        pg_where, pg_params = " WHERE date >= %s", [seven]
     bq_sum = list(bq.query(
-        f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) "
-        f"FROM `{view}` WHERE date >= '{since}'").result())[0][0]
+        f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) FROM `{view}`{bq_where}"
+    ).result())[0][0]
     with pg.cursor() as cur:
-        cur.execute(f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) "
-                    f"FROM {STAGING} WHERE date >= %s", (since,))
+        cur.execute(
+            f"SELECT ROUND(COALESCE(SUM(total_revenue_usd),0),2) FROM {STAGING}{pg_where}",
+            tuple(pg_params))
         pg_sum = cur.fetchone()[0]
-    if float(bq_sum) != float(pg_sum):
-        problems.append(f"7-day revenue mismatch: BQ={bq_sum} PG={pg_sum}")
+    # Compare with a tolerance, not strict equality: BQ sums FLOAT64 then rounds, while PG
+    # truncates each value to NUMERIC(18,4) on load then sums — so two legitimately-equal
+    # loads can differ by a few cents. A small relative epsilon (0.01% of the sum, min 1 cent)
+    # avoids spurious aborts (false 'failed' + page) on a good load, while still catching real
+    # drift: a dropped/duplicated day moves the window sum by orders of magnitude more.
+    tolerance = max(0.01, abs(float(bq_sum)) * 1e-4)
+    if abs(float(bq_sum) - float(pg_sum)) > tolerance:
+        problems.append(f"revenue mismatch over window: BQ={bq_sum} PG={pg_sum}")
 
     return problems
 
 
-# ── Steps 5–6: UPSERT into the live fact table + dim_app refresh ──────────────
-def upsert_and_refresh(pg: psycopg.Connection) -> None:
-    """Merge the validated staging table into the LIVE fact table by natural key, so
-    history accumulates (never a destructive swap/replace). On a fresh DB the live table
-    is created first; on an existing deploy it is updated in place. Everything runs in one
-    transaction — a failure here rolls back and leaves the live data untouched."""
+# ── Steps 5–6: merge staging into the live fact table + dim_app refresh ───────
+def merge_and_refresh(
+    pg: psycopg.Connection, mode: str, since: date | None, until: date | None,
+    dyn: list[tuple[str, str]] | None = None,
+) -> int:
+    """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
+    Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
+
+    ``full``:                UPSERT by natural key — history accumulates, nothing is deleted.
+    ``incremental``/``range``: OVERWRITE the loaded date window — delete those dates in the
+                     fact table, then insert the freshly-pulled window. Data outside the window
+                     is untouched; rows that vanished from the source within it are removed too.
+    ``dyn`` are the BigQuery-discovered dynamic columns loaded into staging this run; they are
+    ensured on the live fact table and merged alongside the registry columns.
+
+    Returns the number of staging rows absorbed by the per-channel merge (rows in minus rows
+    out) — zero when the source already had one row per app-day."""
+    dyn = dyn or []
+    dyn_names = [n for n, _ in dyn]
+    all_cols = [*COLUMN_NAMES, *dyn_names]
     with pg.cursor() as cur:
         # First run / fresh DB: create the live table + indexes. We NEVER drop or replace
-        # it once it exists — the UPSERT below accumulates into it.
+        # the whole table once it exists.
         cur.execute("SELECT to_regclass(%s)", (FACT,))
         if cur.fetchone()[0] is None:
             cur.execute(generate_fact_ddl(FACT))
             for ddl in generate_indexes(FACT):
                 cur.execute(ddl)
+        # Ensure dynamic columns exist on the live table (reconcile adds them too, but the
+        # sync must be self-sufficient so it never inserts into a missing column).
+        for name, pg_type in dyn:
+            cur.execute(f'ALTER TABLE {FACT} ADD COLUMN IF NOT EXISTS "{name}" {pg_type}')
 
-        # UPSERT by (date, platform, app_key): existing (date, app) rows update in place,
-        # new dates append, and rows absent from today's view are retained.
-        cur.execute(generate_upsert_sql(FACT, STAGING))
+        # Collapse per-channel rows BEFORE merging (staging has no PK). The source emits one
+        # row per app-day per channel; the fact table holds one row per (date, platform,
+        # app_key), so the measures are SUMMED and the derived ratios recomputed from those
+        # sums. This also guarantees the UPSERT can't hit "cannot affect row a second time".
+        cur.execute(f"SELECT COUNT(*) FROM {STAGING}")
+        rows_before = cur.fetchone()[0]
+        for stmt in generate_merge_rows_sql(STAGING, dyn):
+            cur.execute(stmt)
+        cur.execute(f"SELECT COUNT(*) FROM {STAGING}")
+        rows_after = cur.fetchone()[0]
+        merged = max(0, rows_before - rows_after)
+        if merged:
+            log.info("merged %d per-channel row(s) into %d app-day row(s)", merged, rows_after)
+
+        if mode in ("incremental", "range") and since is not None:
+            # Replace the window atomically: delete the dates we re-pulled, then load the fresh
+            # copy. The DELETE bounds match the BigQuery WHERE, so the boundaries align exactly.
+            cols_sql = ", ".join(all_cols)
+            if until is not None:
+                cur.execute(f"DELETE FROM {FACT} WHERE date >= %s AND date <= %s", (since, until))
+            else:
+                cur.execute(f"DELETE FROM {FACT} WHERE date >= %s", (since,))
+            cur.execute(f"INSERT INTO {FACT} ({cols_sql}) SELECT {cols_sql} FROM {STAGING}")
+        else:
+            # Full backfill: UPSERT by (date, platform, app_key) — existing rows update in
+            # place, new dates append, and rows absent from the view are retained.
+            cur.execute(generate_upsert_sql(FACT, STAGING, dyn_names))
         cur.execute(f"GRANT SELECT ON {FACT} TO api_service")
 
         # dim_app: latest mapped attributes per app (read from the now-updated fact)
@@ -225,6 +390,45 @@ def upsert_and_refresh(pg: psycopg.Connection) -> None:
         # Staging has served its purpose (validation + integrity + the UPSERT source).
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
     pg.commit()
+    return merged
+
+
+# ── Step 6.5: housekeeping (reclaim space) ────────────────────────────────────
+def housekeeping(pg: psycopg.Connection) -> None:
+    """Keep Postgres from bloating. Best-effort — a permission or lock issue must NEVER fail
+    the sync (the data is already committed by the time we get here).
+
+    1. Optional audit_log retention: if AUDIT_RETENTION_DAYS is set, prune older rows (the
+       audit trail is the fastest-growing table — every request is logged).
+    2. VACUUM (ANALYZE) the fact table: the incremental sync deletes + reinserts the recent
+       window each run, leaving dead tuples; VACUUM reclaims that space for reuse so the
+       table reaches a stable size instead of growing every day.
+    """
+    retention = os.environ.get("AUDIT_RETENTION_DAYS", "").strip()
+    if retention.isdigit() and int(retention) > 0:
+        try:
+            with pg.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM audit_log WHERE created_at < now() - make_interval(days => %s)",
+                    (int(retention),),
+                )
+            pg.commit()
+            log.info("audit_log pruned to the last %s days", retention)
+        except Exception:  # noqa: BLE001
+            pg.rollback()
+            log.exception("audit_log retention failed (non-fatal)")
+
+    try:
+        pg.autocommit = True  # VACUUM cannot run inside a transaction block
+        with pg.cursor() as cur:
+            cur.execute(f"VACUUM (ANALYZE) {FACT}")
+            if retention.isdigit() and int(retention) > 0:
+                cur.execute("VACUUM (ANALYZE) audit_log")
+        log.info("VACUUM ANALYZE complete")
+    except Exception:  # noqa: BLE001
+        log.exception("VACUUM failed (non-fatal)")
+    finally:
+        pg.autocommit = False
 
 
 # ── Step 7: cache bust ───────────────────────────────────────────────────────
@@ -248,15 +452,62 @@ def bust_cache() -> None:
 # ── Orchestration ────────────────────────────────────────────────────────────
 def main() -> int:
     project = env("GCP_PROJECT")
-    view = env("BQ_VIEW", "terafort.api.daily_performance_v1")
+    # The sync reads the source table directly (no view). BQ_VIEW is still honored — it's set
+    # from the `bq_view` operational setting — but now points at project.dataset.table; the
+    # derived metrics the view used to compute are inlined into the load SELECT (SOURCE_EXPR).
+    view = env("BQ_VIEW", "terafort.Final_Staging_tables.unified_daily_performance")
+    mode = os.environ.get("SYNC_MODE", "incremental").strip().lower()
+    if mode not in ("incremental", "full", "range"):
+        mode = "incremental"
+    try:
+        window_days = max(1, int(os.environ.get("SYNC_WINDOW_DAYS", DEFAULT_WINDOW_DAYS)))
+    except ValueError:
+        window_days = DEFAULT_WINDOW_DAYS
+
+    # Resolve the load window [since, until] (inclusive). full = whole table; incremental =
+    # rolling last-N-days; range = an explicit start..end the admin chose.
+    since: date | None = None
+    until: date | None = None
+    if mode == "incremental":
+        since = date.today() - timedelta(days=window_days)
+    elif mode == "range":
+        start_raw = os.environ.get("SYNC_START_DATE", "").strip()
+        end_raw = os.environ.get("SYNC_END_DATE", "").strip()
+        try:
+            since = date.fromisoformat(start_raw) if start_raw else None
+            until = date.fromisoformat(end_raw) if end_raw else None
+        except ValueError:
+            since = until = None
+        if since is None:
+            log.error("range sync requires a valid SYNC_START_DATE; aborting")
+            return 2
+        if until is not None and until < since:
+            since, until = until, since  # tolerate a swapped range
+    log.info("sync mode=%s window_days=%s since=%s until=%s", mode, window_days, since, until)
+
     bq = bigquery.Client(project=project)
     pg = psycopg.connect(env("PG_DSN"))
 
+    # Self-guard: this job MUST NOT run concurrently with another sync (Cloud Run Jobs run in
+    # parallel by default, and the scheduled run can overlap an admin "Run Sync Now"). Two
+    # concurrent runs would DROP each other's staging mid-COPY and double-write the live
+    # window. A session-level advisory lock makes overlap a clean no-op instead of corruption.
+    # Key must match the backend's lock (app/services/sync_service.py SYNC_ADVISORY_LOCK_KEY).
     with pg.cursor() as cur:
-        cur.execute("INSERT INTO sync_runs DEFAULT VALUES RETURNING id")
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (SYNC_ADVISORY_LOCK_KEY,))
+        got_lock = cur.fetchone()[0]
+    if not got_lock:
+        log.warning("another sync holds the advisory lock — skipping this run (no-op)")
+        pg.close()
+        return 0
+
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO sync_runs (mode) VALUES (%s) RETURNING id", (mode,))
         run_id = cur.fetchone()[0]
+        # Compare row counts against the previous successful run OF THE SAME MODE — a full
+        # backfill's count must not be judged against a 40-day incremental's.
         cur.execute("SELECT rows_loaded FROM sync_runs "
-                    "WHERE status='success' ORDER BY id DESC LIMIT 1")
+                    "WHERE status='success' AND mode=%s ORDER BY id DESC LIMIT 1", (mode,))
         prev = cur.fetchone()
         rows_previous = prev[0] if prev else None
     pg.commit()
@@ -277,10 +528,22 @@ def main() -> int:
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
-        rows = load_staging(bq, pg, view, present)
+        # BigQuery-discovered dynamic columns adopted by the admin schema-reconcile. Only load
+        # ones the view actually still exposes (compared case-insensitively) so a column that
+        # vanished before reconcile flagged it can't break the SELECT.
+        present_lower = {c.lower() for c in present}
+        dyn = [(n, t) for n, t in fact_dynamic_columns(pg) if n in present_lower]
+        if dyn:
+            log.info("loading %d dynamic column(s): %s", len(dyn), ", ".join(n for n, _ in dyn))
+
+        rows = load_staging(bq, pg, view, present, since=since, until=until, dyn=dyn)
         log.info("staging loaded: %d rows", rows)
 
-        problems = integrity_checks(bq, pg, view, rows, rows_previous)
+        # A row-count delta check needs a comparable baseline; an arbitrary range has none.
+        rows_prev_for_check = None if mode == "range" else rows_previous
+        problems = integrity_checks(
+            bq, pg, view, rows, rows_prev_for_check, since, until,
+            check_freshness=(mode != "range"))
         if problems:
             msg = "integrity check failed — serving yesterday's data. " + "; ".join(problems)
             finish("failed", rows=rows, error=msg); alert(msg)
@@ -290,9 +553,19 @@ def main() -> int:
             cur.execute(f"SELECT MAX(_built_at) FROM {STAGING}")
             built_at = cur.fetchone()[0]
 
-        upsert_and_refresh(pg)
-        bust_cache()
+        merged = merge_and_refresh(pg, mode, since, until, dyn=dyn)
         finish("success", rows=rows, built_at=built_at)
+        if rows and merged > rows * MERGE_ALERT_RATIO:
+            # Merging per-channel rows is normal and expected. An unusually large collapse is
+            # not — it suggests the source's grain changed (a new dimension in the rows), which
+            # is worth a look even though the run succeeded and the totals are still correct.
+            alert(
+                f"sync succeeded but {merged} of {rows} loaded rows collapsed during the "
+                f"per-channel merge (>{MERGE_ALERT_RATIO:.0%}) — check whether the source "
+                f"grain changed."
+            )
+        housekeeping(pg)  # reclaim space AFTER the run is recorded (best-effort)
+        bust_cache()
         log.info("sync complete: %d rows, data as of %s", rows, built_at)
         return 0
 
