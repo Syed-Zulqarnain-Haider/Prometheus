@@ -310,7 +310,13 @@ choices are applied as a **pure transform** (`lib/chart-adjust.ts`) — no chart
 and everything defaults to off/auto, so an untouched chart renders exactly as its author
 designed it. Available from the sliders icon on chart hover:
 
-- **Chart type** — Auto / Line / Bar / Area.
+- **Chart type** — Auto / Line / Bar / Area. **Bar is the house default** — every chart whose
+  series are all line/bar renders as a bar chart on first paint (`DEFAULT_CHART_TYPE` in
+  `lib/chart-adjust.ts`). *Auto* returns it to the shape its author gave it. Two things are
+  deliberately exempt: a chart that **mixes** types on purpose (bars plus a trend or
+  break-even line, a scatter with an overlay) keeps its shape — that is exactly the chart
+  whose type switcher isn't offered, so nothing becomes unswitchable — and **sparklines**
+  under 100px, which host no controls. Pie, heatmap and scatter series are never converted.
 - **Y-axis scale** — Auto / Linear / Log.
 - **Stacking** — Off / Stacked / **100%**. Offered for Bar and Area only (stacking plain
   lines misleads), greyed out with a hint until one is chosen. 100% normalises each series

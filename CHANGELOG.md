@@ -7,6 +7,31 @@ matters — **how to tell it's working**, so an incident can be traced back late
 
 ## 2026-08-06 (later)
 
+### Charts — bars are the default
+
+Owner decision: the dashboard reads as bars, not lines. `DEFAULT_CHART_TYPE` in
+`lib/chart-adjust.ts` is now `"bar"`, so every chart whose series are all line/bar renders as
+a bar chart on first paint. **Auto** — the shape the chart's author gave it — is still one
+click away in the Adjust chart panel, and `isAdjusted()` compares against the defaults so the
+house default doesn't mark every chart as "modified".
+
+Converted: Revenue vs Spend, Revenue composition, Ad-network trend, Spend by network, App
+trend, Installs trend. Already bars: Revenue drill, IAP waterfall, Uninstalls/restores.
+
+Two guards keep it from being destructive:
+
+- Retyping is gated on `canSwitchType`, so a chart that **mixes** types on purpose — Monthly
+  trend and Spend vs Revenue, both bars plus a line — keeps its shape. That is exactly the
+  chart whose type switcher isn't offered, so nothing becomes unswitchable.
+- **Sparklines** (under 100px, e.g. the KPI cards' 32px trend) host no controls and keep the
+  author's shape. A 32px bar chart the viewer can't switch back reads worse than a 32px line.
+
+Pie, heatmap and scatter are untouched — `retypeSeries` only ever converts cartesian
+line/bar, so Revenue progress, Splits, Install mix, the day-of-week heatmap and the CPI
+scatter are unaffected.
+
+Files: `frontend/lib/chart-adjust.ts`, `frontend/components/charts/chart.tsx`.
+
 ### Filters — a split-screen panel, a Clear button, and a real date picker
 
 **Split-screen filter panel** (`components/filters/filter-panel.tsx`). The dashboard stays
