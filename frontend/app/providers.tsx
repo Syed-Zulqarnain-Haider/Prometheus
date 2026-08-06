@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 
+import { SessionCacheGuard } from "@/components/layout/session-cache-guard";
 import { ApiError } from "@/lib/api-client";
 import { AuthProvider } from "@/lib/auth-context";
 
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <SessionCacheGuard>{children}</SessionCacheGuard>
+        </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

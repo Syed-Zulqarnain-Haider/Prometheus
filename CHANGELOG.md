@@ -7,6 +7,24 @@ matters — **how to tell it's working**, so an incident can be traced back late
 
 ## 2026-08-06 (later)
 
+### Fixed — two of the four frontend bugs from the review
+
+**The UA "CPI vs Install Volume" chart was blank, and the break-even ROAS line never drew.**
+Both for the same reason: `lib/echarts.ts` tree-shakes ECharts down to what we register, and
+`ScatterChart` and `MarkLineComponent` were never in the list. ECharts renders an empty
+canvas for an unregistered series type rather than throwing, so neither failed loudly. Both
+registered; the scatter chart draws and the break-even line on Spend vs Revenue appears.
+
+**The TanStack Query cache survived sign-out.** On a shared machine the next person to sign
+in saw the previous user's revenue, spend and app list rendered from cache before their own
+request returned — figures their RBAC scopes may not entitle them to. The server was never
+wrong; the browser was showing someone else's answer. New `SessionCacheGuard`
+(`components/layout/session-cache-guard.tsx`, mounted in `app/providers.tsx`) clears the
+cache on any UID change, so a direct A→B account switch is covered as well as sign-out.
+
+Files: `frontend/lib/echarts.ts`, `frontend/components/layout/session-cache-guard.tsx`,
+`frontend/app/providers.tsx`.
+
 ### Charts — bars are the default
 
 Owner decision: the dashboard reads as bars, not lines. `DEFAULT_CHART_TYPE` in
@@ -218,11 +236,14 @@ carrying the job's own log, then `local sync finished cleanly` — and a new `su
   dynamic columns is what caused the `DuplicateColumn` outage — they should be added to the
   registry deliberately instead.
 - **`docker-compose.prod.yml` has no `logging:` block** (see 2026-08-06).
-- **Frontend bugs found during review, not yet fixed:** the UA "CPI vs Install Volume" chart
-  renders blank (`ScatterChart` never registered with ECharts); the break-even ROAS line never
-  draws (`MarkLineComponent` never registered); the admin "show demo widgets" toggle is a
-  no-op (ANDed with a build-time env var that is `false`); the TanStack Query cache is not
-  cleared on sign-out, so on a shared machine the next user briefly sees the previous user's
-  cached data.
+- **Admin "show demo widgets" toggle is a no-op.** It is ANDed with `SHOW_DEMO_WIDGETS`, a
+  build-time flag from `NEXT_PUBLIC_SHOW_DEMO_WIDGETS`, which deploy docs set to `false`. So
+  the toggle is dead in production. Fixing it is an owner decision, not a code fix: the DB
+  setting defaults to **True**, so simply dropping the build-time gate would start showing
+  fabricated numbers (LTV, cohort ROAS, payback, retention) on the Executive Overview. Either
+  flip the DB default to False and make the admin toggle authoritative, or remove the dead
+  control from the admin panel.
+  (The other three review bugs — blank scatter chart, missing break-even line, cache not
+  cleared on sign-out — are fixed above.)
 - **`k3s` is running with only its own default system pods** — no application workloads. Idle
   CPU/RAM on a host whose job is four Docker containers.

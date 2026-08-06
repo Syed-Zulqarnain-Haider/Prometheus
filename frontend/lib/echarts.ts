@@ -1,10 +1,11 @@
 /** Tree-shaken ECharts core: only the chart types and components we use. */
-import { BarChart, HeatmapChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   BrushComponent,
   DataZoomComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TitleComponent,
   TooltipComponent,
   VisualMapComponent,
@@ -18,6 +19,7 @@ echarts.use([
   BarChart,
   PieChart,
   HeatmapChart,
+  ScatterChart, // required by UA "CPI vs Install Volume" — without it that chart is blank
   // components
   TitleComponent,
   TooltipComponent,
@@ -26,6 +28,7 @@ echarts.use([
   DataZoomComponent,
   BrushComponent,
   VisualMapComponent, // required by heatmap
+  MarkLineComponent, // required by the break-even ROAS line on Spend vs Revenue
   // renderer
   CanvasRenderer,
 ]);
