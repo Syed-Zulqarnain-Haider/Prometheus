@@ -7,6 +7,43 @@ matters — **how to tell it's working**, so an incident can be traced back late
 
 ## 2026-08-06 (later)
 
+### Security — audit-log IP spoofing, and baseline response headers
+
+**Audit-log IPs were forgeable by the caller.** `client_ip()` read
+`X-Forwarded-For.split(",")[0]`. nginx builds that header with
+`proxy_add_x_forwarded_for`, which **appends** the real address to whatever the client
+sent — so the first entry is attacker-controlled and the last is the one our proxy added.
+Any caller sending `X-Forwarded-For: 1.2.3.4` had that address written into the
+append-only `audit_log` for every action: login, export, share, admin change. The one
+field that records *where* something came from could be set by whoever did it.
+
+It now prefers `X-Real-IP` (nginx sets it from `$remote_addr` with `proxy_set_header`,
+which **overwrites** any client value) and falls back to the **last** forwarded hop.
+Covered by `backend/tests/test_client_ip.py` — 7 cases including the spoofing one.
+
+> "Last hop" is correct for exactly one reverse proxy, which is what
+> `docs/nginx-prometheus.conf` deploys. Adding a CDN in front would make the last hop the
+> CDN's address; that needs an explicit trusted-proxy count instead.
+
+**No security response headers anywhere.** No frame protection, so an authenticated admin
+could be framed and clickjacked into an action they couldn't see; no `nosniff`; no
+referrer policy, so full URLs — which carry filter state: app names, pods, publishers —
+leaked to any third party in `Referer`.
+
+Added in two places on purpose: `frontend/next.config.mjs` so they travel with the app and
+survive a rebuilt host or a misapplied nginx snippet, and `docs/nginx-prometheus.conf`
+(with `always`, so they persist on 4xx/5xx) so `/api/` JSON responses are covered too.
+`X-Powered-By` and `server_tokens` are off. Verified against a live `next start`: all seven
+headers present, framework header gone.
+
+No `script-src` CSP. Next.js emits inline bootstrap scripts, so a real script policy needs
+per-request nonces and middleware; a half-written one would either break the app or read as
+protection that isn't there. `frame-ancestors` is safe standalone and is the part that
+actually stops clickjacking.
+
+Files: `backend/app/core/http.py`, `backend/tests/test_client_ip.py`,
+`frontend/next.config.mjs`, `docs/nginx-prometheus.conf`.
+
 ### Admin — row scopes are picked, not typed
 
 `components/admin/scope-editor.tsx`. The scope **type** was already a dropdown; the **value**
