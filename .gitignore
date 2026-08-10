@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────
-# Prometheus Performance Dashboard — .gitignore
+# Prometheus Performance Dashboard - .gitignore
 # Python (backend, sync) + Node (frontend) + environment/secrets
 # ─────────────────────────────────────────────────────────────
 
-# ── Secrets & environment (NEVER commit — only *.example templates are allowed) ──
+# ── Secrets & environment (NEVER commit - only *.example templates are allowed) ──
 .env
 .env.*
 !.env.example
@@ -21,7 +21,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-# NOTE: bare `lib/`, `build/`, `dist/` are intentionally NOT ignored here —
+# NOTE: bare `lib/`, `build/`, `dist/` are intentionally NOT ignored here -
 # the frontend keeps source in `frontend/lib/`. Python build artifacts are
 # covered by the venv ignores below + path-anchored entries.
 /build/

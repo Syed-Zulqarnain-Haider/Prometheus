@@ -1,5 +1,5 @@
 /* ============================================================================
-   Ported verbatim from design/tokens.css — "SWISS LEDGER" theme.
+   Ported verbatim from design/tokens.css - "SWISS LEDGER" theme.
    :root = dark "night ledger"; :root[data-theme="light"] = "paper".
    Switched by next-themes via the data-theme attribute. Single source of truth:
    every component + the ECharts theme reads these --vars.
@@ -9,7 +9,7 @@
 :root {
   /* ====== DARK · "NIGHT LEDGER" (warm charcoal, leather-bound) ========= */
 
-  /* ---- COLOR · SURFACES — warm brown-black, deliberate elevation ------ */
+  /* ---- COLOR · SURFACES - warm brown-black, deliberate elevation ------ */
   --color-bg-app:        #14110b;
   --color-bg-sidebar:    #100d08;
   --color-bg-card:       #1c1810;
@@ -61,7 +61,7 @@
   --chart-grad-from:     #cb5d50;
   --chart-grad-to:       #a886bf;
 
-  /* ---- TYPOGRAPHY — Spectral serif display + Archivo grotesk body ----- */
+  /* ---- TYPOGRAPHY - Spectral serif display + Archivo grotesk body ----- */
   --font-sans: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Spectral", Georgia, "Times New Roman", serif;
   --font-numeric-features: "tnum" 1, "lnum" 1;
@@ -97,7 +97,7 @@
   --section-gap:     clamp(28px, 2.8vw, 42px);
   --sidebar-width:   clamp(208px, 17vw, 252px);
 
-  /* ---- RADIUS — sharp / precise (editorial, technical) ---------------- */
+  /* ---- RADIUS - sharp / precise (editorial, technical) ---------------- */
   --radius-card:  3px;
   --radius-inner: 2px;
   --radius-chip:  2px;
@@ -114,7 +114,7 @@
 }
 
 /* ============================================================================
-   LIGHT THEME — "PAPER" mode (data-theme="light").
+   LIGHT THEME - "PAPER" mode (data-theme="light").
    ============================================================================ */
 :root[data-theme="light"] {
   --color-bg-app:        #f3f0e7;

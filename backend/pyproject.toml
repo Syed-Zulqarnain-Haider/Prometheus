@@ -1,7 +1,7 @@
 [project]
 name = "prometheus-backend"
 version = "0.1.0"
-description = "Prometheus Performance Dashboard — FastAPI backend"
+description = "Prometheus Performance Dashboard - FastAPI backend"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111",
@@ -18,8 +18,8 @@ dependencies = [
     # production images and fresh installs (`pip install .`) always include it.
     "openpyxl>=3.1",
     # Security floors for transitive deps (patch-level CVE fixes, non-breaking):
-    #   starlette (via fastapi)        — CVE-2026-54283
-    #   msgpack   (via firebase-admin) — GHSA-6v7p-g79w-8964
+    #   starlette (via fastapi)        - CVE-2026-54283
+    #   msgpack   (via firebase-admin) - GHSA-6v7p-g79w-8964
     "starlette>=1.3.1",
     "msgpack>=1.2.1",
 ]
@@ -48,7 +48,7 @@ target-version = "py312"
 line-length = 100
 src = ["app", "tests"]
 # `sync/` is VENDORED byte-identical from the repo-root sync/ for the deployment image
-# (see tests/test_sync_vendor_parity.py). It must not be reformatted here — the
+# (see tests/test_sync_vendor_parity.py). It must not be reformatted here - the
 # canonical copy is linted/owned at the repo root, so exclude the vendored copy.
 extend-exclude = ["sync"]
 
