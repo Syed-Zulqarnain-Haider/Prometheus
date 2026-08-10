@@ -783,3 +783,152 @@ export function useClearData() {
     onSuccess: () => queryClient.invalidateQueries(),
   });
 }
+
+/** Mirror-only scaffolding so the App Master client typechecks here; the deployed
+ *  api-hooks.ts already defines this. NOT shipped. */
+export interface SchemaSyncResult {
+  configured: boolean;
+  ok: boolean;
+  message: string;
+  added: { name: string; type: string }[];
+  healed_static: string[];
+  deactivated: string[];
+  missing_in_bigquery: string[];
+  unsupported_types: { name: string; type: string }[];
+}
+
+// ── App Master (admin-only: view + edit the BigQuery app_master_v2 table) ───────
+export interface AppMasterColumnMeta {
+  name: string;
+  type: "text" | "bigint" | "boolean" | "double" | "timestamptz";
+  editable: boolean;
+}
+
+export interface AppMasterListResponse {
+  rows: Record<string, unknown>[];
+  total: number;
+  columns: AppMasterColumnMeta[];
+  column_order: string[];
+  primary_key: string;
+}
+
+export interface AppMasterFilters {
+  search: string;
+  platform: string; // "" = all
+  hou: string; // "" = all
+  publisher: string; // "" = all
+  pod: string; // raw input; sent as int when numeric
+  podOwner: string; // "" = all
+  appName: string; // "" = all
+  partnerName: string; // "" = all
+  needsReview: "" | "true" | "false";
+  package: string;
+  appId: string;
+  syncedFrom: string; // YYYY-MM-DD, inclusive lower bound on last_synced_at ("" = none)
+  syncedTo: string; // YYYY-MM-DD, inclusive upper bound on last_synced_at ("" = none)
+}
+
+export function useAppMaster(filters: AppMasterFilters, limit: number, offset: number) {
+  const { user } = useAuth();
+  const params: Record<string, string | number | boolean> = { limit, offset };
+  if (filters.search.trim()) params.search = filters.search.trim();
+  if (filters.platform) params.platform = filters.platform;
+  if (filters.hou) params.hou = filters.hou;
+  if (filters.publisher) params.publisher = filters.publisher;
+  if (filters.pod.trim() && Number.isInteger(Number(filters.pod))) params.pod = Number(filters.pod);
+  if (filters.podOwner) params.pod_owner = filters.podOwner;
+  if (filters.appName) params.app_name = filters.appName;
+  if (filters.partnerName) params.partner_name = filters.partnerName;
+  if (filters.needsReview) params.needs_review = filters.needsReview;
+  if (filters.package.trim()) params.package = filters.package.trim();
+  if (filters.appId.trim()) params.app_id = filters.appId.trim();
+  if (filters.syncedFrom) params.synced_from = filters.syncedFrom;
+  if (filters.syncedTo) params.synced_to = filters.syncedTo;
+  return useQuery({
+    queryKey: ["app-master", params],
+    queryFn: () => apiFetch<AppMasterListResponse>(`/api/v1/app-master${buildQuery(params)}`),
+    enabled: Boolean(user),
+  });
+}
+
+export interface AppMasterFilterValues {
+  platforms: string[];
+  hou: string[];
+  publishers: string[];
+  pods: number[];
+  pod_owners: string[];
+  partner_names: string[];
+  app_names: string[];
+}
+
+/** Distinct values for the App Master filter dropdowns. */
+export function useAppMasterFilterValues() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["app-master-filter-values"],
+    queryFn: () => apiFetch<AppMasterFilterValues>("/api/v1/app-master/filter-values"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSetAppMasterColumnOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      apiFetch<string[]>("/api/v1/app-master/column-order", {
+        method: "PUT",
+        body: JSON.stringify({ order }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useUndoAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}/undo`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useUpdateAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, body }: { key: string; body: Record<string, unknown> }) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useRefreshAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; skipped: number }>("/api/v1/app-master/refresh", {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useAppMasterSchemaDiff() {
+  return useMutation({
+    mutationFn: () => apiFetch<SchemaDiff>("/api/v1/app-master/schema-diff"),
+  });
+}
+
+export function useAppMasterSchemaSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SchemaSyncResult>("/api/v1/app-master/schema-sync", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}

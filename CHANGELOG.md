@@ -7,6 +7,40 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-06 (later)
 
+### App Master - Pod owner, App name and Partner filters
+
+The App Master filter bar had Pod as a bare number box, no Pod owner at all, and app names
+reachable only through the free-text Search. Now:
+
+| Filter | Before | After |
+|---|---|---|
+| **Pod owner** | absent | dropdown |
+| **App name** | free-text search only | searchable dropdown |
+| **Partner** | absent | dropdown |
+| **Pod** | number input | dropdown |
+
+`pod_owners` and `partner_names` were **already** returned by `/app-master/filter-values`
+(they populate the edit drawer) and `pods` was returned and unused - so most of the values
+existed and nothing was querying them. What was genuinely missing was the filtering side:
+`pod_owner` / `app_name` / `partner_name` params on the list route and matching `IN` clauses
+in `_apply_filters`. `app_names` is added to `filter-values`.
+
+Package and App ID stay free-text on purpose: each is a substring match across **two**
+columns (`android_package` OR `ios_bundle_id`; `canonical_key` OR `apple_id`). A dropdown
+would force one exact value from one column and lose that.
+
+Lists over 12 entries get a search box (`FilterPicker`); shorter ones fall back to the plain
+dropdown so Platform and HOU don't gain a search box they don't need.
+
+Backend changes ship as `scripts/patch-app-master-filters.py` rather than as edited files,
+because those four files exist only in the deployed tree. Every anchor must match exactly
+once or the script aborts having written nothing - it can't half-apply across four files -
+and re-running it is a no-op. Verified against fixtures built from the live files, including
+the abort path.
+
+Files: `frontend/components/app-master/app-master-client.tsx`,
+`scripts/patch-app-master-filters.py`.
+
 ### Security - dependency vulnerabilities and the unused image optimizer
 
 `npm audit` reported 5 advisories (4 high, 1 moderate), including two that matter for a
