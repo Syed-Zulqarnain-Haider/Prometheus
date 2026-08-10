@@ -1,4 +1,4 @@
-"""Admin panel routes — all gated on the ``admin_panel`` capability.
+"""Admin panel routes - all gated on the ``admin_panel`` capability.
 
 User & role administration, revenue targets, the audit viewer, and the data-health
 view. Every mutating action is audit-logged, and any change that affects a user's
@@ -196,7 +196,7 @@ async def update_user(
         await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    # Anything affecting resolved access/RBAC — bust the cache for instant effect.
+    # Anything affecting resolved access/RBAC - bust the cache for instant effect.
     if (
         body.is_active is not None
         or body.roles is not None
@@ -227,7 +227,7 @@ async def delete_user(
 ) -> Response:
     """Hard-delete a user (roles/scopes/layouts/saved views+reports cascade; audit + other
     actor links are nulled). GUARDS: an admin cannot delete their OWN account, nor the LAST
-    active admin — both return 400 (lockout prevention)."""
+    active admin - both return 400 (lockout prevention)."""
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -273,7 +273,7 @@ async def approve_access_request(
     audit: AuditDep,
 ) -> UserSummary:
     """Provision the requester with the chosen role/scope (+ optional expiry) and mark the
-    request approved. Never auto-grants admin — the admin selects the roles explicitly."""
+    request approved. Never auto-grants admin - the admin selects the roles explicitly."""
     _reject_both_expiry(body.access_expires_at, body.access_duration_days)
     expiry = _resolve_expiry(body.access_expires_at, body.access_duration_days)
     try:
@@ -476,7 +476,7 @@ async def get_data_health(db: DbSession) -> DataHealth:
 # ── System: connection health ───────────────────────────────────────────────────
 @router.get("/system/health", response_model=SystemHealth)
 async def get_system_health(db: DbSession, redis: RedisClient) -> SystemHealth:
-    """Live Postgres/Redis/BigQuery status — up/down + latency only, NO credentials."""
+    """Live Postgres/Redis/BigQuery status - up/down + latency only, NO credentials."""
     return await system_service.check_connections(db, redis, get_settings())
 
 
@@ -526,7 +526,7 @@ async def run_sync_now(
 ) -> SyncTriggerResult:
     """Trigger the data sync on demand (advisory-lock guarded; delegates to the configured
     trigger URL or runs the vendored sync locally). Returns an honest 'not configured'
-    result when no execution path is wired — never a faked success."""
+    result when no execution path is wired - never a faked success."""
     settings = get_settings()
     gcp_project = str(await settings_service.get_value(db, "gcp_project"))
     bq_view = str(await settings_service.get_value(db, "bq_view"))
@@ -549,7 +549,7 @@ async def run_sync_now(
 @router.get("/integration/status", response_model=IntegrationStatus)
 async def get_integration_status(db: DbSession, redis: RedisClient) -> IntegrationStatus:
     """Integration tab status: is the BigQuery reader key mounted, are Postgres/Redis
-    healthy, and the recent sync history. Status/history only — NO credential, key
+    healthy, and the recent sync history. Status/history only - NO credential, key
     path, or connection string is ever returned."""
     return await integration_service.integration_status(db, redis, get_settings())
 
@@ -568,7 +568,7 @@ async def test_bigquery_connection(
 ) -> BigQueryTestResult:
     """Lightweight, READ-ONLY BigQuery reachability check. Loads the reader key from its
     configured path (separate from Firebase creds) and dry-runs a query. Returns a
-    sanitized ok/fail message — never a credential or raw provider error."""
+    sanitized ok/fail message - never a credential or raw provider error."""
     settings = get_settings()
     project = str(await settings_service.get_value(db, "gcp_project"))
     result = await integration_service.test_bigquery(settings, project)
@@ -582,7 +582,7 @@ async def test_bigquery_connection(
     return result
 
 
-# ── Integration: read-only schema diff (BQ view vs registry — informational) ────
+# ── Integration: read-only schema diff (BQ view vs registry - informational) ────
 @router.get(
     "/integration/schema-diff",
     response_model=SchemaDiff,
@@ -590,7 +590,7 @@ async def test_bigquery_connection(
 )
 async def get_schema_diff(db: DbSession) -> SchemaDiff:
     """Compare the live BigQuery view's columns against the metric registry. READ-ONLY
-    and INFORMATIONAL — it never alters any schema; adopting a column stays a deliberate
+    and INFORMATIONAL - it never alters any schema; adopting a column stays a deliberate
     registry change."""
     settings = get_settings()
     gcp_project = str(await settings_service.get_value(db, "gcp_project"))
@@ -598,7 +598,7 @@ async def get_schema_diff(db: DbSession) -> SchemaDiff:
     return await integration_service.schema_diff(settings, gcp_project, bq_view)
 
 
-# ── Integration: Clear Data (DESTRUCTIVE — typed confirmation, audited) ──────────
+# ── Integration: Clear Data (DESTRUCTIVE - typed confirmation, audited) ──────────
 @router.post(
     "/integration/clear-data",
     response_model=ClearDataResult,

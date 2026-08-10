@@ -35,7 +35,7 @@ const TYPE_LABELS: Record<ScopeType, string> = {
   app: "app",
 };
 
-/** Real values for each scope type, taken from `/apps` — the dimension table, so a pod or
+/** Real values for each scope type, taken from `/apps` - the dimension table, so a pod or
  *  publisher with no rows in the current date window still appears. A scope grant is about
  *  the org chart, not about who happened to have revenue last month. */
 function useScopeOptions(): {
@@ -66,8 +66,8 @@ function useScopeOptions(): {
 
 /** Searchable single-value picker for a scope's value.
  *
- *  It stays typeable on purpose. The list is the fast path — an admin should not have to
- *  remember a canonical key — but a grant may legitimately name a pod or publisher that has
+ *  It stays typeable on purpose. The list is the fast path - an admin should not have to
+ *  remember a canonical key - but a grant may legitimately name a pod or publisher that has
  *  no apps mapped to it yet, and the old free-text field could express that. Typing a value
  *  the list doesn't contain offers it explicitly rather than silently dropping it.
  */
@@ -97,7 +97,7 @@ function ScopeValuePicker({
 
   const selected = options.find((o) => o.value === value);
   // A value the list doesn't know (typed by hand, or mapped since the grant was made) is
-  // still shown — never blank out what an admin actually granted.
+  // still shown - never blank out what an admin actually granted.
   const triggerLabel = selected?.label ?? (value || `Select ${TYPE_LABELS[scopeType]}…`);
   const typed = query.trim();
   const exact = options.some((o) => o.value === typed);
@@ -204,7 +204,7 @@ export function ScopeEditor({
     <div className="space-y-2">
       {scopes.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No scopes — this user sees nothing until a scope is added.
+          No scopes - this user sees nothing until a scope is added.
         </p>
       )}
       {scopes.map((scope, index) => (
@@ -214,7 +214,7 @@ export function ScopeEditor({
             onValueChange={(value) =>
               update(index, {
                 scope_type: value as ScopeType,
-                // Values don't carry across types — a pod name is not a publisher name, and
+                // Values don't carry across types - a pod name is not a publisher name, and
                 // silently keeping it would grant something nobody chose.
                 scope_value: value === "all" ? null : "",
               })
@@ -234,7 +234,7 @@ export function ScopeEditor({
 
           {scope.scope_type === "all" ? (
             <div className="flex h-8 flex-1 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
-              — whole org
+              - whole org
             </div>
           ) : (
             <ScopeValuePicker

@@ -43,7 +43,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
         message = body.error.message;
       }
     } catch {
-      // Non-JSON error body — keep the status text.
+      // Non-JSON error body - keep the status text.
     }
     throw new ApiError(message, code, response.status);
   }
@@ -55,7 +55,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 }
 
 /** POST a JSON body and trigger a browser download of the binary response.
- *  Used for exports — the file is built server-side under the caller's RBAC. */
+ *  Used for exports - the file is built server-side under the caller's RBAC. */
 export async function apiDownload(
   path: string,
   body: unknown,
@@ -81,7 +81,7 @@ export async function apiDownload(
         message = errorBody.error.message;
       }
     } catch {
-      // Non-JSON error body — keep the status text.
+      // Non-JSON error body - keep the status text.
     }
     throw new ApiError(message, code, response.status);
   }

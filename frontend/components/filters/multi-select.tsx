@@ -24,7 +24,7 @@ interface MultiSelectProps {
   disabled?: boolean;
 }
 
-/** Only long lists get a search box — Apps is 150+ and painful to scroll, while
+/** Only long lists get a search box - Apps is 150+ and painful to scroll, while
  *  Console/HOU are a handful of values and stay uncluttered without one. */
 const SEARCH_THRESHOLD = 8;
 

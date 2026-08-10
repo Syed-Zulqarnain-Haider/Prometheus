@@ -7,7 +7,7 @@ import {
   presetRange,
 } from "@/lib/filters";
 
-describe("activeFilterCount / isFiltered — drives the Clear filters button", () => {
+describe("activeFilterCount / isFiltered - drives the Clear filters button", () => {
   it("counts nothing on a fresh set of filters", () => {
     expect(activeFilterCount(defaultFilters())).toBe(0);
     expect(isFiltered(defaultFilters())).toBe(false);
@@ -37,7 +37,7 @@ describe("activeFilterCount / isFiltered — drives the Clear filters button", (
     expect(activeFilterCount(f)).toBe(1);
   });
 
-  it("counts every list dimension — none is silently skipped", () => {
+  it("counts every list dimension - none is silently skipped", () => {
     // Guards the LIST_FILTER_KEYS loop: a dimension added to Filters but left out of the
     // constant would make Clear under-report, which is how a filter goes invisible.
     const base = defaultFilters();
@@ -66,7 +66,7 @@ describe("activeFilterCount / isFiltered — drives the Clear filters button", (
   });
 });
 
-describe("parseFilters — named presets are recomputed, not read back", () => {
+describe("parseFilters - named presets are recomputed, not read back", () => {
   it("ignores stale from/to carried by a bookmark on a named preset", () => {
     const params = new URLSearchParams({
       preset: "today",

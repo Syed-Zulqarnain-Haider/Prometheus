@@ -42,7 +42,7 @@ function HealthCard({ id, status }: { id: keyof typeof ICONS; status: Connection
         {status.latency_ms != null ? (
           <span className="tabular-nums">{status.latency_ms} ms</span>
         ) : (
-          <span>{status.detail ?? "—"}</span>
+          <span>{status.detail ?? "-"}</span>
         )}
       </CardContent>
     </Card>
@@ -191,7 +191,7 @@ export function SystemPanel() {
         </Card>
         <p className="text-xs text-muted-foreground">
           Only non-secret operational settings are shown here. Credentials and connection
-          strings are never stored in the database or displayed — they live in the
+          strings are never stored in the database or displayed - they live in the
           environment / Secret Manager.
         </p>
       </section>

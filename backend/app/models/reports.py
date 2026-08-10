@@ -89,7 +89,7 @@ class ReportShare(Base):
         ForeignKey("saved_reports.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # CASCADE: a share to/from a deleted user is moot — remove the share row.
+    # CASCADE: a share to/from a deleted user is moot - remove the share row.
     shared_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )

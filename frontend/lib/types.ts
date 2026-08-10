@@ -78,7 +78,7 @@ export interface UserContext {
   scopes: { scope_type: string; scope_value: string | null }[];
 }
 
-/** /auth/directory entry — a share-recipient candidate. */
+/** /auth/directory entry - a share-recipient candidate. */
 export interface DirectoryEntry {
   user_id: string;
   email: string;

@@ -62,7 +62,7 @@ function triggerLabel(value: DateRangeValue): string {
   return `${prettyDate(value.dateFrom)} – ${prettyDate(value.dateTo)}`;
 }
 
-/** Every month between the earliest selectable date and this month, newest first — the
+/** Every month between the earliest selectable date and this month, newest first - the
  *  jump-to-month dropdown above the calendar. */
 function monthOptions(earliest: Date, latest: Date): Date[] {
   const out: Date[] = [];
@@ -79,7 +79,7 @@ function monthOptions(earliest: Date, latest: Date): Date[] {
  *
  *  Nothing is committed until **Apply**. The previous version fired ``onChange`` on every
  *  keystroke and every preset click, so each interaction rewrote the URL and refetched every
- *  chart on the page — which is what made picking a range feel jumpy. Here the popover owns
+ *  chart on the page - which is what made picking a range feel jumpy. Here the popover owns
  *  a private draft and the page sees exactly one update.
  */
 export function DateRangePicker({

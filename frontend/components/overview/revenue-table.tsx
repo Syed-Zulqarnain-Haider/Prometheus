@@ -15,7 +15,7 @@ import type { MetricValue } from "@/lib/types";
 
 type Row = Record<string, MetricValue>;
 
-/** The additive measures the caller may see, derived from their metric groups —
+/** The additive measures the caller may see, derived from their metric groups -
  *  the same authority the server enforces. A column is shown only if EVERY measure
  *  it needs is permitted, so a role without spend never sees UA Cost / Net Rev / ROAS. */
 function permittedMeasures(groups: string[]): Set<string> {
@@ -36,9 +36,9 @@ interface ColumnDef {
 // (Gross Rev, Net Rev, ROAS) are computed per row from summed, permitted components.
 const COLUMNS: ColumnDef[] = [
   { id: "publisher", label: "Publisher", requires: [], align: "left", fmt: "text",
-    value: (r) => (r.publisher == null ? "—" : String(r.publisher)) },
+    value: (r) => (r.publisher == null ? "-" : String(r.publisher)) },
   { id: "game", label: "Game", requires: [], align: "left", fmt: "text",
-    value: (r) => String(r.app_name ?? r.canonical_key ?? "—") },
+    value: (r) => String(r.app_name ?? r.canonical_key ?? "-") },
   { id: "installs", label: "Installs", requires: ["store_total_installs"], align: "right", fmt: "count",
     value: (r) => num(r.store_total_installs) },
   { id: "paid", label: "Paid Inst", requires: ["total_paid_installs"], align: "right", fmt: "count",
@@ -58,7 +58,7 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 function format(col: ColumnDef, v: number | string | null): string {
-  if (v == null) return "—";
+  if (v == null) return "-";
   if (col.fmt === "text") return String(v);
   if (col.fmt === "usd") return formatUSD(v as number, { compact: true });
   if (col.fmt === "count") return formatCompact(v as number);
@@ -138,7 +138,7 @@ export function RevenueTable({ title, filters }: { title: string; filters: Filte
               {!table.isLoading && table.isError && (
                 <tr>
                   <td className="px-3 py-6 text-center text-[color:var(--color-negative)]" colSpan={span}>
-                    Couldn&apos;t load this table — please retry.
+                    Couldn&apos;t load this table - please retry.
                   </td>
                 </tr>
               )}

@@ -31,7 +31,7 @@ export interface Filters {
   dateTo: string; // yyyy-MM-dd
   compare: boolean;
   platform: Platform | null;
-  pods: string[]; // legacy — kept for saved views; the bar now uses podOwners
+  pods: string[]; // legacy - kept for saved views; the bar now uses podOwners
   publishers: string[];
   apps: string[];
   hou: string[];
@@ -46,7 +46,7 @@ export interface Filters {
 }
 
 /** Every list-valued filter key, in one place. Used by "Clear filters" to count what's
- *  applied without hand-listing the keys at each call site — adding a dimension to
+ *  applied without hand-listing the keys at each call site - adding a dimension to
  *  ``Filters`` and forgetting it here would otherwise leave a filter uncounted. */
 export const LIST_FILTER_KEYS = [
   "pods",
@@ -162,7 +162,7 @@ export function parseFilters(params: URLSearchParams): Filters {
 
   // A named preset is RECOMPUTED, never read back from the URL. A bookmark, saved view or
   // shared link carrying `preset=today&from=2026-08-05` must not render yesterday's numbers
-  // under a "Today so far" label — the label is the intent, the dates are just its cache.
+  // under a "Today so far" label - the label is the intent, the dates are just its cache.
   // Only `preset=custom` trusts the stored dates.
   const stored =
     preset === "custom"

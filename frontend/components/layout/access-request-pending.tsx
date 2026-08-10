@@ -12,7 +12,7 @@ import { useRequestAccess } from "@/lib/api-hooks";
 export function AccessRequestPending({ onSignOut }: { onSignOut: () => void }) {
   const { mutate, isError } = useRequestAccess();
 
-  // Record the request once on mount (idempotent server-side — repeat calls are harmless).
+  // Record the request once on mount (idempotent server-side - repeat calls are harmless).
   useEffect(() => {
     mutate();
   }, [mutate]);

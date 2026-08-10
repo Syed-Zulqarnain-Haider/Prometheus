@@ -1,8 +1,8 @@
-# DEPLOY.md — Production deployment (Cloud Run + Vercel)
+# DEPLOY.md - Production deployment (Cloud Run + Vercel)
 
 This is the step-by-step for shipping Prometheus to production, reusing the same
 **Neon (Postgres) + Upstash (Redis) + Firebase (Auth)** wiring proven locally
-(see `docs/RUNBOOK-LOCAL.md`). Nothing here puts secrets in the repo — every secret
+(see `docs/RUNBOOK-LOCAL.md`). Nothing here puts secrets in the repo - every secret
 lives in **GCP Secret Manager** (backend) or **Vercel env vars** (frontend).
 
 ```
@@ -44,7 +44,7 @@ lives in **GCP Secret Manager** (backend) or **Vercel env vars** (frontend).
    ```
    postgresql+asyncpg://<user>:<pass>@<host>/<db>?sslmode=require
    ```
-   (TLS is mandatory — this is the accepted public-internet trade-off in CLAUDE.md.)
+   (TLS is mandatory - this is the accepted public-internet trade-off in CLAUDE.md.)
 3. Apply the schema. The Postgres DDL lives in `sql/postgres/001_init.sql`,
    `002_fact_table.sql`, `003_revenue_targets.sql`; the app's own tables are also
    managed by Alembic. Run migrations with the **same container image** (§2d) or locally:
@@ -54,13 +54,13 @@ lives in **GCP Secret Manager** (backend) or **Vercel env vars** (frontend).
 
 ### 1b. Upstash Redis
 1. Create an Upstash Redis database (pick the region closest to Cloud Run).
-2. Copy the **`rediss://`** (TLS) URL — this becomes `REDIS_URL`.
+2. Copy the **`rediss://`** (TLS) URL - this becomes `REDIS_URL`.
 
 ### 1c. Firebase Auth
 1. In the Firebase console, enable **Authentication → Email/Password**.
 2. Under **Authentication → Settings → Authorized domains**, add your Vercel
    domain (e.g. `prometheus.vercel.app` and any custom domain).
-3. Copy the web app config (apiKey, authDomain, projectId, appId) — these are the
+3. Copy the web app config (apiKey, authDomain, projectId, appId) - these are the
    `NEXT_PUBLIC_FIREBASE_*` values (public by design, not secrets).
 4. Provision the first admin user with `backend/scripts/create_admin.py` after the
    DB is migrated (see that script's `--help`).
@@ -98,7 +98,7 @@ gcloud run deploy prometheus-api \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest"
 ```
 Notes:
-- `--allow-unauthenticated` lets the browser reach it; **auth is still enforced** —
+- `--allow-unauthenticated` lets the browser reach it; **auth is still enforced** -
   every route verifies a Firebase token (the `/health` liveness route is the only
   open endpoint).
 - `ENV=production` turns on **HSTS** and the empty-CORS warning.
@@ -140,16 +140,16 @@ gcloud run jobs execute prometheus-migrate --region <REGION> --wait
   `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
   a locked-down `Content-Security-Policy` (`default-src 'none'; frame-ancestors 'none'`),
   COOP/CORP, `Permissions-Policy`, and **HSTS in production**.
-- **CORS** is restricted to the exact origins in `CORS_ORIGINS` — never a wildcard.
+- **CORS** is restricted to the exact origins in `CORS_ORIGINS` - never a wildcard.
   Empty origins in production are logged as an error.
 - **Rate limiting** (`app/core/rate_limit.py`), per-user sliding window in Redis:
   **300/min general**, **10/min export**. Confirm/adjust the constants there if the
   team grows past ~50 users.
-- **Error envelope**: clients only ever see `{"error": {"code", "message"}}` — no stack
+- **Error envelope**: clients only ever see `{"error": {"code", "message"}}` - no stack
   traces or SQL (`app/main.py` exception handlers).
 - **Audit log** is append-only; the `api_service` DB role has no UPDATE/DELETE on it.
 
-### Optional edge layer — Cloud Armor
+### Optional edge layer - Cloud Armor
 For an extra WAF/DDoS tier, front Cloud Run with an external HTTPS Load Balancer and
 attach a **Cloud Armor** policy (e.g. the preconfigured OWASP rules + a coarse
 per-IP rate limit that complements the per-user app limit). This is optional for
@@ -179,7 +179,7 @@ billing admins; wire them to a channel if you prefer.
 
 ## 6. Environment variable reference
 
-### Backend (Cloud Run) — secrets via Secret Manager, the rest via `--set-env-vars`
+### Backend (Cloud Run) - secrets via Secret Manager, the rest via `--set-env-vars`
 | Variable | Source | Example / notes |
 |---|---|---|
 | `DATABASE_URL` | **Secret** | `postgresql+asyncpg://…/<db>?sslmode=require` (Neon pooled) |
@@ -189,7 +189,7 @@ billing admins; wire them to a channel if you prefer.
 | `GOOGLE_CLOUD_PROJECT` | env var | Firebase/GCP project id (token audience) |
 | `PORT` | injected | set by Cloud Run; the image defaults to 8080 |
 
-### Frontend (Vercel) — all public (`NEXT_PUBLIC_*`)
+### Frontend (Vercel) - all public (`NEXT_PUBLIC_*`)
 | Variable | Example / notes |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | the Cloud Run service URL |
@@ -206,10 +206,10 @@ billing admins; wire them to a channel if you prefer.
 - **CI** (`.github/workflows/ci.yml`) runs on every PR and on `main`:
   backend `ruff` + `mypy --strict` + `pytest` (against ephemeral Postgres/Redis
   service containers) and frontend `lint` + `tsc --noEmit` + `build`. Keep `main`
-  green — the standing policy is squash-merge only when all checks pass.
+  green - the standing policy is squash-merge only when all checks pass.
 - **CD** is intentionally manual (the `gcloud`/Vercel steps above). To automate later,
   add a deploy workflow gated on a `main` push that runs `gcloud run deploy` with a
-  Workload-Identity-federated service account — no JSON keys in the repo.
+  Workload-Identity-federated service account - no JSON keys in the repo.
 
 ---
 

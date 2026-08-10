@@ -20,7 +20,7 @@ from app.services.audit import AuditService
 
 logger = logging.getLogger("app.api.middleware")
 
-# Routes that serve scoped fact data — an access to these is an "api_query".
+# Routes that serve scoped fact data - an access to these is an "api_query".
 DATA_ROUTE_PREFIXES: tuple[str, ...] = ("/api/v1/metrics", "/api/v1/apps")
 
 

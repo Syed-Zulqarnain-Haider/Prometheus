@@ -3,7 +3,7 @@
  * The dashboard's ~18 charts each hand-build an ECharts ``option``. Rather than rewrite
  * them, we let the shared ``Chart`` component derive what's adjustable from the option
  * itself and apply the viewer's tweaks as a pure transform. Defaults are all "auto"/off, so
- * an untouched chart renders EXACTLY as its author designed it — adjustments only ever layer
+ * an untouched chart renders EXACTLY as its author designed it - adjustments only ever layer
  * on top of an explicit user choice. Nothing here mutates the input option; a new object is
  * returned so React re-renders cleanly.
  */
@@ -13,7 +13,7 @@ export type TypeOverride = "auto" | "line" | "bar" | "area";
 export type ScaleOverride = "auto" | "linear" | "log";
 /** none = each series plotted independently; stacked = summed; percent = 100% stacked. */
 export type StackMode = "none" | "stacked" | "percent";
-/** A per-series data transform. Cumulative and average are mutually exclusive by design —
+/** A per-series data transform. Cumulative and average are mutually exclusive by design -
  *  a running total of a moving average answers no useful question. */
 export type TransformMode = "none" | "cumulative" | "average";
 
@@ -86,20 +86,20 @@ function round(n: number, dp: number): number {
 // ── capabilities ─────────────────────────────────────────────────────────────
 
 export interface ChartCapabilities {
-  /** Line/Bar/Area switching — offered only when EVERY series is cartesian (line|bar). */
+  /** Line/Bar/Area switching - offered only when EVERY series is cartesian (line|bar). */
   canSwitchType: boolean;
-  /** Linear/Log y-axis — offered only when a value axis exists on a cartesian chart. */
+  /** Linear/Log y-axis - offered only when a value axis exists on a cartesian chart. */
   canScale: boolean;
   /** Names of series the viewer can show/hide (only when ≥2 are named). */
   seriesNames: string[];
-  /** Stacking needs at least two cartesian series — stacking one is a no-op. */
+  /** Stacking needs at least two cartesian series - stacking one is a no-op. */
   canStack: boolean;
   /** Value labels make sense on any cartesian series. */
   canLabel: boolean;
   /** Cumulative / moving average need cartesian series with readable numeric data. */
   canTransform: boolean;
   /** Every series is a plain line (no area fill). Used to grey out stacking, which is
-   *  misleading on lines — the viewer should pick Bar or Area first. */
+   *  misleading on lines - the viewer should pick Bar or Area first. */
   baseAllLine: boolean;
 }
 
@@ -145,7 +145,7 @@ export interface Adjustments {
 
 /** House default for every convertible chart. Owner decision: the dashboard reads as bars,
  *  not lines. "auto" (the chart author's own shape) is still one click away in the panel,
- *  and charts that mix types deliberately are left alone — see ``applyAdjustments``. */
+ *  and charts that mix types deliberately are left alone - see ``applyAdjustments``. */
 export const DEFAULT_CHART_TYPE: TypeOverride = "bar";
 
 export const DEFAULT_ADJUSTMENTS: Adjustments = {
@@ -171,7 +171,7 @@ export function isAdjusted(a: Adjustments): boolean {
   );
 }
 
-/** Would stacking actually render as stacked? Lines are excluded — see ``baseAllLine``. */
+/** Would stacking actually render as stacked? Lines are excluded - see ``baseAllLine``. */
 export function stackApplies(caps: ChartCapabilities, type: TypeOverride): boolean {
   if (!caps.canStack) return false;
   if (type === "line") return false;
@@ -283,7 +283,7 @@ export function applyAdjustments(option: EChartsOption, adj: Adjustments): EChar
     });
   }
 
-  // Stacking only renders as stacked for bar/area — mirror the UI's rule here so a stale
+  // Stacking only renders as stacked for bar/area - mirror the UI's rule here so a stale
   // adjustment can never silently produce a misleading stacked line chart.
   const caps = detectCapabilities(option);
   const stacking = adj.stack !== "none" && stackApplies(caps, adj.type);
@@ -291,8 +291,8 @@ export function applyAdjustments(option: EChartsOption, adj: Adjustments): EChar
 
   if (percent) series = toPercent(series);
 
-  // Retype only when EVERY series is convertible. A chart that mixes types on purpose — bars
-  // plus a trend or break-even line, or a scatter with an overlay — keeps the shape its
+  // Retype only when EVERY series is convertible. A chart that mixes types on purpose - bars
+  // plus a trend or break-even line, or a scatter with an overlay - keeps the shape its
   // author gave it, and is exactly the chart whose type switcher we don't offer either
   // (``canSwitchType`` gates the control), so nothing becomes unswitchable.
   if (adj.type !== "auto" && caps.canSwitchType) {

@@ -31,7 +31,7 @@ const GROUP_BY_OPTIONS: { value: ReportGroupBy; label: string }[] = [
 ];
 
 function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   if (typeof value === "number") return new Intl.NumberFormat("en-US").format(value);
   return String(value);
 }
@@ -53,7 +53,7 @@ export function ReportBuilder() {
   );
 
   const isDate = groupBy === "date";
-  // Preview reuses the metrics endpoints — same RBAC-scoped path the report runs.
+  // Preview reuses the metrics endpoints - same RBAC-scoped path the report runs.
   const breakdown = useBreakdown(filters, groupBy, isDate ? [] : columns);
   const timeseries = useTimeseries(filters, isDate ? columns : [], "day");
   const preview = isDate ? timeseries.data : breakdown.data;

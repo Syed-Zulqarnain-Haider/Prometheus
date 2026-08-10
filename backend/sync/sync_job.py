@@ -1,8 +1,8 @@
 """
-sync_job.py — Daily BigQuery → PostgreSQL sync (Cloud Run Job, ~06:00 UTC via
+sync_job.py - Daily BigQuery → PostgreSQL sync (Cloud Run Job, ~06:00 UTC via
 Cloud Scheduler; Cloud Run retries handle transient failures).
 
-Pipeline (fail-safe at every step — on ANY failure the live table is untouched
+Pipeline (fail-safe at every step - on ANY failure the live table is untouched
 and the dashboard keeps serving yesterday's data with a visible freshness banner):
 
   1. record sync_runs(running)
@@ -10,7 +10,7 @@ and the dashboard keeps serving yesterday's data with a visible freshness banner
   3. stream view → fact_daily_performance_staging (COPY, batched)
   4. integrity checks (row delta ±30%, freshness, 7-day revenue penny-match vs BQ)
   5. collapse per-channel rows to one row per (date, platform, app_key), then merge staging
-     → fact_daily_performance in one transaction — history ACCUMULATES (never a
+     → fact_daily_performance in one transaction - history ACCUMULATES (never a
      destructive swap/replace)
   6. refresh dim_app, re-grant SELECT to api_service, drop staging
   7. bust Redis 'agg:*' keys
@@ -18,18 +18,18 @@ and the dashboard keeps serving yesterday's data with a visible freshness banner
 
 The source emits one row per app-day PER CHANNEL (e.g. `store`/Google Play and
 `dlight`/Dlightek). The fact table stores one row per (date, platform, app_key), so those
-rows are SUMMED into a single row before the merge — measures added, derived ratios
+rows are SUMMED into a single row before the merge - measures added, derived ratios
 recomputed from the summed components. (This previously kept only the richest row and
 discarded the rest, silently losing ~1.5% of gross revenue a month.)
 
 Two modes (SYNC_MODE):
   • 'incremental' (default, the daily job): pull only the last SYNC_WINDOW_DAYS days from the
-    view and OVERWRITE that window in Postgres (delete those dates + reload) — so revised
+    view and OVERWRITE that window in Postgres (delete those dates + reload) - so revised
     recent numbers get corrected and rows that disappeared are removed. Older data untouched.
-  • 'full' (the on-demand backfill button): pull ALL history and UPSERT/accumulate — never
+  • 'full' (the on-demand backfill button): pull ALL history and UPSERT/accumulate - never
     deletes anything.
 
-Env vars (all injected from Secret Manager / job config — never hardcoded):
+Env vars (all injected from Secret Manager / job config - never hardcoded):
   GCP_PROJECT, BQ_VIEW (default terafort.api.daily_performance_v1),
   PG_DSN (postgresql://sync_service:...@<private-ip>:5432/terafort?sslmode=require),
   SYNC_MODE ('incremental'|'full', default 'incremental'), SYNC_WINDOW_DAYS (default 40),
@@ -69,7 +69,7 @@ FRESHNESS_MAX_LAG_DAYS = 3
 BATCH_ROWS = 20_000
 DEFAULT_WINDOW_DAYS = 40
 # If this share of loaded rows collapses during the channel merge, something has changed in
-# the source's grain — worth an alert even though the run succeeded.
+# the source's grain - worth an alert even though the run succeeded.
 MERGE_ALERT_RATIO = 0.50
 
 
@@ -115,7 +115,7 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
     for col, typ in expected.items():
         if col not in actual:
             if col in OPTIONAL_SOURCE_COLUMNS:
-                # The view hasn't shipped this column yet — load it as 0, don't halt.
+                # The view hasn't shipped this column yet - load it as 0, don't halt.
                 log.warning("optional source column '%s' absent from view; "
                             "defaulting to 0", col)
                 continue
@@ -125,7 +125,7 @@ def validate_schema(bq: bigquery.Client, view: str) -> tuple[list[str], set[str]
     for col in actual:
         if col not in expected:
             # New, unknown columns are tolerated (warn only): additive view
-            # changes don't break us — they just need a registry entry to be used.
+            # changes don't break us - they just need a registry entry to be used.
             log.warning("View has unregistered column '%s' (ignored until added "
                         "to metric_registry)", col)
     return problems, set(actual)
@@ -150,20 +150,20 @@ def fact_dynamic_columns(pg: psycopg.Connection) -> list[tuple[str, str]]:
             )
             rows = cur.fetchall()
     except psycopg.Error:
-        pg.rollback()  # table absent or unreadable — proceed with registry columns only
+        pg.rollback()  # table absent or unreadable - proceed with registry columns only
         return []
     # A dynamic column can be PROMOTED into the static registry later (e.g. apple_account was
     # adopted from BigQuery first, then added to the registry). If its dynamic_columns row is
     # still active, naively appending it would put the column in the COPY list TWICE →
     # `DuplicateColumn: column "…" specified more than once` and a failed sync every day.
-    # The registry version is authoritative — skip any overlap (and dedupe within dynamic).
+    # The registry version is authoritative - skip any overlap (and dedupe within dynamic).
     registry_names = {c.lower() for c in COLUMN_NAMES}
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     for name, pg_type in ((r[0], r[1]) for r in rows if _IDENT_RE.match(r[0])):
         lname = name.lower()
         if lname in registry_names:
-            log.info("dynamic column %r is now in the static registry — skipping (promoted)", name)
+            log.info("dynamic column %r is now in the static registry - skipping (promoted)", name)
             continue
         if lname in seen:
             continue
@@ -208,7 +208,7 @@ def load_staging(
 
     # Build the SELECT term for each registry column, in order:
     #   • computed columns (SOURCE_EXPR: pod cast + every derived metric) → their BigQuery
-    #     expression aliased to the column name. This is the view's old math, inlined — so
+    #     expression aliased to the column name. This is the view's old math, inlined - so
     #     reading the raw source table directly (no view) never drops a derived metric.
     #   • plain columns present in the source → selected by name.
     #   • optional columns the source lacks (e.g. tech_cost_usd) → a type-matched literal
@@ -278,7 +278,7 @@ def integrity_checks(
             problems.append(f"stale data: max(date)={max_date}")
 
     # Penny-exact revenue match over exactly what we loaded (the window for a windowed load,
-    # else the last 7 days for a full backfill) — proves the load fetched every row. This runs
+    # else the last 7 days for a full backfill) - proves the load fetched every row. This runs
     # BEFORE the channel merge, so staging still holds one row per source row and the two
     # sides are directly comparable.
     if since is not None:
@@ -299,7 +299,7 @@ def integrity_checks(
             tuple(pg_params))
         pg_sum = cur.fetchone()[0]
     # Compare with a tolerance, not strict equality: BQ sums FLOAT64 then rounds, while PG
-    # truncates each value to NUMERIC(18,4) on load then sums — so two legitimately-equal
+    # truncates each value to NUMERIC(18,4) on load then sums - so two legitimately-equal
     # loads can differ by a few cents. A small relative epsilon (0.01% of the sum, min 1 cent)
     # avoids spurious aborts (false 'failed' + page) on a good load, while still catching real
     # drift: a dropped/duplicated day moves the window sum by orders of magnitude more.
@@ -316,17 +316,17 @@ def merge_and_refresh(
     dyn: list[tuple[str, str]] | None = None,
 ) -> int:
     """Merge the validated staging table into the LIVE fact table, then refresh dim_app.
-    Everything runs in ONE transaction — a failure rolls back and leaves live data intact.
+    Everything runs in ONE transaction - a failure rolls back and leaves live data intact.
 
-    ``full``:                UPSERT by natural key — history accumulates, nothing is deleted.
-    ``incremental``/``range``: OVERWRITE the loaded date window — delete those dates in the
+    ``full``:                UPSERT by natural key - history accumulates, nothing is deleted.
+    ``incremental``/``range``: OVERWRITE the loaded date window - delete those dates in the
                      fact table, then insert the freshly-pulled window. Data outside the window
                      is untouched; rows that vanished from the source within it are removed too.
     ``dyn`` are the BigQuery-discovered dynamic columns loaded into staging this run; they are
     ensured on the live fact table and merged alongside the registry columns.
 
     Returns the number of staging rows absorbed by the per-channel merge (rows in minus rows
-    out) — zero when the source already had one row per app-day."""
+    out) - zero when the source already had one row per app-day."""
     dyn = dyn or []
     dyn_names = [n for n, _ in dyn]
     all_cols = [*COLUMN_NAMES, *dyn_names]
@@ -367,7 +367,7 @@ def merge_and_refresh(
                 cur.execute(f"DELETE FROM {FACT} WHERE date >= %s", (since,))
             cur.execute(f"INSERT INTO {FACT} ({cols_sql}) SELECT {cols_sql} FROM {STAGING}")
         else:
-            # Full backfill: UPSERT by (date, platform, app_key) — existing rows update in
+            # Full backfill: UPSERT by (date, platform, app_key) - existing rows update in
             # place, new dates append, and rows absent from the view are retained.
             cur.execute(generate_upsert_sql(FACT, STAGING, dyn_names))
         cur.execute(f"GRANT SELECT ON {FACT} TO api_service")
@@ -395,11 +395,11 @@ def merge_and_refresh(
 
 # ── Step 6.5: housekeeping (reclaim space) ────────────────────────────────────
 def housekeeping(pg: psycopg.Connection) -> None:
-    """Keep Postgres from bloating. Best-effort — a permission or lock issue must NEVER fail
+    """Keep Postgres from bloating. Best-effort - a permission or lock issue must NEVER fail
     the sync (the data is already committed by the time we get here).
 
     1. Optional audit_log retention: if AUDIT_RETENTION_DAYS is set, prune older rows (the
-       audit trail is the fastest-growing table — every request is logged).
+       audit trail is the fastest-growing table - every request is logged).
     2. VACUUM (ANALYZE) the fact table: the incremental sync deletes + reinserts the recent
        window each run, leaving dead tuples; VACUUM reclaims that space for reuse so the
        table reaches a stable size instead of growing every day.
@@ -445,15 +445,15 @@ def bust_cache() -> None:
             r.delete(key); deleted += 1
         log.info("cache bust: deleted %d keys", deleted)
     except Exception:  # noqa: BLE001
-        # Cache staleness is bounded by TTL anyway — degrade, don't fail the run.
+        # Cache staleness is bounded by TTL anyway - degrade, don't fail the run.
         log.exception("cache bust failed (non-fatal)")
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
 def main() -> int:
     project = env("GCP_PROJECT")
-    # The sync reads the source table directly (no view). BQ_VIEW is still honored — it's set
-    # from the `bq_view` operational setting — but now points at project.dataset.table; the
+    # The sync reads the source table directly (no view). BQ_VIEW is still honored - it's set
+    # from the `bq_view` operational setting - but now points at project.dataset.table; the
     # derived metrics the view used to compute are inlined into the load SELECT (SOURCE_EXPR).
     view = env("BQ_VIEW", "terafort.Final_Staging_tables.unified_daily_performance")
     mode = os.environ.get("SYNC_MODE", "incremental").strip().lower()
@@ -497,14 +497,14 @@ def main() -> int:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (SYNC_ADVISORY_LOCK_KEY,))
         got_lock = cur.fetchone()[0]
     if not got_lock:
-        log.warning("another sync holds the advisory lock — skipping this run (no-op)")
+        log.warning("another sync holds the advisory lock - skipping this run (no-op)")
         pg.close()
         return 0
 
     with pg.cursor() as cur:
         cur.execute("INSERT INTO sync_runs (mode) VALUES (%s) RETURNING id", (mode,))
         run_id = cur.fetchone()[0]
-        # Compare row counts against the previous successful run OF THE SAME MODE — a full
+        # Compare row counts against the previous successful run OF THE SAME MODE - a full
         # backfill's count must not be judged against a 40-day incremental's.
         cur.execute("SELECT rows_loaded FROM sync_runs "
                     "WHERE status='success' AND mode=%s ORDER BY id DESC LIMIT 1", (mode,))
@@ -524,7 +524,7 @@ def main() -> int:
     try:
         problems, present = validate_schema(bq, view)
         if problems:
-            msg = "schema mismatch — serving yesterday's data. " + "; ".join(problems)
+            msg = "schema mismatch - serving yesterday's data. " + "; ".join(problems)
             finish("schema_mismatch", error=msg); alert(msg)
             return 1
 
@@ -545,7 +545,7 @@ def main() -> int:
             bq, pg, view, rows, rows_prev_for_check, since, until,
             check_freshness=(mode != "range"))
         if problems:
-            msg = "integrity check failed — serving yesterday's data. " + "; ".join(problems)
+            msg = "integrity check failed - serving yesterday's data. " + "; ".join(problems)
             finish("failed", rows=rows, error=msg); alert(msg)
             return 1
 
@@ -557,11 +557,11 @@ def main() -> int:
         finish("success", rows=rows, built_at=built_at)
         if rows and merged > rows * MERGE_ALERT_RATIO:
             # Merging per-channel rows is normal and expected. An unusually large collapse is
-            # not — it suggests the source's grain changed (a new dimension in the rows), which
+            # not - it suggests the source's grain changed (a new dimension in the rows), which
             # is worth a look even though the run succeeded and the totals are still correct.
             alert(
                 f"sync succeeded but {merged} of {rows} loaded rows collapsed during the "
-                f"per-channel merge (>{MERGE_ALERT_RATIO:.0%}) — check whether the source "
+                f"per-channel merge (>{MERGE_ALERT_RATIO:.0%}) - check whether the source "
                 f"grain changed."
             )
         housekeeping(pg)  # reclaim space AFTER the run is recorded (best-effort)
@@ -571,7 +571,7 @@ def main() -> int:
 
     except Exception as exc:  # noqa: BLE001
         pg.rollback()
-        msg = f"sync crashed — serving yesterday's data. {type(exc).__name__}: {exc}"
+        msg = f"sync crashed - serving yesterday's data. {type(exc).__name__}: {exc}"
         try:
             finish("failed", error=msg[:2000])
         finally:

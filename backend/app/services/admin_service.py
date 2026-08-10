@@ -1,6 +1,6 @@
 """Admin-panel data access: users, role config, revenue targets, audit, health.
 
-Pure DB operations — the routes layer on capability checks, audit writes, and
+Pure DB operations - the routes layer on capability checks, audit writes, and
 UserContext cache busting. Role/scope sets are REPLACED wholesale on update, which
 mirrors how the admin UI presents them (checkbox grids, not deltas).
 """
@@ -449,7 +449,7 @@ async def data_health(db: AsyncSession) -> DataHealth:
             is_stale = True
             hours_old = int(age.total_seconds() // 3600)
             warnings.append(
-                f"Data is {hours_old}h old (threshold {threshold_hours}h) — "
+                f"Data is {hours_old}h old (threshold {threshold_hours}h) - "
                 f"last successful build {built_at.date()}."
             )
     else:

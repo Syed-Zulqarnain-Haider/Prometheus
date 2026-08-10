@@ -9,12 +9,12 @@ import { useAuth } from "@/lib/auth-context";
  *
  *  The TanStack cache is a plain in-memory store and outlives sign-out. On a shared machine
  *  that means the next person to sign in sees the previous user's revenue, spend and app
- *  list rendered from cache before their own request returns — figures their RBAC scopes may
+ *  list rendered from cache before their own request returns - figures their RBAC scopes may
  *  not entitle them to. The server was never wrong; the browser was showing someone else's
  *  answer.
  *
  *  Keyed on the Firebase UID rather than a signed-in boolean, so a direct A→B account switch
- *  (no null in between) clears too. The first resolution after a page load is not a change —
+ *  (no null in between) clears too. The first resolution after a page load is not a change -
  *  `previousUid` starts unset, so a normal load keeps its cache.
  */
 export function SessionCacheGuard({ children }: { children: React.ReactNode }) {
@@ -23,7 +23,7 @@ export function SessionCacheGuard({ children }: { children: React.ReactNode }) {
   const previousUid = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    if (loading) return; // Firebase hasn't resolved yet — absence of a user is not a sign-out
+    if (loading) return; // Firebase hasn't resolved yet - absence of a user is not a sign-out
     const uid = user?.uid ?? null;
     if (previousUid.current !== undefined && previousUid.current !== uid) {
       queryClient.clear();

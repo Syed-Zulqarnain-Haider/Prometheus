@@ -33,11 +33,11 @@ export function FilterBar() {
 
   // Disabled only until the first set of options lands. Keying this off `isFetching` meant
   // every background refresh greyed out all ten dropdowns mid-click, which is most of why
-  // the filters felt unreliable — a refetch is not a reason to take the controls away.
+  // the filters felt unreliable - a refetch is not a reason to take the controls away.
   const busy = !data;
   const refreshing = isFetching && Boolean(data);
   // Counted here rather than inside the button so the button is simply absent when there is
-  // nothing to clear — a permanently-visible "Clear" on an unfiltered page reads as broken.
+  // nothing to clear - a permanently-visible "Clear" on an unfiltered page reads as broken.
   const activeCount = activeFilterCount(filters);
 
   return (

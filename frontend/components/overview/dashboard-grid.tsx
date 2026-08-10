@@ -55,7 +55,7 @@ function MeasuredItem({
  *  Renders in BOTH view and edit mode so a saved arrangement persists outside the
  *  editor: in view mode it is static (no drag/resize) but still lays out by the saved
  *  positions; in edit mode widgets are draggable/resizable. Widgets are wrapped
- *  untouched — each keeps its own data fetching, filter reactivity, loading/empty/error
+ *  untouched - each keeps its own data fetching, filter reactivity, loading/empty/error
  *  states and RBAC. Per-widget auto-height (minH from a ResizeObserver) grows any cell
  *  whose content reflows taller, so saved layouts never clip. Below the `lg` breakpoint
  *  the grid is a single column (stacks vertically on tablet/mobile).

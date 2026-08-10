@@ -7,7 +7,7 @@ Translates a user's ``user_scopes`` rows into a SQLAlchemy boolean filter over
   * otherwise the effective access is the UNION of the user's rows, expressed as
     an OR of ``IN`` predicates: hou / pod / publisher, plus canonical_key for app
     scopes;
-  * a user with NO scopes can see NO rows (``false()``) — fail closed.
+  * a user with NO scopes can see NO rows (``false()``) - fail closed.
 
 This filter is injected FIRST in every data query; client filters may only
 narrow it further, never widen it.
@@ -51,7 +51,7 @@ def build_scope_filter(
     scope_columns = columns if columns is not None else _fact_scope_columns()
     scope_types = {s.scope_type for s in scopes}
 
-    # 'all' grants everything — no row restriction.
+    # 'all' grants everything - no row restriction.
     if "all" in scope_types:
         return true()
 

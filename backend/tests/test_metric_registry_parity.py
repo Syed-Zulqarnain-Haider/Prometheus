@@ -2,7 +2,7 @@
 
 CLAUDE.md names backend/app/core/metric_registry.py the single source of truth,
 while the sync job ships its own sync/metric_registry.py. This test fails if the
-two ever diverge in columns, types, groups, or ordering — so they cannot silently
+two ever diverge in columns, types, groups, or ordering - so they cannot silently
 drift apart.
 """
 

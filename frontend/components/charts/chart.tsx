@@ -40,14 +40,14 @@ interface ChartProps {
 // Lazy-load the ECharts renderer: the heavy charting library (echarts core +
 // echarts-for-react + theme) lives entirely in chart-canvas and is code-split out
 // of the initial route bundle, fetched on demand. A skeleton fills the chart's
-// reserved height while the chunk loads. ssr:false — charts are client-only anyway,
+// reserved height while the chunk loads. ssr:false - charts are client-only anyway,
 // so this changes only HOW the library loads, not any chart/data behaviour.
 const ChartCanvas = dynamic(
   () => import("@/components/charts/chart-canvas").then((m) => m.ChartCanvas),
   { ssr: false, loading: () => <Skeleton className="h-full w-full" /> },
 );
 
-// Resize bounds (px) for the drag handle — keep charts readable but flexible.
+// Resize bounds (px) for the drag handle - keep charts readable but flexible.
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 900;
 
@@ -67,7 +67,7 @@ export function Chart({
   adjustable = true,
 }: ChartProps) {
   // Sparklines (under 100px) host no controls, so the house bar default would be a change
-  // the viewer couldn't undo — and a 60px bar chart reads worse than a 60px line. They keep
+  // the viewer couldn't undo - and a 60px bar chart reads worse than a 60px line. They keep
   // the author's shape; every full-size chart gets bars.
   const [adjustments, setAdjustments] = useState<Adjustments>(() =>
     height >= 100 ? DEFAULT_ADJUSTMENTS : { ...DEFAULT_ADJUSTMENTS, type: "auto" },

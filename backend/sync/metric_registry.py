@@ -1,5 +1,5 @@
 """
-metric_registry.py — SINGLE SOURCE OF TRUTH for every column in daily_performance_v1.
+metric_registry.py - SINGLE SOURCE OF TRUTH for every column in daily_performance_v1.
 
 Everything is generated from this file:
   • the Postgres fact-table / staging DDL        (generate_fact_ddl)
@@ -37,7 +37,7 @@ class Col:
     # BigQuery expression that PRODUCES this column from the raw source table when the
     # sync reads the table directly (no view). None = plain pass-through (the source has a
     # column of this exact name). Set for the CAST(pod) dimension and every derived metric
-    # (roas/profit/cpi/ecpm/ctr/organic_install_share) — the finance math the view used to
+    # (roas/profit/cpi/ecpm/ctr/organic_install_share) - the finance math the view used to
     # hold now lives here, so bypassing the view never drops a metric. Columns WITH a
     # source_expr are never expected to exist in the source, so schema validation/diff skip
     # them (see expected_bq_schema).
@@ -140,7 +140,7 @@ REGISTRY: list[Col] = [
     Col("total_iap_gross_usd",   "FLOAT64", "NUMERIC(18,4)", Group.IAP_REVENUE),
     Col("total_iap_net_usd",     "FLOAT64", "NUMERIC(18,4)", Group.IAP_REVENUE),
 
-    # ── attribution (Adjust) — data synced, no v1 dashboard features ────────
+    # ── attribution (Adjust) - data synced, no v1 dashboard features ────────
     Col("adjust_conversions",      "INT64", "BIGINT", Group.ATTRIBUTION),
     Col("adjust_attribution",      "INT64", "BIGINT", Group.ATTRIBUTION),
     Col("adjust_installs",         "INT64", "BIGINT", Group.ATTRIBUTION),
@@ -158,14 +158,14 @@ REGISTRY: list[Col] = [
     Col("ad_roas",           "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY,
         source_expr="ROUND(SAFE_DIVIDE(total_ad_revenue_usd, total_ua_spend_usd), 4)"),
 
-    # ── reported actual totals (rpt_*) — finance-authoritative figures the cards now show ──
+    # ── reported actual totals (rpt_*) - finance-authoritative figures the cards now show ──
     Col("rpt_gross_revenue_usd",     "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("rpt_ua_cost_usd",           "FLOAT64", "NUMERIC(18,4)", Group.UA_SPEND),
     Col("rpt_tf_profit_usd",         "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
     Col("rpt_shares_fees_taxes_usd", "FLOAT64", "NUMERIC(18,4)", Group.PROFITABILITY),
 
     # ── reported finance ladder (rpt_*), read straight from the source table ──────────────
-    # The finance-authoritative figures the source already computes upstream — pass-through,
+    # The finance-authoritative figures the source already computes upstream - pass-through,
     # never recomputed here (owner decision to surface the reported ladder directly).
     Col("rpt_first_time_installs",       "INT64",   "BIGINT",        Group.STORE_INSTALLS),
     Col("rpt_redownloads",               "INT64",   "BIGINT",        Group.STORE_INSTALLS),
@@ -240,7 +240,7 @@ SOURCE_EXPR: dict[str, str] = {
 def expected_bq_schema() -> dict[str, str]:
     """name -> BQ data_type, for INFORMATION_SCHEMA validation. Only pass-through columns are
     expected to exist in the source; computed columns (SOURCE_EXPR) are produced by the loader
-    and must never be required in — or type-checked against — the raw table."""
+    and must never be required in - or type-checked against - the raw table."""
     return {c.name: c.bq_type for c in REGISTRY if c.source_expr is None}
 
 
@@ -255,7 +255,7 @@ def generate_fact_ddl(table_name: str, with_pk: bool = True) -> str:
 
     ``with_pk=False`` is used for the STAGING table: it omits the primary key so the load
     COPY can never crash on a duplicate natural key coming from the source (the sync
-    collapses staging to one row per key before merging — see ``generate_merge_rows_sql``).
+    collapses staging to one row per key before merging - see ``generate_merge_rows_sql``).
     The LIVE fact table always keeps its primary key, which the UPSERT relies on."""
     cols = ",\n  ".join(f"{c.name} {c.pg_type}" for c in REGISTRY)
     pk = ",\n  PRIMARY KEY (date, platform, app_key)" if with_pk else ""
@@ -268,7 +268,7 @@ def generate_fact_ddl(table_name: str, with_pk: bool = True) -> str:
 
 
 def generate_dedupe_sql(staging_table: str) -> str:
-    """DEPRECATED — superseded by ``generate_merge_rows_sql``. Retained only so any other
+    """DEPRECATED - superseded by ``generate_merge_rows_sql``. Retained only so any other
     importer keeps working; the sync no longer calls it.
 
     This DISCARDED every row but the richest per (date, platform, app_key), which was correct
@@ -290,7 +290,7 @@ WHERE s.ctid = d.ctid AND d.rn > 1"""
 
 
 # Postgres expressions that RECOMPUTE each derived column from the SUMMED components when
-# several source rows collapse into one. These mirror SOURCE_EXPR (the BigQuery side) —
+# several source rows collapse into one. These mirror SOURCE_EXPR (the BigQuery side) -
 # SAFE_DIVIDE becomes NULLIF-guarded division, which yields NULL on a zero denominator
 # exactly as BigQuery does. Without this, merging would ADD ratios together (two rows at
 # ROAS 4.7 becoming 9.4), so every non-dimension source_expr column MUST appear here;
@@ -334,13 +334,13 @@ _MERGE_RECOMPUTE: dict[str, str] = {
 # instead (text dimensions, booleans, timestamps).
 _ADDITIVE_PG_PREFIXES = ("BIGINT", "INTEGER", "SMALLINT", "NUMERIC", "DOUBLE", "REAL")
 
-# The grain the merge collapses to — the live fact table's primary key. ``app_key`` is a
+# The grain the merge collapses to - the live fact table's primary key. ``app_key`` is a
 # generated column, so it is grouped on but never selected (it re-derives on insert).
 MERGE_GROUP_BY = ("date", "platform", "app_key")
 
 
 def _assert_merge_coverage() -> None:
-    """Every derived (source_expr) column that isn't a dimension must have a merge rule — a
+    """Every derived (source_expr) column that isn't a dimension must have a merge rule - a
     new ratio added to the registry without one would otherwise be silently SUMMED."""
     missing = sorted(
         c.name
@@ -362,7 +362,7 @@ _assert_merge_coverage()
 def _merge_term(name: str, pg_type: str, group: Group, quote: bool = False) -> str:
     """How ONE column collapses when several source rows for the same app-day are merged."""
     if name in MERGE_GROUP_BY:
-        return name  # a grouping key — selected as-is, never aggregated
+        return name  # a grouping key - selected as-is, never aggregated
     if name in _MERGE_RECOMPUTE:
         return f"{_MERGE_RECOMPUTE[name]} AS {name}"
     ref = f'"{name}"' if quote else name
@@ -371,7 +371,7 @@ def _merge_term(name: str, pg_type: str, group: Group, quote: bool = False) -> s
         return f"bool_or({ref}) AS {ref}"  # MAX() is not defined for boolean in Postgres
     if group in (Group.DIMENSION, Group.SYSTEM) or not upper.startswith(_ADDITIVE_PG_PREFIXES):
         # Identity/label columns agree across merged rows (same app, same day). The one
-        # exception is rpt_console, which names the channel — one value is kept.
+        # exception is rpt_console, which names the channel - one value is kept.
         return f"MAX({ref}) AS {ref}"
     return f"SUM({ref}) AS {ref}"
 
@@ -380,24 +380,24 @@ def generate_merge_rows_sql(
     staging_table: str, extra_columns: list[tuple[str, str]] | None = None
 ) -> list[str]:
     """Collapse every source row for the same (date, platform, app_key) into ONE row by
-    SUMMING the measures — never by discarding rows.
+    SUMMING the measures - never by discarding rows.
 
     The source emits one row per app-day **per channel** (e.g. ``store`` / Google Play and
     ``dlight`` / Dlightek). Those are distinct real revenue, not duplicates. The previous
     behaviour kept only the richest row, which silently lost ~1.5% of gross revenue every
-    month — and with it the installs, UA spend and ad revenue on the discarded rows, since
+    month - and with it the installs, UA spend and ad revenue on the discarded rows, since
     the surviving row supplied every column.
 
     Additive measures are SUMMED; identity/label columns collapse to one value; and every
     derived ratio (``roas``, ``cpi``, ``*_ctr``, ``*_ecpm``, ``profit_usd``,
-    ``organic_install_share``) is RECOMPUTED from the summed components — adding ratios
+    ``organic_install_share``) is RECOMPUTED from the summed components - adding ratios
     together would be meaningless.
 
     Staging is rewritten in place, so the generated ``app_key`` column re-derives itself from
     the collapsed identity columns. That is safe by construction: rows only share an app_key
     when the COALESCE resolves to the same value, so MAX() of those columns reproduces it.
 
-    Returned as an ordered list of statements — the caller runs them in sequence, which keeps
+    Returned as an ordered list of statements - the caller runs them in sequence, which keeps
     this compatible with psycopg's one-statement-per-execute default.
     """
     extra = extra_columns or []
@@ -415,7 +415,7 @@ def generate_merge_rows_sql(
     ]
 
 
-# The natural key the daily sync UPSERTs on — the fact table's primary key. app_key is a
+# The natural key the daily sync UPSERTs on - the fact table's primary key. app_key is a
 # generated column (COALESCE of canonical_key / android_package / apple_id), so this
 # triple uniquely identifies one app's row for one day across iOS + Android.
 UPSERT_KEY = ("date", "platform", "app_key")
@@ -428,9 +428,9 @@ def generate_upsert_sql(
     into the live fact table, keyed on (date, platform, app_key).
 
     Re-running a date UPDATES the existing rows in place (every non-key column refreshed
-    to the latest values — so the Apple 2-3 day lag self-corrects); a new date APPENDS;
+    to the latest values - so the Apple 2-3 day lag self-corrects); a new date APPENDS;
     rows already in the fact table but absent from staging are RETAINED. The fact table
-    therefore accumulates full history even after BigQuery ages older days out — never a
+    therefore accumulates full history even after BigQuery ages older days out - never a
     destructive replace.
 
     ``extra_columns`` are BigQuery-discovered dynamic columns (identifier-safe) present in

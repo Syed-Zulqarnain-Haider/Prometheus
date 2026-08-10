@@ -5,8 +5,8 @@ Security invariants:
 - The BigQuery reader service-account key is a MOUNTED FILE. Only its PRESENCE is
   checked for status (the file is never opened for a status), and the key path is never
   echoed back to the client.
-- 'Test Connection' loads the key EXPLICITLY from ``Settings.bq_credentials_path`` — a
-  SEPARATE identity from Firebase's ``GOOGLE_APPLICATION_CREDENTIALS`` — and performs a
+- 'Test Connection' loads the key EXPLICITLY from ``Settings.bq_credentials_path`` - a
+  SEPARATE identity from Firebase's ``GOOGLE_APPLICATION_CREDENTIALS`` - and performs a
   free, read-only dry-run query. It never modifies anything in BigQuery or Postgres.
 - Nothing here ever returns a credential, key path, connection string, or raw provider
   error message; failures are sanitized to the exception's type name.
@@ -41,7 +41,7 @@ from app.services import system_service
 log = logging.getLogger("app.integration")
 
 # OAuth scope for the probe. The read-only boundary is enforced by the service
-# account's IAM roles (BigQuery Data Viewer + Job User) — NOT by the OAuth scope — so the
+# account's IAM roles (BigQuery Data Viewer + Job User) - NOT by the OAuth scope - so the
 # standard service-account scope is used; the SA still cannot write anything.
 _BQ_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
@@ -73,7 +73,7 @@ def bigquery_status(settings: Settings) -> ConnectionStatus:
     return ConnectionStatus(
         name="BigQuery",
         status="not_configured",
-        detail="No BigQuery reader key mounted — set BQ_CREDENTIALS_PATH and mount the key.",
+        detail="No BigQuery reader key mounted - set BQ_CREDENTIALS_PATH and mount the key.",
     )
 
 
@@ -94,7 +94,7 @@ async def integration_status(
     db: AsyncSession, redis: Redis, settings: Settings
 ) -> IntegrationStatus:
     """Compose the Integration tab status: BigQuery key presence + Postgres/Redis pings
-    + the most recent sync runs. Status/history only — never a credential."""
+    + the most recent sync runs. Status/history only - never a credential."""
     recent = list(
         (await db.execute(select(SyncRun).order_by(SyncRun.id.desc()).limit(10))).scalars().all()
     )
@@ -111,7 +111,7 @@ def _run_bigquery_probe(key_path: str, project: str) -> tuple[bool, str]:
     """Blocking, READ-ONLY BigQuery reachability probe (run in a worker thread).
 
     Loads the reader key EXPLICITLY from ``key_path`` (never the ambient Firebase
-    credentials) and runs a free dry-run ``SELECT 1`` — which validates auth + API
+    credentials) and runs a free dry-run ``SELECT 1`` - which validates auth + API
     reachability without executing a query or scanning any bytes. Returns
     ``(ok, sanitized_message)``; the message never contains a credential, path, or raw
     provider error.
@@ -132,17 +132,17 @@ def _run_bigquery_probe(key_path: str, project: str) -> tuple[bool, str]:
         client = bigquery.Client(project=project or None, credentials=credentials)
         job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
         # Dry run: BigQuery validates the query + credentials but runs nothing and scans
-        # zero bytes — an unambiguous read-only reachability check.
+        # zero bytes - an unambiguous read-only reachability check.
         client.query("SELECT 1", job_config=job_config, timeout=15)
         return (True, "BigQuery connection OK (read-only check passed).")
-    except Exception as exc:  # noqa: BLE001 — sanitize: type name only, never the message
+    except Exception as exc:  # noqa: BLE001 - sanitize: type name only, never the message
         log.warning("BigQuery test connection failed: %s", type(exc).__name__)
         return (False, f"BigQuery test failed ({type(exc).__name__}).")
 
 
 async def test_bigquery(settings: Settings, project: str) -> BigQueryTestResult:
     """Run the read-only BigQuery probe. Honest result when the key is missing or the
-    client library is unavailable — never a faked success."""
+    client library is unavailable - never a faked success."""
     if not _bq_key_present(settings):
         return BigQueryTestResult(
             ok=False,
@@ -198,18 +198,18 @@ def _run_schema_diff(
             timeout=30,
         )
         return ({row.column_name: row.data_type for row in job.result()}, None)
-    except Exception as exc:  # noqa: BLE001 — sanitize: type name only
+    except Exception as exc:  # noqa: BLE001 - sanitize: type name only
         log.warning("schema diff failed: %s", type(exc).__name__)
         return (None, f"Schema diff failed ({type(exc).__name__}).")
 
 
 async def schema_diff(settings: Settings, gcp_project: str, bq_view: str) -> SchemaDiff:
     """Read-only, INFORMATIONAL diff of the live BigQuery view vs the metric registry.
-    Never alters any schema — adopting a new column stays a deliberate registry change."""
+    Never alters any schema - adopting a new column stays a deliberate registry change."""
     if not _bq_key_present(settings):
         return SchemaDiff(
             configured=False,
-            message="No BigQuery reader key mounted — set BQ_CREDENTIALS_PATH and mount the key.",
+            message="No BigQuery reader key mounted - set BQ_CREDENTIALS_PATH and mount the key.",
         )
     actual, error = await anyio.to_thread.run_sync(
         _run_schema_diff, settings.bq_credentials_path, gcp_project, bq_view
@@ -246,15 +246,15 @@ async def clear_analytics_data(db: AsyncSession, redis: Redis) -> ClearDataResul
     input). Busts the now-stale aggregate cache afterward."""
     rows_deleted: dict[str, int] = {}
     for table in _CLEAR_TABLES:
-        count = await db.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608 — literal
-        await db.execute(text(f"DELETE FROM {table}"))  # noqa: S608 — fixed table name, no input
+        count = await db.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608 - literal
+        await db.execute(text(f"DELETE FROM {table}"))  # noqa: S608 - fixed table name, no input
         rows_deleted[table] = int(count or 0)
     await db.commit()
 
     try:
         async for key in redis.scan_iter(f"{AGG_PREFIX}*", count=500):
             await redis.delete(key)
-    except Exception:  # noqa: BLE001 — cache staleness is TTL-bounded; never fail the clear
+    except Exception:  # noqa: BLE001 - cache staleness is TTL-bounded; never fail the clear
         log.exception("aggregate cache bust after clear failed (non-fatal)")
 
     return ClearDataResult(

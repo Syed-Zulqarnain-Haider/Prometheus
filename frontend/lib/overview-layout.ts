@@ -1,6 +1,6 @@
 import type { Layout, Layouts } from "react-grid-layout";
 
-/** Draggable widget ids, in default visual order. The KPI row is NOT here — it is a
+/** Draggable widget ids, in default visual order. The KPI row is NOT here - it is a
  *  fixed full-width header rendered above the grid (never draggable, never clipped). */
 export const OVERVIEW_ITEM_IDS = [
   "donut-year",
@@ -24,7 +24,7 @@ export const GRID_MARGIN: [number, number] = [16, 16];
 // The default desktop arrangement for the DRAGGABLE area (everything below the fixed
 // KPI header):
 //   row 1: Yearly Progress to Target | Monthly Revenue Trend | Monthly Progress to
-//          Target  (three across — the trend chart sits between the two target donuts)
+//          Target  (three across - the trend chart sits between the two target donuts)
 //   row 2: Publisher Performance table (full width, ~10 columns)
 //   row 3: Top Apps by Revenue table (full width, ~10 columns)
 //   row 4: ROAS/CPI ratio cards (full width)
@@ -87,6 +87,6 @@ export function normalizeLayouts(saved: Layouts): Layouts {
 }
 
 // Below the `lg` breakpoint the grid is a single column (matches the original
-// `lg:grid-cols-*` behaviour — stacked on tablet/mobile, no dragging needed).
+// `lg:grid-cols-*` behaviour - stacked on tablet/mobile, no dragging needed).
 export const GRID_BREAKPOINTS = { lg: 1024, md: 768, sm: 640, xs: 480, xxs: 0 };
 export const GRID_BREAKPOINT_COLS = { lg: GRID_COLS, md: 1, sm: 1, xs: 1, xxs: 1 };

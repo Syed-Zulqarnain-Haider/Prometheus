@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class DashboardLayoutSave(BaseModel):
-    """Request body for saving a layout — the react-grid-layout ``Layouts`` object."""
+    """Request body for saving a layout - the react-grid-layout ``Layouts`` object."""
 
     layout: dict[str, Any] = Field(
         ..., description="react-grid-layout Layouts (breakpoint → item positions)"

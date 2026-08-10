@@ -19,7 +19,7 @@ function toOptions(values: string[] | undefined): Option[] {
   return [...(values ?? [])].sort().map((v) => ({ value: v, label: v }));
 }
 
-/** Single definition of the filter bar's dimensions — their order, their labels and where
+/** Single definition of the filter bar's dimensions - their order, their labels and where
  *  their options come from. The inline bar and the slide-over panel both render from this,
  *  so the two can't disagree about what's filterable.
  *

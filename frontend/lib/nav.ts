@@ -18,7 +18,7 @@ export interface NavItem {
   requiresAdmin?: boolean;
 }
 
-/** Sidebar navigation — routes per the build-order pages. */
+/** Sidebar navigation - routes per the build-order pages. */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/overview", label: "Executive Overview", icon: LayoutDashboard },
   { href: "/revenue", label: "Revenue", icon: BarChart3 },

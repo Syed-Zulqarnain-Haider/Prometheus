@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models — a faithful mirror of ``sql/postgres/001_init.sql``.
+"""SQLAlchemy ORM models - a faithful mirror of ``sql/postgres/001_init.sql``.
 
 The sync-managed ``fact_daily_performance`` table (002, generated from the
 metric registry) is intentionally NOT modeled here; it is owned by the sync job.

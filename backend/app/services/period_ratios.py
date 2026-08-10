@@ -2,13 +2,13 @@
 
 Daily derived ratios (computed per-row in the BigQuery view) must NEVER be
 averaged to produce a period figure. Instead, period ratios are recomputed from
-the summed numerator/denominator — e.g. period ROAS = SUM(revenue)/SUM(spend).
+the summed numerator/denominator - e.g. period ROAS = SUM(revenue)/SUM(spend).
 A zero (or missing) denominator yields ``None`` (mirrors BigQuery SAFE_DIVIDE).
 
 Formulas and rounding mirror ``sql/bigquery/daily_performance_v1.sql`` exactly,
 plus ``profit_margin`` (owner-requested KPI = profit / revenue).
 
-A ratio is only emitted when BOTH component totals are present in the input —
+A ratio is only emitted when BOTH component totals are present in the input -
 which, because totals come from the RBAC-filtered summary, keeps ratios behind
 the same metric-group permissions as their components.
 """
@@ -72,7 +72,7 @@ class DiffDef:
 
 # Headline difference KPIs, summed component-by-component then combined (so they
 # stay period-correct). Like the ratios, each is emitted only when EVERY component
-# is present in the RBAC-filtered totals — so they inherit metric-group permissions.
+# is present in the RBAC-filtered totals - so they inherit metric-group permissions.
 PERIOD_DIFFERENCES: list[DiffDef] = [
     # Net Revenue = total revenue − UA spend.
     DiffDef("net_revenue_usd", ("total_revenue_usd",), ("total_ua_spend_usd",), 4),

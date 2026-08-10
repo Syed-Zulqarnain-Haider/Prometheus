@@ -1,7 +1,7 @@
 """Export route: CSV / XLSX of a report or ad-hoc breakdown.
 
 Exports are capability-gated (``export``), rate-limited (10/min), and ALWAYS
-re-run server-side through the caller's own QueryBuilder — the request body never
+re-run server-side through the caller's own QueryBuilder - the request body never
 carries pre-computed rows, so a client cannot exfiltrate data outside its scope.
 Every export is written to the audit log. Google Sheets export is recognized but
 not enabled (it requires per-user OAuth that is not configured in v1).

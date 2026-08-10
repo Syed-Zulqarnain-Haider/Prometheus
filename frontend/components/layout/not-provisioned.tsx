@@ -5,7 +5,7 @@ import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /** Shown when a user has authenticated with Firebase (e.g. via Google or
- *  email/password) but is NOT provisioned in our database — no role, no scope, no
+ *  email/password) but is NOT provisioned in our database - no role, no scope, no
  *  data. Authentication never implies authorization here, so we surface a friendly
  *  message instead of a blank or broken dashboard. */
 export function NotProvisioned({

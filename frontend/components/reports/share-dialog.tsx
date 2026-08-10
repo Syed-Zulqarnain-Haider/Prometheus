@@ -52,7 +52,7 @@ export function ShareDialog({ reportId }: { reportId: string }) {
       </PopoverTrigger>
       <PopoverContent className="w-80 space-y-3">
         <p className="text-xs font-medium text-muted-foreground">
-          Share with — recipients always view through their own access.
+          Share with - recipients always view through their own access.
         </p>
         <Select value={recipient} onValueChange={setRecipient}>
           <SelectTrigger className="h-8">
@@ -79,8 +79,8 @@ export function ShareDialog({ reportId }: { reportId: string }) {
         {share.isSuccess && (
           <p className="text-xs text-muted-foreground">
             {share.data.status === "approved"
-              ? "Shared — the recipient can see it now."
-              : "Request sent — awaiting admin approval."}
+              ? "Shared - the recipient can see it now."
+              : "Request sent - awaiting admin approval."}
           </p>
         )}
         {share.isError && (

@@ -48,7 +48,7 @@ def _app_payload(app: DimApp) -> dict[str, Any]:
 async def list_apps(context: CurrentUser, db: DbSession, redis: RedisClient) -> dict[str, Any]:
     scope = build_scope_filter(context.scopes, columns=_DIM_SCOPE_COLUMNS)
     # The apps list is dimension-only (no metric columns), so it varies by scope but
-    # NOT by metric permissions — perms left empty so same-scope callers share it.
+    # NOT by metric permissions - perms left empty so same-scope callers share it.
     key = aggregate_cache_key("apps.list", scope_token(context.scopes), "", {})
 
     async def produce() -> dict[str, Any]:
@@ -78,6 +78,6 @@ async def get_app(canonical_key: str, context: CurrentUser, db: DbSession) -> di
     stmt = select(DimApp).where(DimApp.canonical_key == canonical_key).where(scope)
     app = (await db.execute(stmt)).scalars().first()
     if app is None:
-        # Out of scope OR nonexistent — same response, by design.
+        # Out of scope OR nonexistent - same response, by design.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Resource not found")
     return _app_payload(app)

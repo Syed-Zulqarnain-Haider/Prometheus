@@ -41,7 +41,7 @@ async def main(firebase_uid: str, email: str) -> None:
     async with AsyncSessionLocal() as session:
         admin_role = await session.scalar(select(Role).where(Role.name == "admin"))
         if admin_role is None:
-            raise SystemExit("Roles are not seeded — run 'alembic upgrade head' first.")
+            raise SystemExit("Roles are not seeded - run 'alembic upgrade head' first.")
 
         user = await session.scalar(select(User).where(User.firebase_uid == firebase_uid))
         if user is not None:

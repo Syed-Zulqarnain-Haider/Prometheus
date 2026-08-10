@@ -29,7 +29,7 @@ function BreakdownPie({
   const breakdown = useBreakdown(filters, groupBy, ["total_revenue_usd"]);
   const rows = breakdown.data?.rows ?? [];
   const data = rows.map((row, i) => ({
-    name: String(row[groupBy] ?? "—"),
+    name: String(row[groupBy] ?? "-"),
     value: num(row.total_revenue_usd),
     itemStyle: { color: token(PALETTE[i % PALETTE.length]) },
   }));

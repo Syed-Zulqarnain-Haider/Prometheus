@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies — primarily the authenticated user context."""
+"""Shared FastAPI dependencies - primarily the authenticated user context."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ async def get_user_context(
 
     # Time-limited access: enforced on EVERY request (a context cached before the deadline
     # must not keep serving past it). An expired user is denied exactly like a deactivated
-    # one — this holds even if the UI is bypassed.
+    # one - this holds even if the UI is bypassed.
     if context.access_expires_at is not None and context.access_expires_at <= datetime.now(UTC):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Access has expired")
 
@@ -99,7 +99,7 @@ async def get_verified_identity(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
 ) -> VerifiedIdentity:
-    """Verify the Firebase token WITHOUT requiring a provisioned account — so an
+    """Verify the Firebase token WITHOUT requiring a provisioned account - so an
     authenticated-but-unprovisioned user can lodge an access request. Grants NOTHING by
     itself; the caller only uses the verified identity to record a pending request."""
     if credentials is None or not credentials.credentials:

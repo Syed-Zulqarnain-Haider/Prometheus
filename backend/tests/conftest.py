@@ -226,7 +226,7 @@ METRICS_TOKENS: dict[str, dict[str, Any]] = {
     f"valid-{role}": {"uid": f"{role}-uid"} for role in METRICS_ROLES
 }
 METRICS_TOKENS["valid-pod_owner_scoped"] = {"uid": "pod_owner_scoped-uid"}
-# An authenticated-but-UNPROVISIONED identity (not in the seed) — carries email + name
+# An authenticated-but-UNPROVISIONED identity (not in the seed) - carries email + name
 # like a real Google token, for the access-request flow.
 METRICS_TOKENS["valid-newcomer"] = {
     "uid": "newcomer-uid",

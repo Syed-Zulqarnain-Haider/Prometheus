@@ -74,7 +74,7 @@ describe("bar is the house default", () => {
   });
 
   it("leaves a deliberately mixed chart alone", () => {
-    // canSwitchType is false here, so the type control is not offered either — converting it
+    // canSwitchType is false here, so the type control is not offered either - converting it
     // would produce a chart the viewer could not switch back.
     expect(detectCapabilities(mixedChart).canSwitchType).toBe(false);
     expect(types(applyAdjustments(mixedChart, DEFAULT_ADJUSTMENTS))).toEqual(["bar", "scatter"]);

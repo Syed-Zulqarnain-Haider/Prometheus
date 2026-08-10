@@ -101,7 +101,7 @@ async def test_executive_scope_all_sees_every_pod(metrics_env: MetricsEnv) -> No
 
 async def test_executive_cannot_write_or_admin(metrics_env: MetricsEnv) -> None:
     """No write/admin power: manage users, set targets, approve shares, change
-    settings — every one returns 403 (missing admin_panel capability)."""
+    settings - every one returns 403 (missing admin_panel capability)."""
     for method, path, body in EXECUTIVE_FORBIDDEN:
         call = getattr(metrics_env.client, method)
         kwargs: dict[str, Any] = {"headers": _auth("executive")}

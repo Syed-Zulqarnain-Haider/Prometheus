@@ -1,6 +1,6 @@
 """Application configuration.
 
-All settings — and especially every secret — are loaded from the environment
+All settings - and especially every secret - are loaded from the environment
 (or a local ``.env`` for development). No secret values are ever hard-coded here;
 see CLAUDE.md security rules. ``.env.example`` documents the expected variables.
 """
@@ -27,11 +27,11 @@ class Settings(BaseSettings):
     project_name: str = "Prometheus API"
     api_v1_prefix: str = "/api/v1"
 
-    # Connections (database_url is required — a misconfigured deploy fails fast).
+    # Connections (database_url is required - a misconfigured deploy fails fast).
     database_url: str
     redis_url: str = "redis://localhost:6379/0"
 
-    # Data-source / sync wiring (operational, env-only — NEVER stored in the DB or
+    # Data-source / sync wiring (operational, env-only - NEVER stored in the DB or
     # shown in the UI). Their PRESENCE drives the System tab's BigQuery status and the
     # "Run sync now" trigger; absence (local/seed) means "not configured".
     bigquery_project: str | None = None
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     sync_trigger_token: str | None = None  # bearer for the trigger URL (secret; env only)
 
     # Path to the BigQuery READER service-account key. This is a SEPARATE identity from
-    # Firebase's GOOGLE_APPLICATION_CREDENTIALS — never reuse that one for BigQuery. The
+    # Firebase's GOOGLE_APPLICATION_CREDENTIALS - never reuse that one for BigQuery. The
     # key is a MOUNTED FILE (never uploaded or stored via the UI/DB); only its PATH is
     # configured here. Its presence drives the Integration tab's BigQuery status, and the
     # read-only "Test Connection" loads it explicitly from this path.
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # libpq DSN the sync uses to write Postgres, e.g.
     # postgresql://sync_service:...@host:5432/db?sslmode=require. This is the SYNC's DB
-    # identity (the write-capable ``sync_service`` role) — DISTINCT from ``database_url``
+    # identity (the write-capable ``sync_service`` role) - DISTINCT from ``database_url``
     # (the api's read role). Secret, env-only (never DB/UI/logs). Its presence (plus the
     # BQ key + GCP project) is what enables the backend to run the sync LOCALLY; absent,
     # the scheduler/trigger falls back to ``sync_trigger_url`` or reports not-configured.

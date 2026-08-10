@@ -3,7 +3,7 @@
 The rest of the suite builds its schema with ``Base.metadata.create_all`` (fast, but it
 NEVER exercises the migration files). That gap let a broken migration ship: the
 ``access_expires_at`` migration mixed bind-parameter styles in its FK-introspection query
-(``:tbl::regclass`` — a named bind glued to a ``::`` cast), which asyncpg rejects with
+(``:tbl::regclass`` - a named bind glued to a ``::`` cast), which asyncpg rejects with
 ``syntax error at or near ":"``. The column was never created and the auth path 500'd.
 
 These tests run the actual ``alembic upgrade head`` / ``downgrade`` against the test
@@ -47,7 +47,7 @@ async def clean_db() -> AsyncGenerator[None, None]:
 
     The ``fact_daily_performance`` table is sync-owned (created by the sync DDL, not by
     Alembic) yet two migrations ALTER it, so we materialize it up front exactly as a real
-    deploy would have it — otherwise the chain can't reach the migration under test."""
+    deploy would have it - otherwise the chain can't reach the migration under test."""
     from app.core.fact_table import fact_metadata
 
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -121,7 +121,7 @@ async def test_upgrade_head_applies_cleanly_over_asyncpg() -> None:
     # The column the auth path reads must now exist.
     assert await _column_exists("users", "access_expires_at")
     # And the FKs were recreated with the intended ON DELETE actions ('n' = SET NULL,
-    # 'c' = CASCADE) — proving _recreate_user_fks actually ran, not just the add_column.
+    # 'c' = CASCADE) - proving _recreate_user_fks actually ran, not just the add_column.
     assert await _fk_ondelete("audit_log", "user_id") == "n"
     assert await _fk_ondelete("report_shares", "shared_by") == "c"
     # The chained migration applied too (head == access_requests).

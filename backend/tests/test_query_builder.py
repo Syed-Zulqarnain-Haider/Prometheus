@@ -114,7 +114,7 @@ async def test_summary_previous_period_math(fact_session: Any) -> None:
     await _insert_fact(fact_session, date=date(2026, 1, 12), store_total_installs=50)
     await _insert_fact(fact_session, date=date(2026, 1, 3), store_total_installs=30)
     await _insert_fact(fact_session, date=date(2026, 1, 5), store_total_installs=20)
-    # outside both windows — must be ignored
+    # outside both windows - must be ignored
     await _insert_fact(fact_session, date=date(2025, 12, 30), store_total_installs=999)
     await fact_session.commit()
 
@@ -208,7 +208,7 @@ async def test_table_keyset_pagination(fact_session: Any) -> None:
 
 async def test_table_collapses_platforms_into_one_game_row(fact_session: Any) -> None:
     """Android + iOS rows for one game (shared canonical_key) collapse to a SINGLE
-    row with summed measures — so derived ratios are computed from the totals
+    row with summed measures - so derived ratios are computed from the totals
     (ROAS = Σrevenue ÷ Σspend), never averaged across the per-platform rows."""
     # Android: revenue 300 on spend 100 (ROAS 3.0). iOS: revenue 100 on spend 300
     # (ROAS ≈ 0.33). Chosen so Σrev/Σspend differs from the mean of the two ratios.
@@ -249,7 +249,7 @@ async def test_table_collapses_platforms_into_one_game_row(fact_session: Any) ->
     assert int(row["apple_id"]) == 999
     assert row["android_package"] == "com.x.game1"
 
-    # ROAS from summed totals = 400/400 = 1.0 — NOT the mean of per-platform ROAS
+    # ROAS from summed totals = 400/400 = 1.0 - NOT the mean of per-platform ROAS
     # ((3.0 + 0.333…)/2 ≈ 1.67). The collapse must aggregate first, divide second.
     roas_from_sums = float(row["total_revenue_usd"]) / float(row["total_ua_spend_usd"])
     avg_of_ratios = (300 / 100 + 100 / 300) / 2

@@ -19,7 +19,7 @@ echarts.use([
   BarChart,
   PieChart,
   HeatmapChart,
-  ScatterChart, // required by UA "CPI vs Install Volume" — without it that chart is blank
+  ScatterChart, // required by UA "CPI vs Install Volume" - without it that chart is blank
   // components
   TitleComponent,
   TooltipComponent,

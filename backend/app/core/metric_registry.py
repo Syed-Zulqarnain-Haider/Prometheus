@@ -1,9 +1,9 @@
-"""metric_registry.py — SINGLE SOURCE OF TRUTH for every column in the fact table.
+"""metric_registry.py - SINGLE SOURCE OF TRUTH for every column in the fact table.
 
 This is the canonical backend copy referenced by CLAUDE.md contract rule #2.
 Pydantic response models, RBAC column filters, and the fact-table definition are
 generated from it. Its column set is kept in lockstep with the sync job's copy
-(``sync/metric_registry.py``) by ``tests/test_metric_registry_parity.py`` — if the
+(``sync/metric_registry.py``) by ``tests/test_metric_registry_parity.py`` - if the
 two ever diverge, that test fails. To add a column: add ONE entry here, mirror it
 in the sync registry, and add an Alembic migration.
 """
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class Group(str, Enum):  # noqa: UP042 — mirror sync/metric_registry.py verbatim
+class Group(str, Enum):  # noqa: UP042 - mirror sync/metric_registry.py verbatim
     DIMENSION = "dimension"
     STORE_INSTALLS = "store_installs"
     UA_SPEND = "ua_spend"
@@ -110,7 +110,7 @@ REGISTRY: list[Col] = [
     Col("total_iap_gross_usd",   "FLOAT64", "NUMERIC(18,4)", Group.IAP_REVENUE),
     Col("total_iap_net_usd",     "FLOAT64", "NUMERIC(18,4)", Group.IAP_REVENUE),
 
-    # ── attribution (Adjust) — data synced, no v1 dashboard features ────────
+    # ── attribution (Adjust) - data synced, no v1 dashboard features ────────
     Col("adjust_conversions",      "INT64", "BIGINT", Group.ATTRIBUTION),
     Col("adjust_attribution",      "INT64", "BIGINT", Group.ATTRIBUTION),
     Col("adjust_installs",         "INT64", "BIGINT", Group.ATTRIBUTION),
@@ -132,7 +132,7 @@ REGISTRY: list[Col] = [
 
 COLUMN_NAMES: list[str] = [c.name for c in REGISTRY]
 
-# Registry columns the BigQuery view may not expose yet — the sync defaults them to 0
+# Registry columns the BigQuery view may not expose yet - the sync defaults them to 0
 # instead of failing, and the Integration tab's schema diff flags them as optional (not a
 # blocking mismatch). Kept identical to sync/metric_registry.py (drift-guarded by
 # tests/test_metric_registry_parity.py).

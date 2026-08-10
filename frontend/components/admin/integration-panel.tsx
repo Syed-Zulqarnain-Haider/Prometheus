@@ -65,7 +65,7 @@ function HealthCard({ id, status }: { id: keyof typeof ICONS; status: Connection
         {status.latency_ms != null ? (
           <span className="tabular-nums">{status.latency_ms} ms</span>
         ) : (
-          <span>{status.detail ?? "—"}</span>
+          <span>{status.detail ?? "-"}</span>
         )}
       </CardContent>
     </Card>
@@ -169,7 +169,7 @@ function SchemaDiffLists({ diff }: { diff: SchemaDiff }) {
       {diff.unregistered_in_view.length > 0 && (
         <div>
           <p className="font-medium">
-            New in the view — adopt via the registry ({diff.unregistered_in_view.length})
+            New in the view - adopt via the registry ({diff.unregistered_in_view.length})
           </p>
           <div className="mt-1 flex flex-wrap gap-1">
             {diff.unregistered_in_view.map((c) => (
@@ -200,7 +200,7 @@ function SchemaDiffSection() {
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-muted-foreground">
-            Compare the BigQuery view&apos;s columns to the metric registry. Read-only — this
+            Compare the BigQuery view&apos;s columns to the metric registry. Read-only - this
             never alters any schema; adopting a new column stays a deliberate registry change.
           </p>
           <Button className="gap-2" disabled={diff.isPending} onClick={() => diff.mutate()}>
@@ -432,7 +432,7 @@ export function IntegrationPanel() {
         </Card>
         <p className="text-xs text-muted-foreground">
           These are non-secret operational parameters only. The BigQuery service-account key
-          is a file mounted on the server — it is never uploaded, stored, or shown here.
+          is a file mounted on the server - it is never uploaded, stored, or shown here.
         </p>
       </section>
 
@@ -534,7 +534,7 @@ export function IntegrationPanel() {
                           {formatDateTime(run.bq_built_at)}
                         </td>
                         <td className="max-w-xs truncate px-3 py-1.5 text-muted-foreground">
-                          {run.error_detail ?? "—"}
+                          {run.error_detail ?? "-"}
                         </td>
                       </tr>
                     ))}
@@ -546,7 +546,7 @@ export function IntegrationPanel() {
         </Card>
       </section>
 
-      {/* F) Danger zone — Clear Data (destructive) */}
+      {/* F) Danger zone - Clear Data (destructive) */}
       <DangerZone />
     </div>
   );

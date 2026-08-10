@@ -1,16 +1,16 @@
 """Registry of admin-editable OPERATIONAL settings.
 
 This is the single source of truth for which settings exist, their type, default,
-bounds, group, and human labels. ONLY non-secret operational toggles belong here —
+bounds, group, and human labels. ONLY non-secret operational toggles belong here -
 there is deliberately no mechanism to store a credential, connection string, key, or
 password. Values are constrained to int/bool or a SHORT, FORMAT-VALIDATED string (an
-HH:MM time, an IANA timezone, a GCP project id, or a fully-qualified BigQuery view) —
+HH:MM time, an IANA timezone, a GCP project id, or a fully-qualified BigQuery view) -
 so a secret blob can never be persisted through this surface.
 
 Settings are grouped: ``general`` (the System tab) and ``integration`` (the
 Integration tab). The integration keys configure the BigQuery → Postgres sync's
 NON-SECRET parameters (which project/view, whether/when it runs); the BigQuery
-service-account key itself is NEVER stored here — it is a mounted file referenced only
+service-account key itself is NEVER stored here - it is a mounted file referenced only
 by ``Settings.bq_credentials_path``.
 
 To add a setting: add a ``SettingSpec`` here (and read it where the backend needs it).
@@ -27,7 +27,7 @@ SettingType = Literal["int", "bool", "str"]
 SettingGroup = Literal["general", "integration"]
 StrFormat = Literal["hhmm", "iana_tz", "gcp_project", "bq_view"]
 
-# Defensive hard cap on any stored string — a real value for every str format below is
+# Defensive hard cap on any stored string - a real value for every str format below is
 # well under this; the cap exists so a key/JSON blob can never be pasted in.
 _MAX_STR_LEN = 256
 
@@ -47,7 +47,7 @@ def _validate_str_format(fmt: StrFormat, key: str, value: str) -> None:
     if fmt == "iana_tz":
         try:
             ZoneInfo(value)
-        except Exception as exc:  # noqa: BLE001 — any failure means "not a valid tz"
+        except Exception as exc:  # noqa: BLE001 - any failure means "not a valid tz"
             raise ValueError(f"{key} must be a valid IANA timezone (e.g. UTC)") from exc
     # GCP project id is optional (empty == "not configured yet").
     if fmt == "gcp_project" and value != "" and not _GCP_PROJECT_RE.match(value):
@@ -90,7 +90,7 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
         label="Show demo widgets",
         description="Toggle the sample/demo widgets section on the dashboard.",
     ),
-    # ── Integration (Integration tab) — NON-SECRET sync parameters only ──────────
+    # ── Integration (Integration tab) - NON-SECRET sync parameters only ──────────
     "gcp_project": SettingSpec(
         key="gcp_project",
         type="str",
@@ -140,7 +140,7 @@ SETTINGS_REGISTRY: dict[str, SettingSpec] = {
 }
 
 # Settings the (non-admin) frontend is allowed to read so it can react to them.
-# Operational only — never secret. The integration keys are admin-only and are
+# Operational only - never secret. The integration keys are admin-only and are
 # DELIBERATELY excluded here.
 CLIENT_SETTING_KEYS: tuple[str, ...] = ("data_freshness_threshold_hours", "show_demo_widgets")
 
@@ -161,7 +161,7 @@ def coerce_value(spec: SettingSpec, value: Any) -> int | bool | str:
         if spec.str_format is not None:
             _validate_str_format(spec.str_format, spec.key, value)
         return value
-    # int — note bool is a subclass of int, so reject it explicitly.
+    # int - note bool is a subclass of int, so reject it explicitly.
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{spec.key} must be an integer")
     if spec.minimum is not None and value < spec.minimum:

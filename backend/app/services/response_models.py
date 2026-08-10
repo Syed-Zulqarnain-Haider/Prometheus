@@ -2,7 +2,7 @@
 
 Builds a Pydantic model whose fields are EXACTLY the columns the caller's metric
 groups permit (plus the always-visible dimension columns used to label rows).
-Forbidden metric columns are never declared, so they can never be serialized —
+Forbidden metric columns are never declared, so they can never be serialized -
 RBAC column filtering is enforced by the type system, not by hand-maintained
 lists. Driven entirely by the metric registry (single source of truth).
 """

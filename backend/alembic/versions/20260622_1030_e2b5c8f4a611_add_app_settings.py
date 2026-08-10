@@ -1,7 +1,7 @@
 """add app_settings (operational, non-secret key/value)
 
 Stores admin-editable operational settings (int/bool only, per the settings
-registry). No credentials/connection strings are ever stored here — secrets stay
+registry). No credentials/connection strings are ever stored here - secrets stay
 in env / Secret Manager.
 
 Revision ID: e2b5c8f4a611

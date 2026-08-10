@@ -143,7 +143,7 @@ async def test_expired_user_is_denied_everywhere(metrics_env: MetricsEnv) -> Non
     assert upd.status_code == 200
     assert upd.json()["is_expired"] is True
 
-    # Server denies — even on the cached path (cache busted on the change).
+    # Server denies - even on the cached path (cache busted on the change).
     assert (await c.get("/api/v1/auth/me", headers=_auth("finance"))).status_code == 403
     summary = await c.get(
         "/api/v1/metrics/summary",

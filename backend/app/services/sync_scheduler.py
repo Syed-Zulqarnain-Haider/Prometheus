@@ -1,13 +1,13 @@
 """In-process daily-sync scheduler.
 
 A lightweight asyncio loop (started from the app lifespan) that, once a minute, reads the
-operational settings and — when ``sync_enabled`` and the clock has reached
-``sync_schedule_time`` in ``sync_timezone`` — fires the sync via ``sync_service.run_sync``.
+operational settings and - when ``sync_enabled`` and the clock has reached
+``sync_schedule_time`` in ``sync_timezone`` - fires the sync via ``sync_service.run_sync``.
 
 It is safe to run this loop on EVERY backend instance: ``run_sync`` takes a Postgres
 advisory lock and re-checks ``skip_if_ran_after`` under it, so the daily sync fires
 exactly once per day no matter how many instances tick simultaneously. Each tick is
-isolated — an error is logged and the loop continues; it never crashes the app.
+isolated - an error is logged and the loop continues; it never crashes the app.
 
 EVERY tick outcome is logged, not just a successful fire: "not configured", "already ran",
 "already running" and "trigger failed" used to be silent, which is how a broken sync stayed
@@ -48,7 +48,7 @@ _last_skip_reason: str | None = None
 async def _claim_daily_job(sessionmaker: async_sessionmaker[Any], job: str, run_date: date) -> bool:
     """Atomically claim ``job`` for ``run_date`` across ALL instances and restarts. Returns True
     only for the single winner (INSERT ... ON CONFLICT DO NOTHING). This is what makes the daily
-    routines fire exactly once cluster-wide — not once per process."""
+    routines fire exactly once cluster-wide - not once per process."""
     async with sessionmaker() as db:
         stmt = (
             pg_insert(JobRun)
@@ -65,7 +65,7 @@ async def _maybe_evaluate_alerts(
     sessionmaker: async_sessionmaker[Any], settings: Settings, now: datetime
 ) -> None:
     """Run the daily post-sync routines (anomaly alerts + digest) once per day, ~15 min after
-    the scheduled sync so the fact table is fresh. Best-effort and isolated — never affects the
+    the scheduled sync so the fact table is fresh. Best-effort and isolated - never affects the
     sync tick. Deduped by a DB claim, so it fires exactly ONCE across instances and restarts."""
     async with sessionmaker() as db:
         alerts_on = bool(await settings_service.get_value(db, "alerts_enabled"))
@@ -77,7 +77,7 @@ async def _maybe_evaluate_alerts(
     _, scheduled_utc = sync_service.is_due(now, hhmm, tz_name)
     if now < scheduled_utc + _ALERT_DELAY:
         return
-    # Claim the day BEFORE doing any work — only the winning instance proceeds.
+    # Claim the day BEFORE doing any work - only the winning instance proceeds.
     if not await _claim_daily_job(sessionmaker, _POST_SYNC_JOB, now.date()):
         return
 
@@ -86,13 +86,13 @@ async def _maybe_evaluate_alerts(
         if alerts_on:
             try:
                 fired = await alerts_service.evaluate_and_notify(db, settings)
-            except Exception:  # noqa: BLE001 — must never block the digest or the loop
+            except Exception:  # noqa: BLE001 - must never block the digest or the loop
                 log.exception("alert evaluation failed")
         # The digest is gated by its OWN setting and runs independently of alerts.
         if digest_on:
             try:
                 await digest_service.build_and_send(db, settings)
-            except Exception:  # noqa: BLE001 — the digest must never block the loop
+            except Exception:  # noqa: BLE001 - the digest must never block the loop
                 log.exception("digest send failed")
     if fired:
         log.info("alerts fired: %s", ", ".join(a["key"] for a in fired))
@@ -156,13 +156,13 @@ async def scheduler_loop(
         except asyncio.CancelledError:
             log.info("daily sync scheduler stopping")
             raise
-        except Exception:  # noqa: BLE001 — a tick must never kill the loop
+        except Exception:  # noqa: BLE001 - a tick must never kill the loop
             log.exception("scheduler tick failed")
         try:
             await _maybe_evaluate_alerts(sessionmaker, settings, datetime.now(UTC))
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 — alert eval must never kill the loop
+        except Exception:  # noqa: BLE001 - alert eval must never kill the loop
             log.exception("alert evaluation failed")
         try:
             # Scheduled report emails: each schedule self-guards on its own hour/day + a
@@ -170,6 +170,6 @@ async def scheduler_loop(
             await report_delivery_service.evaluate_due(sessionmaker, settings, datetime.now(UTC))
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 — report delivery must never kill the loop
+        except Exception:  # noqa: BLE001 - report delivery must never kill the loop
             log.exception("scheduled report evaluation failed")
         await asyncio.sleep(tick_seconds)

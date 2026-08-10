@@ -109,7 +109,7 @@ export function ChartControls({
     canSwitchType || canScale || canStack || canLabel || canTransform || seriesNames.length > 0;
   if (!hasControls) return null;
 
-  // Stacking is meaningless on plain lines — grey it out until the viewer picks Bar/Area.
+  // Stacking is meaningless on plain lines - grey it out until the viewer picks Bar/Area.
   const stackable = stackApplies(capabilities, adjustments.type);
   const isPercent = adjustments.stack === "percent" && stackable;
 

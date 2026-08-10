@@ -1,6 +1,6 @@
 """Per-user dashboard layout persistence (drag-and-drop Phase 2).
 
-Each user reads and writes ONLY their own layout — every query is scoped to
+Each user reads and writes ONLY their own layout - every query is scoped to
 ``context.user_id``, so one user's arrangement can never read or overwrite
 another's. Saves and resets are audited. When a user has no saved layout the
 endpoint returns ``layout=None`` and the client falls back to its default.
@@ -63,7 +63,7 @@ async def save_layout(
     """Save (upsert) THIS user's layout for the page."""
     _validate_page(page)
     now = datetime.now(UTC)
-    # Upsert scoped to the caller — the PK (user_id, page) guarantees one row per
+    # Upsert scoped to the caller - the PK (user_id, page) guarantees one row per
     # user/page and the conflict target makes a re-save idempotent.
     stmt = (
         pg_insert(DashboardLayout)

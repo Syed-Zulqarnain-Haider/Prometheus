@@ -1,6 +1,6 @@
 """Schemas for the admin System tab: connection health, settings, sync trigger.
 
-Connection statuses carry ONLY up/down/not_configured + latency — never a
+Connection statuses carry ONLY up/down/not_configured + latency - never a
 connection string, host, or any credential.
 """
 
@@ -18,7 +18,7 @@ class ConnectionStatus(BaseModel):
     name: str
     status: ConnState
     latency_ms: float | None = None
-    detail: str | None = None  # human note only — never a connection string/credential
+    detail: str | None = None  # human note only - never a connection string/credential
 
 
 class SystemHealth(BaseModel):
@@ -42,7 +42,7 @@ class SettingOut(BaseModel):
 
 class SettingUpdate(BaseModel):
     # int/bool, or a SHORT format-validated string (HH:MM, IANA tz, GCP project, BQ
-    # view) — the registry rejects anything else, so a secret blob can never be stored.
+    # view) - the registry rejects anything else, so a secret blob can never be stored.
     value: int | bool | str
 
 

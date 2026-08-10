@@ -107,7 +107,7 @@ async def test_setting_rejects_out_of_bounds_and_unknown(metrics_env: MetricsEnv
 # ── Backend genuinely respects the freshness threshold ───────────────────────
 async def test_freshness_threshold_drives_staleness(metrics_env: MetricsEnv) -> None:
     """The seed's last successful build is fixed in the past, so a 1h threshold marks
-    it stale while a 720h threshold does not — proving data_health reads the setting."""
+    it stale while a 720h threshold does not - proving data_health reads the setting."""
     c = metrics_env.client
 
     await c.put(

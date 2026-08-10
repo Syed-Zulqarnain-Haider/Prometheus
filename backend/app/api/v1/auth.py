@@ -20,7 +20,7 @@ from app.services.audit import AuditDep
 # router); each route resolves CurrentUser, so the limiter has the caller's id.
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(enforce_rate_limit)])
 
-# A SEPARATE /auth router WITHOUT the CurrentUser-based limiter — its routes serve
+# A SEPARATE /auth router WITHOUT the CurrentUser-based limiter - its routes serve
 # authenticated-but-UNPROVISIONED identities (the main router's limiter resolves
 # CurrentUser, which 401s them before the route runs).
 public_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,7 +38,7 @@ async def request_access(
     audit: AuditDep,
 ) -> AccessRequestStatus:
     """Lodge (or refresh) a pending access request for a verified-but-unprovisioned user.
-    Idempotent by Firebase UID; grants ZERO access — an admin must approve. Audited."""
+    Idempotent by Firebase UID; grants ZERO access - an admin must approve. Audited."""
     req = await access_service.record_request(
         db,
         firebase_uid=identity.firebase_uid,
@@ -83,7 +83,7 @@ async def read_me(context: CurrentUser) -> UserContext:
 async def directory(context: ShareUser, db: DbSession) -> list[DirectoryEntry]:
     """Active users (minus the caller) for picking report-share recipients.
 
-    Restricted to roles holding ``share_report`` (others get 403) — a minimal
+    Restricted to roles holding ``share_report`` (others get 403) - a minimal
     name/email directory, no roles or scopes exposed. Recipients always view
     shared reports through their OWN RBAC, so this leaks nothing extra.
     """

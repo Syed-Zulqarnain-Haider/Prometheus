@@ -1,4 +1,4 @@
-"""Operational application settings (``app_settings``) — non-secret key/value only.
+"""Operational application settings (``app_settings``) - non-secret key/value only.
 
 Values are constrained by the settings registry to int/bool or a SHORT,
 format-validated string (HH:MM, IANA timezone, GCP project id, BigQuery view), so no

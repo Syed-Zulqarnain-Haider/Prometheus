@@ -1,4 +1,4 @@
-"""The RBAC wall — exhaustive matrix tests for the RBAC core.
+"""The RBAC wall - exhaustive matrix tests for the RBAC core.
 
 Covers, for every role:
   * exactly which metric-group columns serialize in the generated response model

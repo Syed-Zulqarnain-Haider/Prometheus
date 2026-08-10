@@ -1,1 +1,1 @@
-"""Prometheus Performance Dashboard — FastAPI backend."""
+"""Prometheus Performance Dashboard - FastAPI backend."""

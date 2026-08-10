@@ -34,7 +34,7 @@ interface SectionProps {
 }
 
 /** One collapsible dimension: search, checkbox list, and bulk select/clear for what the
- *  search currently shows. Bulk actions deliberately act on the *filtered* list — "select
+ *  search currently shows. Bulk actions deliberately act on the *filtered* list - "select
  *  all" after typing "puzzle" means all puzzle apps, not all 150. */
 function Section({ dimension, selected, onChange, defaultOpen }: SectionProps) {
   const [expanded, setExpanded] = useState(defaultOpen);
@@ -172,7 +172,7 @@ interface FilterPanelProps {
  *
  *  The inline bar applies each change immediately, which means ten dropdown clicks are ten
  *  URL writes and ten refetches. Here the panel edits a private draft and **Apply** produces
- *  exactly one update — the difference between "set up my view" and "wait ten times".
+ *  exactly one update - the difference between "set up my view" and "wait ten times".
  */
 export function FilterPanel({
   open,

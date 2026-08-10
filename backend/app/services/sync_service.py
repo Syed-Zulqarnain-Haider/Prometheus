@@ -9,17 +9,17 @@ the vendored ``sync/sync_job.py`` as a subprocess; otherwise report an honest
 Locking: the backend takes a Postgres SESSION advisory lock ONLY to serialize the trigger
 decision, and RELEASES it before the spawned job starts. ``sync/sync_job.py`` takes the
 same key itself and no-ops if it cannot get it, so a lock held across the spawn made every
-backend-triggered run a silent no-op — the child always lost to its own parent.
+backend-triggered run a silent no-op - the child always lost to its own parent.
 
 Exactly-once-per-day is guaranteed regardless of how many backend instances run the
 scheduler: the advisory lock serializes triggers, the job's own lock serializes runs, and
-the scheduler additionally passes ``skip_if_ran_after`` so that — re-checked UNDER the
-lock — a second instance that wins the race still won't double-run for the day. That check is
+the scheduler additionally passes ``skip_if_ran_after`` so that - re-checked UNDER the
+lock - a second instance that wins the race still won't double-run for the day. That check is
 status-aware: a SUCCESSFUL run ends the day, an in-flight run blocks while it lasts, but a
 FAILED run is retried (after a backoff) instead of wedging the pipeline until tomorrow.
 
 Security: the subprocess loads the BigQuery key EXPLICITLY from ``bq_credentials_path``
-(set as the child's ``GOOGLE_APPLICATION_CREDENTIALS`` — a SEPARATE identity from the
+(set as the child's ``GOOGLE_APPLICATION_CREDENTIALS`` - a SEPARATE identity from the
 backend's own Firebase credentials, which are left untouched). Child stdout/stderr are
 STREAMED INTO THE BACKEND LOG (prefixed ``[sync]``): the job logs no DSN or credential, only
 mode/warnings/row counts, and discarding them previously made a day-long outage invisible.
@@ -73,7 +73,7 @@ _SKIP_SQL = (
 )
 
 _NOT_CONFIGURED_MSG = (
-    "Data source not configured — set SYNC_TRIGGER_URL, or mount the BigQuery reader key "
+    "Data source not configured - set SYNC_TRIGGER_URL, or mount the BigQuery reader key "
     "(BQ_CREDENTIALS_PATH), set SYNC_PG_DSN, and a GCP project, to enable sync."
 )
 
@@ -84,7 +84,7 @@ def is_due(now_utc: datetime, schedule_hhmm: str, tz_name: str) -> tuple[bool, d
     Returns ``(due, scheduled_utc)`` where ``scheduled_utc`` is *today's* scheduled run
     instant (the ``HH:MM`` wall-clock time in ``tz_name``, as UTC) and ``due`` is whether
     ``now_utc`` has reached it. 'Due' uses >= (not ==) so a missed tick or a cold start
-    after the scheduled time still triggers a catch-up run for the day — the
+    after the scheduled time still triggers a catch-up run for the day - the
     once-per-day guarantee comes from the advisory lock + ``skip_if_ran_after``.
     """
     try:
@@ -92,13 +92,13 @@ def is_due(now_utc: datetime, schedule_hhmm: str, tz_name: str) -> tuple[bool, d
         hours, minutes = (int(part) for part in schedule_hhmm.split(":"))
         now_local = now_utc.astimezone(tz)
         # Build today's wall-clock target FRESH with the zone so zoneinfo resolves the
-        # correct UTC offset for that instant — .replace(hour=...) on an already-localized
+        # correct UTC offset for that instant - .replace(hour=...) on an already-localized
         # datetime would reuse *now's* offset and be wrong by an hour on DST-transition days.
         scheduled_local = datetime(
             now_local.year, now_local.month, now_local.day, hours, minutes, tzinfo=tz
         )
         scheduled_utc = scheduled_local.astimezone(UTC)
-    except Exception:  # noqa: BLE001 — a malformed schedule/tz simply means "not due"
+    except Exception:  # noqa: BLE001 - a malformed schedule/tz simply means "not due"
         log.exception("is_due: bad schedule (%r) or timezone (%r)", schedule_hhmm, tz_name)
         return (False, now_utc)
     return (now_utc >= scheduled_utc, scheduled_utc)
@@ -137,7 +137,7 @@ def _child_env(
     env["SYNC_START_DATE"] = start_date or ""
     env["SYNC_END_DATE"] = end_date or ""
     # Unbuffered, so the child's log lines reach our reader as they happen rather than
-    # only at exit — a job that dies early must still show why.
+    # only at exit - a job that dies early must still show why.
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -149,7 +149,7 @@ def _post_trigger(
     + window are sent in the body so a Cloud Run Job endpoint can honor them (forward-compat;
     the vendored local job reads them from env)."""
     body = json.dumps({"mode": mode, "window_days": window_days}).encode()
-    request = urllib.request.Request(url, data=body, method="POST")  # noqa: S310 — operator URL
+    request = urllib.request.Request(url, data=body, method="POST")  # noqa: S310 - operator URL
     request.add_header("Content-Type", "application/json")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -158,7 +158,7 @@ def _post_trigger(
             return (200 <= resp.status < 300, f"HTTP {resp.status}")
     except urllib.error.HTTPError as exc:
         return (False, f"HTTP {exc.code}")
-    except Exception as exc:  # noqa: BLE001 — sanitize: type name only, never the URL/error
+    except Exception as exc:  # noqa: BLE001 - sanitize: type name only, never the URL/error
         return (False, type(exc).__name__)
 
 
@@ -217,7 +217,7 @@ async def _drain_local(proc: asyncio.subprocess.Process) -> None:
             log.error("local sync exited with code %s", returncode)
         else:
             log.info("local sync finished cleanly")
-    except Exception:  # noqa: BLE001 — a drain failure must never escape the background task
+    except Exception:  # noqa: BLE001 - a drain failure must never escape the background task
         log.exception("local sync output drain failed")
 
 
@@ -236,10 +236,10 @@ async def run_sync(
     """Trigger the sync once, under a Postgres advisory lock. Returns as soon as the sync
     is *kicked off* (never blocking on a long run): the URL path POSTs and returns; the
     local path spawns the subprocess and hands the lock to a background finalizer. Honest
-    'not configured' when no execution path is available — never a faked success.
+    'not configured' when no execution path is available - never a faked success.
 
     ``skip_if_ran_after`` (scheduler only): skip when a ``sync_runs`` row at/after this
-    instant shows the day is already handled — see ``_SKIP_SQL``. A FAILED run does not
+    instant shows the day is already handled - see ``_SKIP_SQL``. A FAILED run does not
     count as handled, so a crash is retried rather than blocking until tomorrow.
     """
     trigger_url = settings.sync_trigger_url
@@ -279,8 +279,8 @@ async def run_sync(
         )
         # Release OUR lock BEFORE the child reaches for it. sync_job.py takes the SAME key
         # (its SYNC_ADVISORY_LOCK_KEY == _SYNC_LOCK_KEY) and cleanly no-ops when it cannot
-        # acquire it — so holding this across the spawn made EVERY backend-triggered run a
-        # silent do-nothing ("another sync holds the advisory lock — skipping"). Our lock
+        # acquire it - so holding this across the spawn made EVERY backend-triggered run a
+        # silent do-nothing ("another sync holds the advisory lock - skipping"). Our lock
         # only serializes the trigger decision above; the child's lock guards the run.
         await _release_and_close(lock_db)
         handed_off = True

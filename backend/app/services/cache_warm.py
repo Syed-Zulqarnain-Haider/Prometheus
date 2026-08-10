@@ -1,14 +1,14 @@
 """Idempotent warm-up of the aggregate cache for the Overview's default view.
 
-Pre-populates ``agg:*`` entries for the most common dashboard request — the default
+Pre-populates ``agg:*`` entries for the most common dashboard request - the default
 30-day Executive Overview for a full-visibility (all metric groups), all-scope
-caller — so the first real visit after a deploy or the daily cache bust hits warm
+caller - so the first real visit after a deploy or the daily cache bust hits warm
 cache instead of paying the cold Neon recompute. Each job mirrors a real Overview
 request exactly (same route + params), so warmed entries are read by real requests.
 
 Best-effort and non-fatal: any failure is logged and skipped (the endpoint simply
 recomputes on demand). Warming the all-groups/all-scope profile can never serve data
-to a lower-privilege caller — the cache key varies by scope AND permitted groups.
+to a lower-privilege caller - the cache key varies by scope AND permitted groups.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from app.services.query_builder import QueryBuilder
 
 log = logging.getLogger("app.cache_warm")
 
-# The full-visibility, all-scope profile shared by admin / executive / pod_owner —
+# The full-visibility, all-scope profile shared by admin / executive / pod_owner -
 # the most common Overview audience.
 _ALL_GROUPS = [
     "store_installs",
@@ -99,12 +99,12 @@ async def warm_overview_cache(sessionmaker: async_sessionmaker[AsyncSession], re
             try:
                 await cached_json(redis, key, producer)
                 warmed += 1
-            except Exception:  # noqa: BLE001 — warming is best-effort, never fatal
+            except Exception:  # noqa: BLE001 - warming is best-effort, never fatal
                 log.exception("cache warm failed for %s", route)
 
         # Each entry below mirrors a default Overview request (30-day range, no extra
         # filters). Metric lists are sorted to match the endpoints' cache keys; the
-        # producers (functools.partial) bind their args eagerly — no loop-var capture.
+        # producers (functools.partial) bind their args eagerly - no loop-var capture.
         await run("metrics.summary", _params(f), partial(metrics_service.run_summary, db, qb, f))
         await run(
             "metrics.timeseries",

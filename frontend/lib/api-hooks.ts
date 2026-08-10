@@ -58,7 +58,7 @@ export function useApps() {
   });
 }
 
-/** Mirrors `FilterOptions` in `backend/app/schemas/metrics.py` — one list per filter-bar
+/** Mirrors `FilterOptions` in `backend/app/schemas/metrics.py` - one list per filter-bar
  *  dimension, plus `apps` as value/label pairs so an app is selectable by name. */
 export interface FilterOptions {
   platforms: string[];
@@ -74,7 +74,7 @@ export interface FilterOptions {
   apps: { value: string; label: string | null }[];
 }
 
-/** Cascading filter-bar options — refetches whenever any filter changes, so each dropdown
+/** Cascading filter-bar options - refetches whenever any filter changes, so each dropdown
  *  reflects the others (e.g. platform=ios narrows the HOU list). */
 export function useFilterOptions(filters: Filters) {
   const { user } = useAuth();
@@ -779,7 +779,7 @@ export function useClearData() {
         body: JSON.stringify({ confirmation }),
       }),
     // Clearing ALL fact data invalidates every dashboard/aggregate query, not just the
-    // integration views — invalidate the whole cache so nothing keeps showing pre-clear data.
+    // integration views - invalidate the whole cache so nothing keeps showing pre-clear data.
     onSuccess: () => queryClient.invalidateQueries(),
   });
 }

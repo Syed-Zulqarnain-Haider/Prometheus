@@ -76,7 +76,7 @@ function buildColumns(available: Set<string>): ColumnDef<AppRow>[] {
         return (
           <span className="inline-flex items-center gap-1.5">
             <span className="font-medium text-[color:var(--color-accent)]">
-              {String(value ?? "—")}
+              {String(value ?? "-")}
             </span>
             <StoreLinkIcon
               androidPackage={row.original.android_package as string | null}
@@ -85,7 +85,7 @@ function buildColumns(available: Set<string>): ColumnDef<AppRow>[] {
           </span>
         );
       }
-      return String(value ?? "—");
+      return String(value ?? "-");
     },
   }));
 }
