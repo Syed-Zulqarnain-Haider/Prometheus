@@ -7,6 +7,37 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-06 (later)
 
+### Admin - annual revenue target splits itself across the months
+
+The twelve month fields and the annual field were unrelated inputs, so they could disagree
+and nothing said so. (They currently do: the saved 2026 targets are a 12,000,000 annual with
+13,000,000 sitting in July alone.)
+
+- Entering an **annual target** splits it across all twelve months.
+- Editing **any month** fixes that month and the months you have not touched absorb the
+  difference, so the twelve always add up to the annual figure.
+- Clearing a month hands it back to the automatic split. Manual months are marked and can be
+  released by clicking the `manual` tag.
+- A **Distribute evenly** button drops every manual value and re-splits.
+- A running total line shows `Months total / Annual` and whether they match, so a mismatch is
+  visible rather than silent.
+
+Arithmetic is in **integer cents**, not dollars: splitting 12,000,000 twelve ways in floating
+point leaves the months summing to 11,999,999.99, and the entire point of the panel is that
+the two agree exactly. The indivisible cents are handed out one at a time from January.
+
+Two deliberate refusals: months are **never shown as negative** when the manual ones overshoot
+the annual (they are zeroed and the total line flags the overshoot), and **nothing is
+redistributed on page load** - every stored month is treated as manual, so opening the page
+cannot silently rewrite targets someone already saved. Redistribution starts on the first edit.
+
+The split logic lives in `frontend/lib/target-split.ts` rather than inside the component, so
+it is testable: `tests/target-split.test.ts` covers 11 cases, including that the total lands
+exactly on the annual for amounts that do not divide by twelve.
+
+Files: `frontend/lib/target-split.ts`, `frontend/components/admin/targets-panel.tsx`,
+`frontend/tests/target-split.test.ts`.
+
 ### Security - audit-log IP spoofing, and baseline response headers
 
 **Audit-log IPs were forgeable by the caller.** `client_ip()` read

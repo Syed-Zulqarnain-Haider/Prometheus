@@ -7,6 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSetTarget, useTargets } from "@/lib/api-hooks";
+import { formatUSD } from "@/lib/format";
+import {
+  MONTH_NUMBERS,
+  numberOrNull,
+  redistribute,
+  sumCents,
+  toCents,
+} from "@/lib/target-split";
+import { cn } from "@/lib/utils";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -15,13 +24,6 @@ const MONTHS = [
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
-
-function numberOrNull(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed.replace(/,/g, ""));
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 export function TargetsPanel() {
   const [year, setYear] = useState(CURRENT_YEAR);
@@ -38,11 +40,47 @@ export function TargetsPanel() {
 
   const [annual, setAnnual] = useState("");
   const [months, setMonths] = useState<Record<number, string>>({});
+  // Months the user has typed into. These are held fixed and the rest absorb the difference.
+  const [manual, setManual] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     setAnnual(initial.annual);
     setMonths(initial.months);
+    // Every stored month counts as manual on load, so opening the page never silently
+    // rewrites targets somebody already saved. Redistribution starts on the first edit.
+    setManual(new Set(MONTH_NUMBERS.filter((m) => (initial.months[m] ?? "") !== "")));
   }, [initial]);
+
+  /** Typing an annual target re-splits the whole year and drops every manual override -
+   *  "distribute this across the months" is the intent of entering it. */
+  function onAnnualChange(value: string): void {
+    setAnnual(value);
+    const cleared = new Set<number>();
+    setManual(cleared);
+    setMonths((current) => redistribute(value, current, cleared));
+  }
+
+  /** Typing a month fixes that month and lets the others absorb the difference. Clearing it
+   *  hands it back to the automatic split. */
+  function onMonthChange(month: number, value: string): void {
+    setManual((currentManual) => {
+      const nextManual = new Set(currentManual);
+      if (value.trim() === "") nextManual.delete(month);
+      else nextManual.add(month);
+      setMonths((current) => redistribute(annual, { ...current, [month]: value }, nextManual));
+      return nextManual;
+    });
+  }
+
+  function distributeEvenly(): void {
+    const cleared = new Set<number>();
+    setManual(cleared);
+    setMonths((current) => redistribute(annual, current, cleared));
+  }
+
+  const annualCents = toCents(annual);
+  const monthsCents = sumCents(months);
+  const difference = annualCents === null ? null : monthsCents - annualCents;
 
   async function saveAll() {
     const annualValue = numberOrNull(annual);
@@ -86,35 +124,87 @@ export function TargetsPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="max-w-xs space-y-1">
-          <Label htmlFor="annual-target">Annual target (USD)</Label>
-          <Input
-            id="annual-target"
-            inputMode="numeric"
-            value={annual}
-            onChange={(event) => setAnnual(event.target.value)}
-            placeholder="e.g. 1200000"
-          />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="max-w-xs flex-1 space-y-1">
+            <Label htmlFor="annual-target">Annual target (USD)</Label>
+            <Input
+              id="annual-target"
+              inputMode="numeric"
+              value={annual}
+              onChange={(event) => onAnnualChange(event.target.value)}
+              placeholder="e.g. 1200000"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={distributeEvenly}
+            disabled={annualCents === null}
+            title="Split the annual target evenly across all twelve months and clear every manual value"
+          >
+            Distribute evenly
+          </Button>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          Entering an annual target splits it across the twelve months. Edit any month and the
+          months you have not touched absorb the difference, so the twelve always add up to the
+          annual figure. Clear a month to hand it back to the automatic split.
+        </p>
+
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {MONTHS.map((label, index) => {
             const month = index + 1;
+            const isManual = manual.has(month);
             return (
               <div key={month} className="space-y-1">
-                <Label htmlFor={`m-${month}`}>{label}</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor={`m-${month}`}>{label}</Label>
+                  {isManual && (
+                    <button
+                      type="button"
+                      className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                      title="This month is fixed. Click to hand it back to the automatic split."
+                      onClick={() => onMonthChange(month, "")}
+                    >
+                      manual
+                    </button>
+                  )}
+                </div>
                 <Input
                   id={`m-${month}`}
                   inputMode="numeric"
                   value={months[month] ?? ""}
-                  onChange={(event) =>
-                    setMonths((current) => ({ ...current, [month]: event.target.value }))
-                  }
+                  onChange={(event) => onMonthChange(month, event.target.value)}
                   placeholder="-"
+                  className={cn(isManual && "border-primary/60")}
                 />
               </div>
             );
           })}
         </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-xs">
+          <span className="text-muted-foreground">
+            Months total <span className="font-medium text-foreground">{formatUSD(monthsCents / 100)}</span>
+          </span>
+          {annualCents !== null && (
+            <>
+              <span className="text-muted-foreground">
+                Annual <span className="font-medium text-foreground">{formatUSD(annualCents / 100)}</span>
+              </span>
+              {difference === 0 ? (
+                <span className="text-[color:var(--color-positive)]">matches</span>
+              ) : (
+                <span className="text-destructive">
+                  {difference !== null && difference > 0 ? "over by " : "short by "}
+                  {formatUSD(Math.abs(difference ?? 0) / 100)}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
         <div className="flex items-center gap-2">
           <Button onClick={saveAll} disabled={setTarget.isPending}>
             {setTarget.isPending ? "Saving…" : "Save targets"}
