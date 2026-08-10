@@ -7,6 +7,36 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-06 (later)
 
+### Security - dependency vulnerabilities and the unused image optimizer
+
+`npm audit` reported 5 advisories (4 high, 1 moderate), including two that matter for a
+dashboard behind auth:
+
+- **Unauthenticated disclosure of internal Server Function endpoints** (GHSA-955p-x3mx-jcvp)
+- **SSRF in rewrites via attacker-controlled destination hostname** (GHSA-p9j2-gv94-2wf4)
+- Unbounded Server Action payload on the Edge runtime (GHSA-4c39-4ccg-62r3)
+- DoS in the Image Optimization API via SVG (GHSA-q8wf-6r8g-63ch)
+
+`next` 15.5.19 -> **15.5.23** clears all four. `nanoid` and `protobufjs` cleared with a
+non-breaking `npm audit fix`. This closes the README's standing "upgrade Next.js to a
+patched release" item.
+
+**Remaining: 3 high, and they need a major version.** `postcss` and `sharp` are vendored
+inside Next and only move on `next@16`, which is a breaking change and not something to do
+inside a security patch. What they actually expose:
+
+- `postcss` - build-time CSS processing. The advisories need attacker-controlled CSS or
+  `sourceMappingURL` input to the build. Our CSS is in the repo, so there is no path in.
+- `sharp` -> libvips (CVE-2026-33327/33328/35590/35591) - reachable through Next's
+  `/_next/image` endpoint, which Next serves whether or not you use it.
+
+The dashboard uses **no `next/image` anywhere**, so `images: { unoptimized: true }` now
+turns that endpoint off. That removes the reachable path rather than documenting it: the
+CVE stays in the lockfile, but nothing serves it.
+
+Verified after the upgrade: tsc, eslint, 30/30 tests, `next build`, and a live `next start`
+still returning all six security headers with no `X-Powered-By`.
+
 ### Admin - annual revenue target splits itself across the months
 
 The twelve month fields and the annual field were unrelated inputs, so they could disagree

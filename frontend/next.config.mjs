@@ -39,6 +39,11 @@ const nextConfig = {
   output: "standalone",
   // Don't advertise the framework version to scanners.
   poweredByHeader: false,
+  // The dashboard uses no `next/image`, but Next still serves `/_next/image` and still
+  // pulls in `sharp` -> libvips, which carries live CVEs (GHSA-f88m-g3jw-g9cj). Turning the
+  // optimizer off removes an endpoint and a native image decoder we were never using.
+  // Revisit if `next/image` is ever adopted.
+  images: { unoptimized: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
