@@ -61,15 +61,17 @@ export function TargetsPanel() {
   }
 
   /** Typing a month fixes that month and lets the others absorb the difference. Clearing it
-   *  hands it back to the automatic split. */
+   *  hands it back to the automatic split.
+   *
+   *  `nextManual` is computed OUTSIDE the state updaters: an updater must be pure, and
+   *  React StrictMode double-invokes them - a `setMonths` fired from inside the `setManual`
+   *  updater would redistribute twice per keystroke. */
   function onMonthChange(month: number, value: string): void {
-    setManual((currentManual) => {
-      const nextManual = new Set(currentManual);
-      if (value.trim() === "") nextManual.delete(month);
-      else nextManual.add(month);
-      setMonths((current) => redistribute(annual, { ...current, [month]: value }, nextManual));
-      return nextManual;
-    });
+    const nextManual = new Set(manual);
+    if (value.trim() === "") nextManual.delete(month);
+    else nextManual.add(month);
+    setManual(nextManual);
+    setMonths((current) => redistribute(annual, { ...current, [month]: value }, nextManual));
   }
 
   function distributeEvenly(): void {

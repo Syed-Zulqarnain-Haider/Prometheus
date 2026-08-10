@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Megaphone,
+  Scale,
   Shield,
   Store,
 } from "lucide-react";
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/store", label: "Store", icon: Store },
   { href: "/apps", label: "Apps Explorer", icon: AppWindow },
   { href: "/reports", label: "Reports", icon: FileText },
+  { href: "/compare", label: "Compare", icon: Scale },
   { href: "/admin", label: "Admin", icon: Shield, requiresAdmin: true },
   { href: "/data-health", label: "Data Health", icon: Activity, requiresAdmin: true },
 ];

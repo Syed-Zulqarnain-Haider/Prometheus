@@ -311,6 +311,14 @@ dates when `preset=custom` - the label is the intent, the dates are just its cac
 > Open: the **app shell** (sidebar, header, page grids) is not part of this pass. The sidebar
 > is `hidden md:block` with no mobile alternative, so there is no navigation below `md`.
 
+### Compare - split-screen periods
+`/compare` shows two periods side by side under the same dimension filters. Period A is the
+global range; Period B follows it (previous period / last year) until a custom range is
+pinned, and an A-vs-B table shows per-metric change with direction-aware coloring.
+`previousWindow()` (`lib/compare.ts`) uses calendar-day arithmetic - raw millisecond math
+drifted the window a day across DST changes (covered by `tests/previous-window.test.ts`,
+run under three timezones).
+
 ### Chart controls - "Adjust chart"
 Every chart derives what's adjustable from its own ECharts `option`, and the viewer's
 choices are applied as a **pure transform** (`lib/chart-adjust.ts`) - no chart was rewritten,

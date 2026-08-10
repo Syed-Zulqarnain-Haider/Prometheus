@@ -7,6 +7,43 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-06 (later)
 
+### Compare - split-screen period comparison, and a real previous-period bug
+
+**New `/compare` page** (sidebar, after Reports). Two periods side by side under the same
+dimension filters - the comparison isolates the date range, which is the whole point:
+
+- **Period A** is the global date range; the filter bar and the left picker edit the same
+  state.
+- **Period B** defaults to the immediately-preceding window and **follows Period A** as it
+  changes (or *Last year*), so changing A never silently compares against a stale B. Picking
+  a custom range pins it.
+- Each side renders the same KPI + ratio cards the Overview uses, and an **A vs B** table
+  shows the change per metric with direction-aware coloring (a CPI drop is green, a spend
+  drop is green, a revenue drop is red). Percent metrics diff in points, not % of a %.
+- RBAC-safe: a metric the viewer cannot see is absent from the payload and its row is
+  dropped, never zeroed.
+
+**Bug found while building it: `previousWindow()` drifted a day across DST.** It did
+calendar math in raw 86,400,000ms blocks. Measured under `TZ=America/New_York`: the
+previous window of Mar 15-21 (7 days) came back as **Mar 7-14 - eight days** - so every
+Compare-mode ghost overlay and previous-period number was computed off a wrong, longer
+window for viewers in DST timezones whenever the baseline crossed a clock change.
+(Pakistan has no DST, so PKT viewers were unaffected - anyone abroad was not.) Rewritten
+with date-fns calendar arithmetic; `tests/previous-window.test.ts` covers 8 cases and the
+suite passes under New York, Berlin and Karachi timezones.
+
+**Also fixed:** the Revenue-targets panel called `setMonths` from inside the `setManual`
+state updater. Updaters must be pure - React StrictMode double-invokes them, which
+double-applied the redistribution per keystroke in dev.
+
+**Removed:** the "Target line: set in Admin (Step 7)" caption on the Monthly Revenue Trend.
+Step 7 shipped long ago, the promised line was never drawn, and a caption promising a
+feature that never appears is noise.
+
+The nav entry, the `previousWindow` rewrite and the caption removal live in drifted files,
+so they ship via `scripts/patch-compare-page.py` (anchored, abort-safe, idempotent - same
+contract as the App Master patch). The page itself is new files.
+
 ### App Master - Pod owner, App name and Partner filters
 
 The App Master filter bar had Pod as a bare number box, no Pod owner at all, and app names
