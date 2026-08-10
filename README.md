@@ -82,6 +82,13 @@ registry is still authoritative; columns an admin adopts from BigQuery at runtim
 - **Defense in depth:** the aggregate cache key varies by scope **and** permitted groups,
   so cached payloads never cross permission profiles; out-of-scope resources return **404**
   (indistinguishable from nonexistent). Frontend hiding is cosmetic only.
+- **Granting a scope** (`components/admin/scope-editor.tsx`): the type is a dropdown and the
+  value is a **searchable picker** fed from `/apps` - the dimension table, so a pod or
+  publisher with no rows in the current date window still appears. Apps list by name with
+  the canonical key on hover. It stays typeable, because a grant may legitimately name a pod
+  that has no apps mapped yet; a value the list doesn't contain is offered explicitly rather
+  than dropped. Changing the type clears the value - a pod name is not a publisher name, and
+  carrying it across quietly granted something nobody chose.
 
 ### Fail-safe sync job
 `sync/sync_job.py` (the daily sync): record run → **validate** view schema vs the
@@ -494,15 +501,50 @@ Cover the pure lib (formatting, filters, nav **RBAC gating**, XSS-escape) and fe
 RBAC visibility gating (e.g. the assistant widget only renders when enabled). The frontend
 CI also runs `next lint`, `tsc --noEmit`, and `next build`.
 
+`tests/filter-clearing.test.ts` covers the Clear-filters count and the preset recompute -
+including a case that walks every `LIST_FILTER_KEYS` entry, so a dimension added to
+`Filters` but left out of the constant fails the suite instead of going silently uncounted.
+`tests/chart-defaults.test.ts` covers the bar default, the mixed-chart and pie exemptions,
+and that `applyAdjustments` never mutates its input.
+
 **Security posture (summary).** Server-side RBAC on every route; row-scope injected into
 SQL before data leaves the DB; fully parameterized queries with allow-listed
 `group_by`/`sort`/`bucket`; permission-aware aggregate cache; least-privilege DB roles
 (`api_service` has INSERT+SELECT only on the append-only `audit_log`; `sync_service` can't
 touch RBAC tables); Bearer-token auth (no cookies ⇒ no CSRF); CORS locked to exact origins
-(fails closed in prod); CSP/HSTS/`X-Frame-Options` headers; per-user rate limiting; input
-caps on date range and filter lists; all sensitive actions audited. Standing security/
-quality reviews (audit, red-team, cleanup, enterprise) are maintained for the project; the
-main known open item is upgrading the Next.js dependency to a patched release.
+(fails closed in prod); per-user rate limiting (the public access-request path is still keyed
+to a verified Firebase identity, so there is no anonymous flood route); input caps on date
+range and filter lists; all sensitive actions audited.
+
+**Response headers.** `frame-ancestors`/`X-Frame-Options`, `nosniff`, `Referrer-Policy`,
+`Permissions-Policy`, HSTS and `X-DNS-Prefetch-Control` are set in
+`frontend/next.config.mjs` so they travel with the app, and again in
+`docs/nginx-prometheus.conf` with `always` so `/api/` JSON and error responses are covered
+too. `X-Powered-By` and `server_tokens` are off. There is deliberately **no `script-src`
+CSP**: Next.js emits inline bootstrap scripts, so a real policy needs per-request nonces and
+middleware, and a half-written one would either break the app or read as protection that
+isn't there.
+
+> This paragraph previously claimed CSP/HSTS/`X-Frame-Options` were in place. They were not,
+> anywhere, until 2026-08-07 - a documented control that didn't exist. See CHANGELOG.
+
+**Audit-log integrity.** `client_ip()` prefers `X-Real-IP` (nginx overwrites it from
+`$remote_addr`) and falls back to the **last** `X-Forwarded-For` hop. It used to read the
+**first** hop, which `proxy_add_x_forwarded_for` leaves attacker-controlled - so any caller
+could stamp an arbitrary address on every audit row. Covered by
+`backend/tests/test_client_ip.py`.
+
+**Session hand-off.** `SessionCacheGuard` clears the TanStack cache on any Firebase UID
+change, so on a shared machine the next person to sign in cannot see the previous user's
+figures rendered from cache before their own request returns.
+
+Standing security/quality reviews (audit, red-team, cleanup, enterprise) are maintained for
+the project. Known open items: upgrading the Next.js dependency to a patched release;
+`verify_id_token()` runs without `check_revoked=True`, so a Firebase-side disable takes up
+to an hour to bite (deactivating in the admin panel is immediate, since provisioning is
+re-checked from the DB every request); and FastAPI's `docs_url` is not disabled - nginx
+routes `/docs` to Next.js so it isn't reachable today, but that is routing luck, not
+design.
 
 ---
 
