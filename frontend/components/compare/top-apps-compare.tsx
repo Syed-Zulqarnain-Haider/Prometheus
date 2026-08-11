@@ -76,6 +76,22 @@ export function TopAppsCompare({ filters }: { filters: Filters }) {
   const error = table.isError || series.some((s) => s.isError);
   const labels = bucketLabels(series.find((s) => s.data)?.data);
 
+  const points = chartApps.map((_, i) => metricValues(series[i]?.data, metric));
+
+  // Two different kinds of "nothing to draw", each with its own explanation. A metric that
+  // is genuinely zero everywhere (tech_cost on most accounts) previously rendered a flat
+  // line along the axis and a table of $0 rows, which reads as a broken chart; and a metric
+  // the timeseries endpoint does not break down by day leaves the lines empty while the
+  // totals below are perfectly fine. Neither should look like a failure.
+  const allZero = apps.length > 0 && apps.every((app) => app.total === 0);
+  const noDailyData =
+    !loading && !allZero && chartApps.length > 0 && !points.some((p) => p.some((v) => v !== 0));
+  const emptyMessage = allZero
+    ? `No app recorded any ${meta.label.toLowerCase()} in this period, so there is nothing to plot.`
+    : noDailyData
+      ? `${meta.label} has no day-by-day breakdown - the period totals are listed below.`
+      : "No apps have data for this metric in the selected period.";
+
   const option: EChartsOption = {
     color: COLORS,
     grid: { top: 12, bottom: 24, left: 8, right: 16, containLabel: true },
@@ -92,20 +108,24 @@ export function TopAppsCompare({ filters }: { filters: Filters }) {
       name: app.name,
       type: "line" as const,
       showSymbol: false,
-      data: metricValues(series[i]?.data, metric),
+      data: points[i],
     })),
   };
 
-  const grandTotal = apps.reduce((sum, app) => sum + app.total, 0);
+  // Share-of-total only means something for additive metrics. Summing CPIs, ROAS multiples
+  // or profit percentages produces a number with no interpretation, so those metrics get no
+  // share column at all rather than a misleading one.
+  const additive = meta.kind === "usd" || meta.kind === "num";
+  const grandTotal = additive ? apps.reduce((sum, app) => sum + app.total, 0) : 0;
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="normal-case tracking-normal text-sm font-semibold text-foreground">
           Top apps by metric
         </CardTitle>
         <Select value={metric} onValueChange={setMetric}>
-          <SelectTrigger className="h-8 w-56">
+          <SelectTrigger className="h-8 w-full sm:w-56" aria-label="Metric">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -124,14 +144,15 @@ export function TopAppsCompare({ filters }: { filters: Filters }) {
           option={option}
           loading={loading}
           error={error}
-          isEmpty={!loading && chartApps.length === 0}
-          emptyMessage="No apps have data for this metric in the selected period."
+          isEmpty={!loading && (chartApps.length === 0 || allZero || noDailyData)}
+          emptyMessage={emptyMessage}
           height={300}
           adjustable={false}
         />
 
-        {/* AdMob-style legend chips: colored dot + app + period total, matching the lines. */}
-        {chartApps.length > 0 && (
+        {/* AdMob-style legend chips: colored dot + app + period total, matching the lines.
+            Hidden when there are no lines to key - chips for an empty chart are just noise. */}
+        {chartApps.length > 0 && !allZero && !noDailyData && (
           <div className="flex flex-wrap gap-2">
             {chartApps.map((app, i) => (
               <span
@@ -160,7 +181,11 @@ export function TopAppsCompare({ filters }: { filters: Filters }) {
                   <th className="px-3 py-2 text-left font-medium">#</th>
                   <th className="px-3 py-2 text-left font-medium">App</th>
                   <th className="px-3 py-2 text-right font-medium">{meta.label}</th>
-                  <th className="px-3 py-2 text-right font-medium">Share of top {apps.length}</th>
+                  {additive && (
+                    <th className="px-3 py-2 text-right font-medium">
+                      Share of top {apps.length}
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -182,11 +207,13 @@ export function TopAppsCompare({ filters }: { filters: Filters }) {
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {formatMetricValue(app.total, meta.kind)}
                     </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                      {grandTotal !== 0
-                        ? `${((app.total / grandTotal) * 100).toFixed(1)}%`
-                        : "-"}
-                    </td>
+                    {additive && (
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                        {grandTotal !== 0
+                          ? `${((app.total / grandTotal) * 100).toFixed(1)}%`
+                          : "-"}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

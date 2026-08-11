@@ -7,6 +7,39 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11 (later)
 
+### Compare - self-comparison warning, baseline dropdown, panel sizing, honest empty charts
+
+Reported from a wide screen: KPI figures clipped inside the Compare panels, Period B showing
+the same range as Period A with every delta at 0.0%, and the metric dropdown "not working".
+Four distinct problems, all fixed:
+
+**Period B could silently equal Period A.** Picking Period A's own preset inside Period B's
+calendar pins a custom range identical to A - the table then reads $0 (0.0%) on every row and
+looks broken rather than self-referential. The panel now warns explicitly when the two ranges
+match. (The date picker itself was fine: it only commits on Apply, which is why nothing
+recomputed.)
+
+**Baseline is now a dropdown** (Previous period / Same period last year / Custom range),
+replacing the two buttons - and it doubles as the way *out* of a pinned custom range.
+Switching to Custom seeds from the range currently on screen, so the panel never jumps.
+
+**Panel sizing - the actual "not responsive" bug.** `KpiRow`/`RatioCards` choose their column
+count from *viewport* breakpoints, which is right on a full-width page and wrong inside a
+half-width panel: at `xl` five columns were packed into ~640px and the figures overflowed
+their cards. The panels now split only from `2xl`, and the Compare subtree scales
+`--fs-kpi`/`--fs-stat` down (rem-based, so the header's font control still applies). The
+shared components are not forked - the Overview is untouched.
+
+**Top apps by metric - empty states that explain themselves.** "Top apps by Tech cost" drew a
+flat line along the axis over a table of $0 rows, which reads as a broken chart. Now a metric
+that is zero for every app says so, and a metric with no day-by-day breakdown says the period
+totals below are still valid. The *share of top N* column is also gone for non-additive
+metrics - summing CPIs, ROAS multiples or percentages produces a meaningless number.
+
+> Worth an eyeball after deploy: the KPI card labelled "Revenue" and the A-vs-B table row
+> "Revenue" (`total_revenue_usd`) appeared to disagree in the screenshot. The figures were
+> clipped, so this may be nothing; with the sizing fixed the real values are readable.
+
 ### Security headers were missing on the LIVE nginx - patch script added
 
 `docs/nginx-prometheus.conf` has carried the edge security headers since the security

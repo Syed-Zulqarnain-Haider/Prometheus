@@ -308,16 +308,41 @@ dates when `preset=custom` - the label is the intent, the dates are just its cac
 - Wide tables scroll inside their own container (`overflow-x-auto`) rather than pushing the
   page sideways; the ROAS/Ad ROAS/CPI cards stack on narrow screens.
 
-> Open: the **app shell** (sidebar, header, page grids) is not part of this pass. The sidebar
-> is `hidden md:block` with no mobile alternative, so there is no navigation below `md`.
+> The desktop sidebar is `hidden md:block`; below `md` navigation comes from the header's
+> `MobileNav` drawer. The sidebar itself groups pages under section headings, collapses to
+> icon-only from the edge chevron, and keeps its per-user reorder (`nav-order:{user_id}`).
+>
+> Open: **page grids** are not part of this pass. Where a shared grid is reused inside a
+> narrower container, its viewport breakpoints are wrong for that container - see the
+> Compare panel-sizing note below for the pattern and the fix.
 
 ### Compare - split-screen periods
 `/compare` shows two periods side by side under the same dimension filters. Period A is the
-global range; Period B follows it (previous period / last year) until a custom range is
-pinned, and an A-vs-B table shows per-metric change with direction-aware coloring.
+global range; Period B is chosen from a **baseline dropdown** - *Previous period*, *Same
+period last year* (both follow Period A as it changes) or *Custom range* (pinned until you
+change it; switching to Custom seeds from whatever is on screen, so the panel never jumps).
+An A-vs-B table shows per-metric change with direction-aware coloring.
 `previousWindow()` (`lib/compare.ts`) uses calendar-day arithmetic - raw millisecond math
 drifted the window a day across DST changes (covered by `tests/previous-window.test.ts`,
 run under three timezones).
+
+If Period B ends up on the *same* range as Period A - which is what picking Period A's own
+preset inside Period B's calendar does - every delta is 0.0% and the page looks broken. The
+panel now says so explicitly instead of rendering a wall of zeros.
+
+**Top apps by metric** sits below: one line per top-5 app plus a top-10 table, for any of the
+14 catalog metrics. Two states are called out rather than drawn as a flat line on the axis -
+a metric that is zero for every app (`tech_cost_usd` on most accounts) and a metric with no
+day-by-day breakdown, whose period totals are still listed. The *share of top N* column
+appears only for additive metrics; summing CPIs, ROAS multiples or percentages has no
+meaning, so those metrics get no share column at all.
+
+**Panel sizing.** The KPI and ratio grids pick their column count from *viewport* breakpoints
+(`md:`/`xl:`), which is correct on a full-width page but wrong inside a half-width Compare
+panel - at `xl` they packed five columns into ~640px and the figures overflowed their cards.
+The panels now go side by side only from `2xl`, and the Compare subtree scales the card type
+tokens (`--fs-kpi`, `--fs-stat`) down so wide-screen figures fit. The shared components are
+untouched, so the Overview renders exactly as before.
 
 ### Chart controls - "Adjust chart"
 Every chart derives what's adjustable from its own ECharts `option`, and the viewer's

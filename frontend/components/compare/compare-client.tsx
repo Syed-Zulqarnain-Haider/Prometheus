@@ -6,8 +6,14 @@ import { useMemo, useState } from "react";
 import { DateRangePicker } from "@/components/filters/date-range-picker";
 import { KpiRow } from "@/components/overview/kpi-row";
 import { RatioCards } from "@/components/overview/ratio-cards";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { COMPARE_METRICS, formatMetricValue } from "@/components/compare/metrics";
 import { TopAppsCompare } from "@/components/compare/top-apps-compare";
 import { useSummary } from "@/lib/api-hooks";
@@ -20,6 +26,24 @@ import { cn } from "@/lib/utils";
 /** How Period B is derived. The two presets FOLLOW Period A as it changes; picking a range
  *  by hand switches to custom and stays put. */
 type BaselineMode = "previous" | "lastyear" | "custom";
+
+const BASELINE_OPTIONS: { value: BaselineMode; label: string; hint: string }[] = [
+  {
+    value: "previous",
+    label: "Previous period",
+    hint: "Previous period - follows Period A.",
+  },
+  {
+    value: "lastyear",
+    label: "Same period last year",
+    hint: "Same range last year - follows Period A.",
+  },
+  {
+    value: "custom",
+    label: "Custom range",
+    hint: "Custom range - fixed until you change it.",
+  },
+];
 
 function pretty(dateIso: string): string {
   return format(parseISO(dateIso), "d MMM yyyy");
@@ -37,6 +61,7 @@ function PeriodPanel({
   filters,
   onRangeChange,
   actions,
+  warning,
 }: {
   title: string;
   hint: string;
@@ -48,6 +73,7 @@ function PeriodPanel({
     compare: boolean;
   }) => void;
   actions?: React.ReactNode;
+  warning?: string;
 }) {
   return (
     <Card>
@@ -73,8 +99,26 @@ function PeriodPanel({
             {pretty(filters.dateFrom)} to {pretty(filters.dateTo)}
           </span>
         </div>
+        {warning && (
+          <p className="rounded-md border border-[color:var(--color-warning,#d97706)] px-2 py-1.5 text-xs text-[color:var(--color-warning,#d97706)]">
+            {warning}
+          </p>
+        )}
       </CardHeader>
-      <CardContent className="space-y-4">
+      {/* The KPI/ratio grids size their columns off the VIEWPORT (md:/xl: breakpoints), but
+          here they live in a half-width panel, so on a wide screen they render five columns
+          into half the room and the figures overflow their cards. The cards read their type
+          scale from CSS variables, so scaling those down for this subtree fixes the overflow
+          without forking the shared components (and leaves the Overview untouched). */}
+      <CardContent
+        className="space-y-4 [&_*]:min-w-0"
+        style={
+          {
+            "--fs-kpi": "clamp(0.95rem, 1.35vw, 1.45rem)",
+            "--fs-stat": "clamp(0.95rem, 1.35vw, 1.45rem)",
+          } as React.CSSProperties
+        }
+      >
         <KpiRow filters={filters} />
         <RatioCards filters={filters} />
       </CardContent>
@@ -117,6 +161,12 @@ export function CompareClient() {
     [filters, baseline],
   );
 
+  // A pinned custom range can end up identical to Period A (picking the same preset in
+  // Period B's calendar does exactly that). Every delta then reads 0.0% and the page looks
+  // broken rather than self-referential, so say so instead of rendering a wall of zeros.
+  const sameRange =
+    leftFilters.dateFrom === rightFilters.dateFrom && leftFilters.dateTo === rightFilters.dateTo;
+
   const left = useSummary(leftFilters);
   const right = useSummary(rightFilters);
   const a = left.data?.current ?? {};
@@ -137,7 +187,10 @@ export function CompareClient() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      {/* Side by side only from 2xl up. At xl the two panels are ~640px each, which is
+          narrower than the KPI grid's own xl (five-column) layout expects - stacking keeps
+          every figure readable instead of clipping it. */}
+      <div className="grid gap-4 2xl:grid-cols-2">
         <PeriodPanel
           title="Period A"
           hint="The global date range - the filter bar above edits the same thing."
@@ -146,35 +199,39 @@ export function CompareClient() {
         />
         <PeriodPanel
           title="Period B"
-          hint={
-            mode === "previous"
-              ? "Previous period - follows Period A."
-              : mode === "lastyear"
-                ? "Same range last year - follows Period A."
-                : "Custom range - fixed until you change it."
-          }
+          hint={BASELINE_OPTIONS.find((o) => o.value === mode)?.hint ?? ""}
           filters={rightFilters}
+          warning={
+            sameRange
+              ? "Period B currently matches Period A, so every change below is zero. Pick a different baseline above or a different range."
+              : undefined
+          }
           onRangeChange={(value) => {
             setCustomRange({ from: value.dateFrom, to: value.dateTo });
             setMode("custom");
           }}
           actions={
-            <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant={mode === "previous" ? "default" : "outline"}
-                onClick={() => setMode("previous")}
-              >
-                Previous period
-              </Button>
-              <Button
-                size="sm"
-                variant={mode === "lastyear" ? "default" : "outline"}
-                onClick={() => setMode("lastyear")}
-              >
-                Last year
-              </Button>
-            </div>
+            <Select
+              value={mode}
+              onValueChange={(value) => {
+                const next = value as BaselineMode;
+                // Switching TO custom pins whatever is on screen right now, so the panel
+                // never jumps to an unrelated range the moment the mode changes.
+                if (next === "custom" && !customRange) setCustomRange(baseline);
+                setMode(next);
+              }}
+            >
+              <SelectTrigger className="h-8 w-52" aria-label="Period B baseline">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BASELINE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           }
         />
       </div>
