@@ -2,6 +2,7 @@
 
 import { LogOut } from "lucide-react";
 
+import { PresenceMenu } from "@/components/layout/presence-menu";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -16,6 +17,7 @@ export function Header() {
           {user.email}
         </span>
       )}
+      <PresenceMenu />
       <ThemeToggle />
       <Button
         variant="ghost"

@@ -14,10 +14,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.api.deps import CurrentUser, DbSession, RedisClient
+from app.api.deps import CurrentUser, DbSession, RedisClient, require_capability
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit
 from app.schemas.messaging import (
+    AdminConversationList,
+    AdminConversationOut,
     ConversationList,
     ConversationOut,
     DirectConversationCreate,
@@ -129,3 +131,62 @@ async def delete_message(message_id: uuid.UUID, context: CurrentUser, db: DbSess
     """Delete one of your own messages. It keeps its place in the thread, without its text."""
     await messaging_service.delete_message(db, message_id, context.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Admin oversight (owner decision: admins can read all chats) ──────────────────
+# Read-only: there is deliberately no admin send/edit/delete - oversight is seeing, not
+# impersonating. Every oversight read is audit-logged, so looking itself leaves a trail
+# that other admins can review.
+
+_admin_only = require_capability("admin_panel")
+
+
+@router.get(
+    "/admin/conversations",
+    response_model=AdminConversationList,
+    dependencies=[Depends(_admin_only)],
+)
+async def admin_conversations(
+    request: Request,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> AdminConversationList:
+    """Every conversation on the platform, for administrative oversight."""
+    rows = await messaging_service.admin_list_conversations(db, redis)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_oversight_list",
+        resource="all",
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return AdminConversationList(
+        conversations=[AdminConversationOut.model_validate(row) for row in rows]
+    )
+
+
+@router.get(
+    "/admin/conversations/{conversation_id}/messages",
+    response_model=MessagePage,
+    dependencies=[Depends(_admin_only)],
+)
+async def admin_messages(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+) -> MessagePage:
+    """One thread's messages, read-only, for oversight. Audit-logged per view."""
+    page = await messaging_service.admin_list_messages(db, conversation_id, limit=limit)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_oversight_read",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return page

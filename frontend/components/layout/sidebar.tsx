@@ -21,6 +21,7 @@ const GROUPS: { title: string; hrefs: string[] }[] = [
   { title: "Performance", hrefs: ["/revenue", "/ua", "/store"] },
   { title: "Apps", hrefs: ["/apps", "/explore", "/app-master"] },
   { title: "Reporting", hrefs: ["/reports", "/glossary"] },
+  { title: "People", hrefs: ["/chat", "/profile"] },
 ];
 const ADMIN_GROUP: { title: string; hrefs: string[] } = {
   title: "Administration",
@@ -167,10 +168,11 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        // Only width animates, and overflow is clipped so labels cannot wrap mid-transition
-        // (a reflowing label is what reads as "lag"). The easing and duration come from the
-        // theme tokens, so the sidebar moves like everything else in the app.
-        "relative hidden shrink-0 overflow-hidden border-r bg-card md:block",
+        // Only width animates; the easing and duration come from the theme tokens, so the
+        // sidebar moves like everything else in the app. Overflow stays VISIBLE here - the
+        // edge chevron rides outside the border - and the nav blocks clip horizontally
+        // instead, so labels cannot wrap mid-transition (a reflowing label reads as "lag").
+        "relative hidden shrink-0 border-r bg-card md:block",
         "transition-[width] duration-[var(--dur)] ease-[var(--ease)] will-change-[width]",
         collapsed ? "w-14" : "w-60",
       )}
@@ -205,7 +207,7 @@ export function Sidebar() {
       {reordering && !collapsed ? (
         /* Reorder mode keeps the original flat list + arrows: moving across group
            boundaries changes order within the destination group. */
-        <nav className="space-y-1 p-2" data-tour="nav">
+        <nav className="space-y-1 overflow-x-hidden p-2" data-tour="nav">
           {items.map(({ href, label, icon: Icon }, index) => (
             <div
               key={href}
@@ -235,7 +237,7 @@ export function Sidebar() {
           ))}
         </nav>
       ) : (
-        <nav className={cn("space-y-4 overflow-y-auto p-2", collapsed && "space-y-2")} data-tour="nav">
+        <nav className={cn("space-y-4 overflow-y-auto overflow-x-hidden p-2", collapsed && "space-y-2")} data-tour="nav">
           {sections.map((section) => (
             <div key={section.title}>
               {collapsed ? (

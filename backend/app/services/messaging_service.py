@@ -335,3 +335,108 @@ async def delete_message(db: AsyncSession, message_id: uuid.UUID, me: uuid.UUID)
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only delete your own messages")
     message.deleted_at = datetime.now(UTC)
     await db.commit()
+
+
+# ── Admin oversight (owner decision: admins can see all chats) ───────────────────
+
+
+async def admin_list_conversations(db: AsyncSession, redis: Redis) -> list[dict[str, object]]:
+    """Every conversation on the platform, for administrative oversight.
+
+    Read-only by design: there is deliberately no admin send/delete here - oversight is
+    seeing, not impersonating. Callers must hold admin_panel (enforced at the route), and
+    every use is audit-logged so oversight itself leaves a trail.
+    """
+    conversations = list(
+        (
+            await db.execute(
+                select(Conversation).order_by(
+                    Conversation.last_message_at.desc().nullslast(),
+                    Conversation.created_at.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ids = [conversation.id for conversation in conversations]
+    if not ids:
+        return []
+
+    participants = list(
+        (
+            await db.execute(
+                select(ConversationParticipant).where(
+                    ConversationParticipant.conversation_id.in_(ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    people = await _people_for(db, redis, [row.user_id for row in participants])
+    by_conversation: dict[uuid.UUID, list[ConversationPerson]] = {}
+    for row in participants:
+        person = people.get(row.user_id)
+        if person is not None:
+            by_conversation.setdefault(row.conversation_id, []).append(person)
+
+    counts = dict(
+        (
+            await db.execute(
+                select(Message.conversation_id, func.count())
+                .where(Message.conversation_id.in_(ids), Message.deleted_at.is_(None))
+                .group_by(Message.conversation_id)
+            )
+        ).all()
+    )
+
+    out: list[dict[str, object]] = []
+    for conversation in conversations:
+        out.append(
+            {
+                "id": conversation.id,
+                "kind": conversation.kind,
+                "title": conversation.title,
+                "participants": by_conversation.get(conversation.id, []),
+                "last_message_at": conversation.last_message_at,
+                "last_message_preview": None,
+                "last_message_mine": False,
+                "unread": 0,
+                "message_count": int(counts.get(conversation.id, 0)),
+            }
+        )
+    return out
+
+
+async def admin_list_messages(
+    db: AsyncSession, conversation_id: uuid.UUID, *, limit: int = DEFAULT_PAGE
+) -> MessagePage:
+    """A thread's messages for oversight - no participant check, admin-gated at the route."""
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    limit = max(1, min(limit, MAX_PAGE))
+    stmt = (
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    rows = list(reversed(list((await db.execute(stmt)).scalars().all())))
+    senders = await _sender_names(db, [row.sender_id for row in rows if row.sender_id])
+    messages = [
+        MessageOut(
+            id=row.id,
+            conversation_id=row.conversation_id,
+            sender_id=row.sender_id,
+            sender_name=senders.get(row.sender_id) if row.sender_id else None,
+            body="" if row.deleted_at is not None else row.body,
+            created_at=row.created_at,
+            edited_at=row.edited_at,
+            deleted=row.deleted_at is not None,
+            mine=False,
+        )
+        for row in rows
+    ]
+    return MessagePage(messages=messages, latest_at=messages[-1].created_at if messages else None)

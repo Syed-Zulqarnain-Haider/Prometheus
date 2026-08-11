@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Megaphone,
+  MessagesSquare,
   Scale,
   Shield,
   Store,
@@ -28,6 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/apps", label: "Apps Explorer", icon: AppWindow },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/compare", label: "Compare", icon: Scale },
+  { href: "/chat", label: "Chat", icon: MessagesSquare },
   { href: "/admin", label: "Admin", icon: Shield, requiresAdmin: true },
   { href: "/data-health", label: "Data Health", icon: Activity, requiresAdmin: true },
 ];

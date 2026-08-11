@@ -85,3 +85,13 @@ class MessagePage(BaseModel):
 class ReadResult(BaseModel):
     conversation_id: uuid.UUID
     last_read_at: datetime
+
+
+class AdminConversationOut(ConversationOut):
+    """Oversight view: all participants (caller included) plus the thread's size."""
+
+    message_count: int
+
+
+class AdminConversationList(BaseModel):
+    conversations: list[AdminConversationOut]
