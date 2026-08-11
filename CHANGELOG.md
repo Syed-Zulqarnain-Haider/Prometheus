@@ -7,6 +7,21 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11 (later)
 
+### `scripts/install-git-guards.sh` - `git push` defaults to dev; production is guarded
+
+On the deployed host a bare `git push` should go to `dev` and nothing else, and reaching
+`production` should be a decision rather than a reflex, since production is what goes live.
+
+- `push.default=simple` and `push.autoSetupRemote=true`: a bare push sends the *current*
+  branch to the same-named branch on origin, and can never fan out to others.
+- A `pre-push` hook refuses any push to `refs/heads/production` unless `ALLOW_PROD_PUSH=1`
+  is set, printing the promotion sequence instead of just failing.
+- The script refuses to overwrite a `pre-push` hook it did not write.
+
+Verified in a scratch repo with a real remote: a bare push on `dev` lands on `origin/dev`,
+a push to `production` is blocked, `ALLOW_PROD_PUSH=1` lets the promotion through, and a
+foreign hook is left intact.
+
 ### `scripts/setup-branches.sh` - branch split on the deployed host, without losing the tree
 
 The deployed host sits on `main` with a very large uncommitted working tree: everything
