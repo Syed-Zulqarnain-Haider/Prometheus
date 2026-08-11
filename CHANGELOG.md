@@ -7,6 +7,33 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11 (later)
 
+### Security headers were missing on the LIVE nginx - patch script added
+
+`docs/nginx-prometheus.conf` has carried the edge security headers since the security
+pass, but the running server's config was installed BEFORE that and then rewritten in
+place by certbot, so it has none: no X-Frame-Options, no CSP, no nosniff, no
+Referrer-Policy, no HSTS, and `server_tokens` still on. Next.js sets its own headers for
+frontend routes, so the real exposure is `/api/` - every JSON response, including error
+responses, goes out bare.
+
+Copying the doc file over the live one would destroy certbot's TLS block, so
+`scripts/patch-nginx-headers.py` patches the live file instead:
+
+- resolves `sites-enabled/prometheus` through its symlink (writing through the link would
+  replace it with a regular file);
+- no-ops if the headers are already there, so it is safe to re-run;
+- requires its anchor exactly once and aborts before writing otherwise;
+- backs up, writes, runs `nginx -t`, and **restores the backup if the test fails** - a bad
+  config can never end up loaded;
+- reloads nginx only after a passing test.
+
+HSTS ships uncommented here (unlike the doc file, which targets a fresh HTTP install):
+this patches a server already serving HTTPS with a certbot certificate.
+
+Verified against a fixture copy of the live config: headers inserted once, certbot block
+and symlink intact, re-run skips, failed `nginx -t` restores, missing anchor writes
+nothing.
+
 ### Admin System tab: dead demo-widgets toggle removed
 
 Per the owner's decision, the "show demo widgets" control is gone from Operational
