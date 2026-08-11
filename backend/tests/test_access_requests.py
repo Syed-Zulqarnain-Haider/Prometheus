@@ -62,7 +62,7 @@ async def test_access_request_is_idempotent(metrics_env: MetricsEnv) -> None:
 async def test_request_grants_zero_access(metrics_env: MetricsEnv) -> None:
     c = metrics_env.client
     await c.post("/api/v1/auth/access-request", headers=_auth("newcomer"))
-    # Still unprovisioned — no account, no role.
+    # Still unprovisioned - no account, no role.
     assert (await c.get("/api/v1/auth/me", headers=_auth("newcomer"))).status_code == 401
     async with metrics_env.sessionmaker() as s:
         user = await s.scalar(select(User).where(User.firebase_uid == _NEWCOMER_UID))
@@ -160,7 +160,7 @@ async def test_cannot_decide_an_already_decided_request(metrics_env: MetricsEnv)
     )
     assert ok.status_code == 200
 
-    # Re-approving OR rejecting the now-approved request is refused (409) — decisions are
+    # Re-approving OR rejecting the now-approved request is refused (409) - decisions are
     # one-shot, so a stale queue item can't silently re-mutate or "revoke" a live user.
     re_approve = await c.post(
         f"/api/v1/admin/access-requests/{request_id}/approve",
@@ -172,7 +172,7 @@ async def test_cannot_decide_an_already_decided_request(metrics_env: MetricsEnv)
         f"/api/v1/admin/access-requests/{request_id}/reject", headers=_auth("admin")
     )
     assert rejected.status_code == 409
-    # The provisioned user is unaffected (still active) — no inconsistent state.
+    # The provisioned user is unaffected (still active) - no inconsistent state.
     assert (await c.get("/api/v1/auth/me", headers=_auth("newcomer"))).status_code == 200
 
 

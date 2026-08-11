@@ -1,4 +1,4 @@
-# RUNBOOK-LOCAL.md — Run the full stack on a Windows laptop
+# RUNBOOK-LOCAL.md - Run the full stack on a Windows laptop
 
 Audience: the owner (not a developer). Goal: see the **Executive Overview** working
 on your own machine, the simplest way. Everything is copy‑paste. You'll use **Git
@@ -31,10 +31,10 @@ Install these by downloading the installers and clicking through (defaults are f
 On the Python and Node installers, if asked, **leave "Add to PATH" checked**.
 
 1. **Git** (you already have it if you have Git Bash). https://git-scm.com/download/win
-2. **Python 3.12** — https://www.python.org/downloads/windows/ → "Windows installer
+2. **Python 3.12** - https://www.python.org/downloads/windows/ → "Windows installer
    (64‑bit)". On the first screen **tick "Add python.exe to PATH"**, then "Install Now".
-3. **Node.js 20 LTS** — https://nodejs.org/ → the **LTS** button.
-4. **Docker Desktop** (recommended) — https://www.docker.com/products/docker-desktop/
+3. **Node.js 20 LTS** - https://nodejs.org/ → the **LTS** button.
+4. **Docker Desktop** (recommended) - https://www.docker.com/products/docker-desktop/
    Install, launch it once, and wait until it says "Engine running".
    *(Skip if you're doing the no‑Docker path in §3B.)*
 
@@ -67,7 +67,7 @@ cd Prometheus
 
 ## 3. Database + cache (pick ONE: A or B)
 
-### 3A. Docker (recommended — one command)
+### 3A. Docker (recommended - one command)
 
 From the repo root, with Docker Desktop running:
 
@@ -87,14 +87,14 @@ Your connection values for later:
 
 ### 3B. No Docker (free cloud Postgres + Redis)
 
-1. **Postgres on Neon** — sign up at https://neon.tech (free). Create a project; in
+1. **Postgres on Neon** - sign up at https://neon.tech (free). Create a project; in
    "Connection Details" copy the connection string. Convert it to our format:
    `postgresql+asyncpg://USER:PASSWORD@HOST/DBNAME?ssl=require`
    (start from Neon's string, put `+asyncpg` after `postgresql`, and end with
    `?ssl=require`). That's your `DATABASE_URL`.
-2. **Redis on Upstash** — sign up at https://upstash.com (free). Create a Redis
+2. **Redis on Upstash** - sign up at https://upstash.com (free). Create a Redis
    database; copy the connection URL (not the REST one). **It must start with
-   `rediss://`** (two s's — that's the TLS/secure form Upstash requires). If you paste
+   `rediss://`** (two s's - that's the TLS/secure form Upstash requires). If you paste
    a plain `redis://` URL the backend fails with "Connection closed by server"; just
    change `redis://` to `rediss://`. That's your `REDIS_URL`.
 
@@ -111,7 +111,7 @@ The dashboard signs you in with Firebase. You need two things from Firebase: the
    Sign‑in method → Email/Password → Enable → Save**.
 3. **Create your user:** Authentication → **Users → Add user** → enter your email +
    a password → Add. Then **copy that user's "User UID"** (the long string in the
-   row) — you'll need it in §6.
+   row) - you'll need it in §6.
 4. **Get the web config:** gear icon **Project settings → General →** scroll to
    "Your apps" → click the **`</>` (Web)** icon → register an app (any nickname) →
    you'll see a `firebaseConfig` block. Keep these four values handy:
@@ -146,7 +146,7 @@ cp .env.example .env
 
 > **After pulling new code, re‑run `pip install ".[dev]"`.** New runtime
 > dependencies (e.g. `openpyxl` for XLSX export, added in Step 6) only land in an
-> existing venv when you reinstall — otherwise that feature 500s with
+> existing venv when you reinstall - otherwise that feature 500s with
 > `ModuleNotFoundError` even though the dependency is declared.
 
 Open `backend/.env` in Notepad and set these three lines (use your §3 values):
@@ -182,7 +182,7 @@ uvicorn app.main:app --port 8000 --reload
 Leave it. It should say "Application startup complete". Quick check in a browser:
 **http://localhost:8000/health** → `{"status":"ok"}`.
 
-> If you used the **no‑Docker** path, the same commands apply — just make sure
+> If you used the **no‑Docker** path, the same commands apply - just make sure
 > `DATABASE_URL`/`REDIS_URL` in `.env` are your Neon/Upstash values.
 
 ---
@@ -197,7 +197,7 @@ npm install
 cp .env.example .env.local
 ```
 
-> `npm install` may print a few "vulnerabilities" notices — that's normal for a dev
+> `npm install` may print a few "vulnerabilities" notices - that's normal for a dev
 > setup. **Do NOT run `npm audit fix --force`** (npm even suggests it): the `--force`
 > flag upgrades packages across major versions and will break the build. Ignore it.
 
@@ -223,14 +223,14 @@ email + password you created in §4‑3.
 
 ---
 
-## 7. Verification checklist — what you should see
+## 7. Verification checklist - what you should see
 
 On the **Executive Overview** after login:
 
 - ✅ Top strip: **"Data as of …"** with a green **success** badge (from the sample sync).
-- ✅ **Five KPI cards** — Revenue, Spend, Net IAP, Profit, Profit % — each with a
+- ✅ **Five KPI cards** - Revenue, Spend, Net IAP, Profit, Profit % - each with a
   number, a small ▲/▼ change, and a tiny sparkline.
-- ✅ **Revenue Progress** donut shows **"Target not set"** (correct — targets come in a
+- ✅ **Revenue Progress** donut shows **"Target not set"** (correct - targets come in a
   later step; it is honest, not a fake number).
 - ✅ **Monthly Revenue Trend** bars.
 - ✅ **Revenue vs Spend** chart (two lines, shaded profit) and **Revenue Composition**
@@ -239,14 +239,14 @@ On the **Executive Overview** after login:
 - ✅ **Revenue by Platform** and **Revenue by Pod** donuts.
 - ✅ **Publisher Performance** and **Top Apps by Revenue** tables; clicking an app name
   opens its detail page.
-- ✅ Change the date preset (7D/30D/90D) or toggle **Compare** in the top bar — the page
+- ✅ Change the date preset (7D/30D/90D) or toggle **Compare** in the top bar - the page
   updates and the **URL changes** (you can copy/share that URL).
-- ✅ Toggle the **theme** (sun/moon, top‑right) — the whole UI switches paper/night.
+- ✅ Toggle the **theme** (sun/moon, top‑right) - the whole UI switches paper/night.
 
 If you see all of that, the full stack is working end‑to‑end. 🎉
 
 To switch the demo‑only widgets on later, set `NEXT_PUBLIC_SHOW_DEMO_WIDGETS=true` in
-`frontend/.env.local` and restart `npm run dev` — they'll appear with a **DEMO DATA**
+`frontend/.env.local` and restart `npm run dev` - they'll appear with a **DEMO DATA**
 badge.
 
 ---
@@ -281,8 +281,8 @@ four backend steps above → in the frontend window `npm run dev`. You only re-r
 | Symptom | Fix |
 |---|---|
 | Login spins / "Failed to fetch" | Backend not running, or `NEXT_PUBLIC_API_BASE_URL` wrong. Confirm http://localhost:8000/health. |
-| Login rejected for a real user | The backend can't verify the token — check `GOOGLE_APPLICATION_CREDENTIALS` points to your Admin JSON (forward slashes), and that you ran `create_admin.py` with the **same UID** as the Firebase user. |
-| Page loads but everything says "—" / empty | You're logged in as a non‑admin, or seeding didn't run. Re‑run `scripts/seed_local.py` and `scripts/create_admin.py`. |
+| Login rejected for a real user | The backend can't verify the token - check `GOOGLE_APPLICATION_CREDENTIALS` points to your Admin JSON (forward slashes), and that you ran `create_admin.py` with the **same UID** as the Firebase user. |
+| Page loads but everything says "-" / empty | You're logged in as a non‑admin, or seeding didn't run. Re‑run `scripts/seed_local.py` and `scripts/create_admin.py`. |
 | CORS error in the browser console | `CORS_ORIGINS` in `backend/.env` must be exactly `http://localhost:3000`. Restart the backend. |
 | `source .venv/bin/activate` not found | On Windows it's `source .venv/Scripts/activate`. |
 | `python` not found | Use the launcher: `py -3.12` (e.g. `py -3.12 -m venv .venv`). |
@@ -290,8 +290,8 @@ four backend steps above → in the frontend window `npm run dev`. You only re-r
 | Upstash "Connection closed by server" | The Redis URL must be `rediss://` (TLS), not `redis://`. |
 | Login worked, now 401 after restarting | New window lost `GOOGLE_APPLICATION_CREDENTIALS`. Re‑`export` it before `uvicorn` (see §8). |
 | 401 even with the right UID | The key file may be `…json.json` (hidden double extension). Turn on File name extensions and rename to a single `.json`. |
-| `create_admin.py` errors with "UniqueViolation" | Fixed — re‑pull. The script now updates the existing email's UID instead of crashing. |
-| npm "vulnerabilities" warning | Normal — **do not** run `npm audit fix --force` (it breaks the build). |
+| `create_admin.py` errors with "UniqueViolation" | Fixed - re‑pull. The script now updates the existing email's UID instead of crashing. |
+| npm "vulnerabilities" warning | Normal - **do not** run `npm audit fix --force` (it breaks the build). |
 
 ---
 
@@ -329,7 +329,7 @@ holds the underlying performance table. This needs Google Cloud access.
    ```
    On success it loads real rows into Postgres and records a `success` in `sync_runs`;
    the Overview now shows your real numbers. On failure it keeps the previous data and
-   records why — the dashboard never shows half‑loaded data.
+   records why - the dashboard never shows half‑loaded data.
 
 > The sample‑data seeder (`scripts/seed_local.py`) and the real sync write to the same
 > `fact_daily_performance` table, so you can always fall back to sample data by

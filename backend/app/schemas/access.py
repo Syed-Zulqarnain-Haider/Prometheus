@@ -21,14 +21,14 @@ class AccessRequestOut(BaseModel):
 
 
 class AccessRequestStatus(BaseModel):
-    """Returned to the requesting (unprovisioned) caller — never any role/scope."""
+    """Returned to the requesting (unprovisioned) caller - never any role/scope."""
 
     status: str  # 'pending' after recording
 
 
 class AccessRequestApprove(BaseModel):
     """Admin approval: provision the requester with this role + scope, optionally
-    time-limited (absolute instant OR duration in days — backend converts)."""
+    time-limited (absolute instant OR duration in days - backend converts)."""
 
     roles: list[str] = Field(default_factory=list)
     scopes: list[ScopeIn] = Field(default_factory=list)

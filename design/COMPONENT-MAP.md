@@ -1,4 +1,4 @@
-# Terafort — CEO Command Center · Component & Token Map
+# Terafort - CEO Command Center · Component & Token Map
 
 A handoff reference for **Claude Code** (and for rebuilding this screen as a
 Figma file). Everything visual is driven by design tokens in
@@ -12,20 +12,20 @@ components are 1:1 addressable.
 | File | Role |
 |------|------|
 | `CEO Command Center.html` | The screen. All **text/values live here** as static markup (directly editable). |
-| `styles/tokens.css` | **Design tokens** — colors, type, spacing, radius, shadow, motion. Single source of truth → map each `--var` to a Figma variable/style. |
+| `styles/tokens.css` | **Design tokens** - colors, type, spacing, radius, shadow, motion. Single source of truth → map each `--var` to a Figma variable/style. |
 | `styles/dashboard.css` | Component styles. References tokens only; no hard-coded values. |
 | `styles/polish.css` | **Aesthetic layer** (loaded last): atmospheric glow canvas + grain, display/mono type roles, LIVE pill, card depth + hover lift, nav glow, entrance motion. |
 | `scripts/anim.js` | Entrance stagger + number count-up (progressive enhancement; resting state always visible). |
-| `scripts/data.js` | `window.DASH` — **chart series + placeholder data**. Swap with live data here. |
+| `scripts/data.js` | `window.DASH` - **chart series + placeholder data**. Swap with live data here. |
 | `scripts/charts.js` | Hand-rolled SVG renderers (no chart lib): `sparkline`, `donut`, `barTarget`, `combo`. |
 | `scripts/icons.js` | Stroke icon set (`window.icon(name, size)`), 24×24 viewBox, `currentColor`. |
 | `scripts/render.js` | Mounts charts into `[data-chart]` / `[data-spark]` / `[data-donut]` slots + interactivity. |
 | `scripts/charts-ext.js` | Extra SVG renderers for secondary pages: `line`, `bars`, `hbars`, `donutSegments`. |
 | `scripts/pages-core.js` | Page builders + shared helpers: **Finance, UA, Products, Product Factory**. |
 | `scripts/pages-more.js` | Page builders: **User Analytics, AI & Operations, Executive, Reports, Alerts**. |
-| `scripts/router.js` | Client-side router — nav swaps pages into `#page-dynamic`, updates topbar, persists in hash + localStorage. |
+| `scripts/router.js` | Client-side router - nav swaps pages into `#page-dynamic`, updates topbar, persists in hash + localStorage. |
 | `scripts/interactive.js` | **Sortable tables** (click any header) + **clickable chart legends** (toggle series). Re-runs for router pages. |
-| `scripts/tweaks.jsx` | Polish-variation panel (accent / surface / corners / density) — each variation = a token rewrite. |
+| `scripts/tweaks.jsx` | Polish-variation panel (accent / surface / corners / density) - each variation = a token rewrite. |
 
 ---
 
@@ -52,13 +52,13 @@ below match the CSS custom properties exactly.
 ### Color · Accents / Semantic
 | Token | Value | Meaning |
 |-------|-------|---------|
-| `--color-accent` | `#4187f5` | Primary azure — links, active nav, bars, donut |
+| `--color-accent` | `#4187f5` | Primary azure - links, active nav, bars, donut |
 | `--color-brand` | `#24cfbe` | Terafort teal (logo / glows) |
-| `--color-positive` | `#2bc07d` | Jade — up / good (deltas, SCALE) |
-| `--color-negative` | `#f05b62` | Coral — down / bad |
-| `--color-purple` | `#9168e8` | Violet — cash, installs, PROTOTYPE |
-| `--color-amber` | `#e8a93c` | Gold — IMPROVE |
-| `--color-orange` | `#ee7d49` | Ember — REVIEW / attention |
+| `--color-positive` | `#2bc07d` | Jade - up / good (deltas, SCALE) |
+| `--color-negative` | `#f05b62` | Coral - down / bad |
+| `--color-purple` | `#9168e8` | Violet - cash, installs, PROTOTYPE |
+| `--color-amber` | `#e8a93c` | Gold - IMPROVE |
+| `--color-orange` | `#ee7d49` | Ember - REVIEW / attention |
 
 The palette is built on color theory: a cool blue-black neutral foundation (single ~228° hue bias, never pure gray), a refined **azure** primary, the on-brand **teal** as analogous support, and a harmonious categorical ramp (azure → teal → violet → gold → coral) tuned to a common lightness/chroma so hues never clash. `*-soft` variants are the translucent badge/chip backgrounds.
 
@@ -124,10 +124,10 @@ donut = a ring with `stroke-dasharray` = `(pct/100) × circumference`.
 ---
 
 ## 5. Interactivity
-- **Nav** — click sets `.is-active` (single-select).
-- **Date range** — the `[data-date-range]` button cycles preset ranges (label + compare).
-- **Chart hover** — bars show a tooltip with the series value.
-- **Tweaks panel** — toggled from the toolbar; rewrites tokens on `:root`. Variants: Accent (Blue/Teal/Violet) · Surface (Bordered/Elevated/Flat) · Corners (Sharp/Default/Rounded) · Density (Comfortable/Compact).
+- **Nav** - click sets `.is-active` (single-select).
+- **Date range** - the `[data-date-range]` button cycles preset ranges (label + compare).
+- **Chart hover** - bars show a tooltip with the series value.
+- **Tweaks panel** - toggled from the toolbar; rewrites tokens on `:root`. Variants: Accent (Blue/Teal/Violet) · Surface (Bordered/Elevated/Flat) · Corners (Sharp/Default/Rounded) · Density (Comfortable/Compact).
 
 ---
 
@@ -135,7 +135,7 @@ donut = a ring with `stroke-dasharray` = `(pct/100) × circumference`.
 The topbar **`[data-theme-toggle]`** button flips the whole UI. Mechanism: it
 sets `data-theme="light"` on `<html>`; `tokens.css` has a single
 `:root[data-theme="light"] { … }` block that overrides only the surface/text/
-stroke/chart tokens. Components are untouched — they read the same `--vars`.
+stroke/chart tokens. Components are untouched - they read the same `--vars`.
 The choice persists in `localStorage` (`tf-theme`) and charts re-render to pick
 up the new token colors. In Figma this maps to a **second variable mode**
 ("Light") on the same color variables.

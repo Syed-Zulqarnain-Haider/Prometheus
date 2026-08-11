@@ -1,7 +1,7 @@
 """Tests for PR 3: the daily sync's APPEND/UPSERT load (data-critical).
 
 The sync now MERGES a validated staging table into the live fact table by the natural
-key (date, platform, app_key) instead of atomically swapping it — so Postgres keeps full
+key (date, platform, app_key) instead of atomically swapping it - so Postgres keeps full
 history even after BigQuery ages older days out. These tests exercise the EXACT SQL the
 sync runs (``metric_registry.generate_upsert_sql``, loaded from the canonical repo-root
 sync copy) against the test Postgres, with isolated tables so nothing else is touched.
@@ -172,7 +172,7 @@ async def test_fact_untouched_until_upsert(db_session: Any) -> None:
 
     rows = await _fact(db_session)
     assert len(rows) == 1
-    assert float(rows[0].total_revenue_usd) == 50.0  # live data intact — only UPSERT writes
+    assert float(rows[0].total_revenue_usd) == 50.0  # live data intact - only UPSERT writes
 
 
 # ── the natural key keeps platforms and apps as distinct rows ─────────────────

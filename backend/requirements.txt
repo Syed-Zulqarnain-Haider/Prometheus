@@ -1,9 +1,9 @@
 # =============================================================================
-# backend/requirements.txt — GENERATED. DO NOT EDIT BY HAND.
+# backend/requirements.txt - GENERATED. DO NOT EDIT BY HAND.
 #
 # A pinned mirror of [project.dependencies] in pyproject.toml, which remains the
 # SINGLE SOURCE OF TRUTH for backend dependencies. This file exists for
-# compatibility / reference only — the Dockerfile and CI install from pyproject
+# compatibility / reference only - the Dockerfile and CI install from pyproject
 # (`pip install .`), NOT from this file. To add or change a dependency, edit
 # pyproject.toml and regenerate; never hand-edit here (it will drift).
 #

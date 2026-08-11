@@ -58,6 +58,35 @@ export function useApps() {
   });
 }
 
+/** Mirrors `FilterOptions` in `backend/app/schemas/metrics.py` - one list per filter-bar
+ *  dimension, plus `apps` as value/label pairs so an app is selectable by name. */
+export interface FilterOptions {
+  platforms: string[];
+  consoles: string[];
+  pod_owners: string[];
+  publishers: string[];
+  developers: string[];
+  google_play_accounts: string[];
+  apple_accounts: string[];
+  packages: string[];
+  bundles: string[];
+  hous: string[];
+  apps: { value: string; label: string | null }[];
+}
+
+/** Cascading filter-bar options - refetches whenever any filter changes, so each dropdown
+ *  reflects the others (e.g. platform=ios narrows the HOU list). */
+export function useFilterOptions(filters: Filters) {
+  const { user } = useAuth();
+  const params = filtersToApiQuery(filters);
+  return useQuery({
+    queryKey: ["filter-options", params],
+    queryFn: () => apiFetch<FilterOptions>(`/api/v1/meta/filter-options${buildQuery(params)}`),
+    enabled: Boolean(user),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useAppDetail(canonicalKey: string) {
   const { user } = useAuth();
   return useQuery({
@@ -652,11 +681,22 @@ export function useUpdateSetting() {
   });
 }
 
+export interface RunSyncOpts {
+  mode?: "incremental" | "full" | "range";
+  start?: string; // YYYY-MM-DD (range mode)
+  end?: string; // YYYY-MM-DD (range mode)
+}
+
 export function useRunSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", { method: "POST" }),
+    // Optional opts to match the deployed signature (mode/range sync); the mirror build
+    // only needs the shape - the deployed api-hooks.ts is the one actually served.
+    mutationFn: (opts?: RunSyncOpts) =>
+      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", {
+        method: "POST",
+        body: JSON.stringify(opts ?? {}),
+      }),
     onSuccess: () => {
       // A completed run (local path) updates history/status; refresh both surfaces.
       queryClient.invalidateQueries({ queryKey: ["integration-status"] });
@@ -750,7 +790,240 @@ export function useClearData() {
         body: JSON.stringify({ confirmation }),
       }),
     // Clearing ALL fact data invalidates every dashboard/aggregate query, not just the
-    // integration views — invalidate the whole cache so nothing keeps showing pre-clear data.
+    // integration views - invalidate the whole cache so nothing keeps showing pre-clear data.
     onSuccess: () => queryClient.invalidateQueries(),
+  });
+}
+
+/** Mirror-only scaffolding so the App Master client typechecks here; the deployed
+ *  api-hooks.ts already defines this. NOT shipped. */
+export interface SchemaSyncResult {
+  configured: boolean;
+  ok: boolean;
+  message: string;
+  added: { name: string; type: string }[];
+  healed_static: string[];
+  deactivated: string[];
+  missing_in_bigquery: string[];
+  unsupported_types: { name: string; type: string }[];
+}
+
+// ── App Master (admin-only: view + edit the BigQuery app_master_v2 table) ───────
+export interface AppMasterColumnMeta {
+  name: string;
+  type: "text" | "bigint" | "boolean" | "double" | "timestamptz";
+  editable: boolean;
+}
+
+export interface AppMasterListResponse {
+  rows: Record<string, unknown>[];
+  total: number;
+  columns: AppMasterColumnMeta[];
+  column_order: string[];
+  primary_key: string;
+}
+
+export interface AppMasterFilters {
+  search: string;
+  platform: string; // "" = all
+  hou: string; // "" = all
+  publisher: string; // "" = all
+  pod: string; // raw input; sent as int when numeric
+  podOwner: string; // "" = all
+  appName: string; // "" = all
+  partnerName: string; // "" = all
+  needsReview: "" | "true" | "false";
+  package: string;
+  appId: string;
+  syncedFrom: string; // YYYY-MM-DD, inclusive lower bound on last_synced_at ("" = none)
+  syncedTo: string; // YYYY-MM-DD, inclusive upper bound on last_synced_at ("" = none)
+}
+
+export function useAppMaster(filters: AppMasterFilters, limit: number, offset: number) {
+  const { user } = useAuth();
+  const params: Record<string, string | number | boolean> = { limit, offset };
+  if (filters.search.trim()) params.search = filters.search.trim();
+  if (filters.platform) params.platform = filters.platform;
+  if (filters.hou) params.hou = filters.hou;
+  if (filters.publisher) params.publisher = filters.publisher;
+  if (filters.pod.trim() && Number.isInteger(Number(filters.pod))) params.pod = Number(filters.pod);
+  if (filters.podOwner) params.pod_owner = filters.podOwner;
+  if (filters.appName) params.app_name = filters.appName;
+  if (filters.partnerName) params.partner_name = filters.partnerName;
+  if (filters.needsReview) params.needs_review = filters.needsReview;
+  if (filters.package.trim()) params.package = filters.package.trim();
+  if (filters.appId.trim()) params.app_id = filters.appId.trim();
+  if (filters.syncedFrom) params.synced_from = filters.syncedFrom;
+  if (filters.syncedTo) params.synced_to = filters.syncedTo;
+  return useQuery({
+    queryKey: ["app-master", params],
+    queryFn: () => apiFetch<AppMasterListResponse>(`/api/v1/app-master${buildQuery(params)}`),
+    enabled: Boolean(user),
+  });
+}
+
+export interface AppMasterFilterValues {
+  platforms: string[];
+  hou: string[];
+  publishers: string[];
+  pods: number[];
+  pod_owners: string[];
+  partner_names: string[];
+  app_names: string[];
+}
+
+/** Distinct values for the App Master filter dropdowns. */
+export function useAppMasterFilterValues() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["app-master-filter-values"],
+    queryFn: () => apiFetch<AppMasterFilterValues>("/api/v1/app-master/filter-values"),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSetAppMasterColumnOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      apiFetch<string[]>("/api/v1/app-master/column-order", {
+        method: "PUT",
+        body: JSON.stringify({ order }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useUndoAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}/undo`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useUpdateAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, body }: { key: string; body: Record<string, unknown> }) =>
+      apiFetch<Record<string, unknown>>(`/api/v1/app-master/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useRefreshAppMaster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; skipped: number }>("/api/v1/app-master/refresh", {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+export function useAppMasterSchemaDiff() {
+  return useMutation({
+    mutationFn: () => apiFetch<SchemaDiff>("/api/v1/app-master/schema-diff"),
+  });
+}
+
+export function useAppMasterSchemaSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SchemaSyncResult>("/api/v1/app-master/schema-sync", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
+  });
+}
+
+// ── Notifications (RBAC-scoped) + real-time polling ──────────────────────────────
+// MIRROR SCAFFOLDING: the deployed api-hooks.ts already carries this exact section;
+// it exists here so notification components compile in this tree. Signatures MUST
+// stay byte-compatible with the deployed hooks - never pull this file to the server.
+export interface NotificationItem {
+  id: number;
+  created_at: string;
+  type: string;
+  title: string;
+  body: string | null;
+  severity: "info" | "warning" | "critical";
+  link: string | null;
+  resource: string | null;
+  read: boolean;
+}
+
+export interface NotificationList {
+  items: NotificationItem[];
+  unread: number;
+}
+
+/** Near-real-time: polls every 15s AND refetches the moment the tab regains focus, so
+ *  notifications (and cross-user changes) surface without a manual refresh. */
+export function useNotifications() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => apiFetch<NotificationList>("/api/v1/notifications"),
+    enabled: Boolean(user),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/api/v1/notifications/${id}/read`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>("/api/v1/notifications/read-all", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+// ── Admin alerts + digest actions ────────────────────────────────────────────────
+// MIRROR SCAFFOLDING: the deployed api-hooks.ts carries these already (defined near
+// its system-settings section); shapes reconstructed from the deployed system panel's
+// usage so it compiles in this tree. Never pull this file to the server.
+export interface AlertsEvaluateResult {
+  count: number;
+  fired: { key: string; severity: "critical" | "warning"; title: string; body: string }[];
+}
+
+/** Run the anomaly-alert checks now (admin). Returns what fired; refreshes notifications. */
+export function useEvaluateAlerts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<AlertsEvaluateResult>("/api/v1/admin/alerts/evaluate", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export interface DigestResult {
+  sent: boolean;
+  preview: string | null;
+}
+
+/** Build + send the daily digest now (admin). Returns a preview of what was sent. */
+export function useSendDigest() {
+  return useMutation({
+    mutationFn: () => apiFetch<DigestResult>("/api/v1/admin/digest/send", { method: "POST" }),
   });
 }

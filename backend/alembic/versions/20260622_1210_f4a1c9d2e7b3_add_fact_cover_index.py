@@ -2,13 +2,13 @@
 
 Adds a date-leading COVERING index on the sync-owned ``fact_daily_performance`` so
 the hot, uncached Overview aggregates (summary / timeseries / breakdown / table) run
-as INDEX-ONLY scans instead of scattered heap reads — ~16x fewer buffer reads under
+as INDEX-ONLY scans instead of scattered heap reads - ~16x fewer buffer reads under
 production-like (uncorrelated) physical order, results unchanged.
 
 This mirrors ``sync/metric_registry.generate_indexes`` (COVER_INDEX_COLUMNS) and
 ``sql/postgres/002_fact_table.sql`` so the index also survives the daily atomic swap;
 this migration creates it on the ALREADY-materialized table now, without waiting for
-the next sync. Indexes only — no column, query, RBAC, or data changes.
+the next sync. Indexes only - no column, query, RBAC, or data changes.
 
 Built with CREATE INDEX CONCURRENTLY (no long lock on the live table) inside an
 autocommit block, and IF NOT EXISTS so it is a no-op if the sync already created it.

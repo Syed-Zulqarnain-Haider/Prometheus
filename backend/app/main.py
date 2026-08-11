@@ -43,22 +43,22 @@ _is_production = settings.env.lower() in ("production", "prod")
 _is_test = settings.env.lower() in ("test", "testing")
 
 # Fail loudly (in logs) on a misconfigured prod deploy rather than silently
-# serving with no allowed origins — every browser request would then break.
+# serving with no allowed origins - every browser request would then break.
 if _is_production and not settings.cors_origin_list:
-    logger.error("CORS_ORIGINS is empty in production — the frontend will be blocked.")
+    logger.error("CORS_ORIGINS is empty in production - the frontend will be blocked.")
 
 
 def _check_pooled_db_endpoint() -> None:
     """Nudge toward Neon's POOLED endpoint for lower per-request connect latency.
 
     Neon's pooled host carries a ``-pooler`` segment. A direct (non-pooled) host
-    pays a fresh connection handshake per request — costly against a free-tier DB
+    pays a fresh connection handshake per request - costly against a free-tier DB
     that also cold-starts. We only warn (never fail): the URL is env/secret-provided.
     """
     url = settings.database_url
     if "neon.tech" in url and "-pooler" not in url:
         logger.warning(
-            "DATABASE_URL points at a Neon host without '-pooler' — use the POOLED "
+            "DATABASE_URL points at a Neon host without '-pooler' - use the POOLED "
             "endpoint (host contains '-pooler') for lower per-request connection latency."
         )
 
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def _warm() -> None:
             try:
                 await warm_overview_cache(app.state.sessionmaker, redis_client)
-            except Exception:  # noqa: BLE001 — warm-up is best-effort, never fatal
+            except Exception:  # noqa: BLE001 - warm-up is best-effort, never fatal
                 logger.exception("aggregate cache warm-up failed")
 
         app.state.warm_task = asyncio.create_task(_warm())
@@ -155,7 +155,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    """Return a generic validation error — never echo raw input or internals."""
+    """Return a generic validation error - never echo raw input or internals."""
     return _error_response("validation_error", "Request validation failed.", 422)
 
 

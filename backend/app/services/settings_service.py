@@ -1,7 +1,7 @@
 """Read/write operational app settings (non-secret), backed by ``app_settings``.
 
 Reads fall back to the registry default when a key is unset or holds an invalid
-value. Writes go through the registry, which constrains values to int/bool — so a
+value. Writes go through the registry, which constrains values to int/bool - so a
 credential string can never be stored.
 """
 

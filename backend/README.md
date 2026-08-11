@@ -38,4 +38,4 @@ pytest -q
   is **not** modeled by the ORM and is excluded from Alembic autogenerate.
 - The least-privilege DB roles (`api_service`, `sync_service`) and their GRANTs are a
   production deploy concern (applied via `001_init.sql` on Cloud SQL), not Alembic.
-- Production secrets come from GCP Secret Manager — never a committed `.env`.
+- Production secrets come from GCP Secret Manager - never a committed `.env`.

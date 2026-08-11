@@ -9,7 +9,7 @@ import { type EChartsOption, echarts } from "@/lib/echarts";
 import { ECHARTS_THEME_NAME, buildEChartsTheme, readChartTokens } from "@/lib/echarts-theme";
 
 /** The actual ECharts renderer. Split out of ``chart.tsx`` so the (heavy) charting
- *  library — ``echarts`` core, ``echarts-for-react``, and the theme — is imported
+ *  library - ``echarts`` core, ``echarts-for-react``, and the theme - is imported
  *  ONLY here and can be code-split via ``next/dynamic`` (see chart.tsx). Behaviour is
  *  identical to the previous inline renderer: theme registration, the
  *  container-resize ResizeObserver, and the canvas options are unchanged. */
@@ -31,7 +31,7 @@ export function ChartCanvas({
     setThemeVersion((v) => v + 1);
   }, [resolvedTheme]);
 
-  // Keep the chart sized to its container — ECharts only auto-handles WINDOW
+  // Keep the chart sized to its container - ECharts only auto-handles WINDOW
   // resizes, so a chart that inits inside a not-yet-laid-out grid/flex cell can
   // render blank until its container later gets a width. A ResizeObserver fixes
   // that (and dynamic layout changes) for every chart.

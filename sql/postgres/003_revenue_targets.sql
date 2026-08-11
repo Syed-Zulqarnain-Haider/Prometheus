@@ -1,4 +1,4 @@
--- 003_revenue_targets.sql — admin-set yearly + monthly revenue goals.
+-- 003_revenue_targets.sql - admin-set yearly + monthly revenue goals.
 -- The Overview revenue-progress donut reads these (actual ÷ target); admins edit
 -- them in the Admin panel. Yearly rows leave period_month NULL; monthly rows carry
 -- 1–12. Two partial unique indexes enforce "one target per period" without letting

@@ -1,4 +1,4 @@
-"""Alembic environment — async engine, models metadata as the autogenerate target.
+"""Alembic environment - async engine, models metadata as the autogenerate target.
 
 Tables not present in ``Base.metadata`` (notably the sync-owned
 ``fact_daily_performance`` and any transient staging tables) are excluded from

@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Megaphone,
+  Scale,
   Shield,
   Store,
 } from "lucide-react";
@@ -18,7 +19,7 @@ export interface NavItem {
   requiresAdmin?: boolean;
 }
 
-/** Sidebar navigation — routes per the build-order pages. */
+/** Sidebar navigation - routes per the build-order pages. */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/overview", label: "Executive Overview", icon: LayoutDashboard },
   { href: "/revenue", label: "Revenue", icon: BarChart3 },
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/store", label: "Store", icon: Store },
   { href: "/apps", label: "Apps Explorer", icon: AppWindow },
   { href: "/reports", label: "Reports", icon: FileText },
+  { href: "/compare", label: "Compare", icon: Scale },
   { href: "/admin", label: "Admin", icon: Shield, requiresAdmin: true },
   { href: "/data-health", label: "Data Health", icon: Activity, requiresAdmin: true },
 ];

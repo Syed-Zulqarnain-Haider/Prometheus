@@ -50,7 +50,7 @@ async def test_summary_columns_per_role(metrics_env: MetricsEnv, role: str) -> N
 
 async def test_summary_ratio_recomputed_from_totals(metrics_env: MetricsEnv) -> None:
     # appA only: totals rev=1000, spend=250, paid=100 -> roas 4.0, cpi 2.5.
-    # (Averaging daily roas would give ~4.33 — proving period recompute.)
+    # (Averaging daily roas would give ~4.33 - proving period recompute.)
     response = await metrics_env.client.get(
         "/api/v1/metrics/summary",
         params={**RANGE, "apps": "appA"},
@@ -259,7 +259,7 @@ async def test_cache_does_not_leak_across_roles_with_same_scope(metrics_env: Met
     assert "total_revenue_usd" in admin.json()["current"]
 
     # Viewer (store_installs only, ALSO scope all) must get its OWN filtered payload,
-    # not the admin's cached one — no forbidden metric leaks through a shared entry.
+    # not the admin's cached one - no forbidden metric leaks through a shared entry.
     viewer = await metrics_env.client.get(
         "/api/v1/metrics/summary", params=RANGE, headers=_auth("viewer")
     )
@@ -281,7 +281,7 @@ async def test_warm_overview_cache_makes_default_summary_a_hit(metrics_env: Metr
     assert before, "warm-up should have populated agg:* entries"
 
     # An admin (all groups + scope all, matching the warm profile) requesting the
-    # DEFAULT range hits the warmed entry — no new cache key is created.
+    # DEFAULT range hits the warmed entry - no new cache key is created.
     f = _default_filters()
     resp = await metrics_env.client.get(
         "/api/v1/metrics/summary",

@@ -1,6 +1,6 @@
 """Access-request queue: record (idempotent), list pending, approve (provision), reject.
 
-Recording a request NEVER provisions a user or grants a role — only ``approve`` does.
+Recording a request NEVER provisions a user or grants a role - only ``approve`` does.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def record_request(
     db: AsyncSession, *, firebase_uid: str, email: str, display_name: str | None
 ) -> AccessRequestOut:
     """Idempotent upsert by ``firebase_uid``: a repeat sign-in refreshes the existing row
-    and re-opens a previously rejected one (status -> pending) — never a duplicate, and
+    and re-opens a previously rejected one (status -> pending) - never a duplicate, and
     NEVER a user/role. Returns the (always-pending) request."""
     now = datetime.now(UTC)
     await db.execute(
@@ -95,7 +95,7 @@ async def approve(
 ) -> tuple[UserSummary, str]:
     """Provision (or re-activate) the requester with the given role/scope/expiry and mark
     the request approved. Returns (user summary, firebase_uid). Raises LookupError if the request is
-    missing. Never auto-grants admin — the admin chooses the roles explicitly."""
+    missing. Never auto-grants admin - the admin chooses the roles explicitly."""
     req = await db.get(AccessRequest, request_id)
     if req is None:
         raise LookupError("access request not found")
@@ -137,7 +137,7 @@ async def approve(
 
 async def reject(db: AsyncSession, request_id: uuid.UUID, actor_id: uuid.UUID) -> AccessRequestOut:
     """Mark a PENDING request rejected (zero access; the identity may re-request by signing
-    in again). Only pending requests can be decided — rejecting an already-approved request
+    in again). Only pending requests can be decided - rejecting an already-approved request
     would NOT revoke the live user, so it is refused; deactivate/delete the user instead.
     Raises LookupError if missing, RequestAlreadyDecided if not pending."""
     req = await db.get(AccessRequest, request_id)

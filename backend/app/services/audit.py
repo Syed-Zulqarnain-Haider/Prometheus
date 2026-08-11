@@ -1,11 +1,11 @@
-"""Audit service — append-only writes to ``audit_log``.
+"""Audit service - append-only writes to ``audit_log``.
 
 Design guarantees:
   * INSERT only (the api_service DB role has no UPDATE/DELETE on audit_log).
   * Writes happen in the service's OWN session/transaction, independent of the
     request's session, so an audit failure can never poison the request's
     transaction.
-  * The service NEVER raises into the request path — any failure is logged and
+  * The service NEVER raises into the request path - any failure is logged and
     swallowed (log-and-continue). Audit is best-effort durability, not a reason
     to fail a user's request.
 
@@ -45,7 +45,7 @@ class AuditService:
         ip: str | None = None,
         user_agent: str | None = None,
     ) -> None:
-        """Append one audit row. Never raises — logs and continues on failure."""
+        """Append one audit row. Never raises - logs and continues on failure."""
         try:
             async with self._sessionmaker() as session:
                 await session.execute(

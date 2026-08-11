@@ -144,7 +144,7 @@ async def test_run_sync_local_fire_and_forget(
     metrics_env: MetricsEnv, monkeypatch, tmp_path
 ) -> None:
     key = tmp_path / "bq.json"
-    key.write_text("{}")  # presence only — never read
+    key.write_text("{}")  # presence only - never read
     settings = _settings(
         sync_trigger_url=None,
         sync_pg_dsn="postgresql://sync_service:x@db:5432/app",

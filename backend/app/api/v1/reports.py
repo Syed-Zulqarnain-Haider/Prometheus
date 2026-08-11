@@ -87,7 +87,7 @@ async def _load_visible_report(
     """Return (report, is_owner). Visible to the owner or an approved recipient.
 
     Anything else is reported as 404 (indistinguishable from nonexistent), never
-    403 — an out-of-scope resource must not reveal its own existence.
+    403 - an out-of-scope resource must not reveal its own existence.
     """
     report = await db.scalar(select(SavedReport).where(SavedReport.id == report_id))
     if report is None:

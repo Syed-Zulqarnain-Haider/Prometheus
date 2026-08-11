@@ -4,7 +4,7 @@ The backend container vendors the daily sync (``backend/sync/``) so the sync job
 admin provisioning can run from one image on a single-VM deploy (see
 ``docs/DEPLOY-UBUNTU.md``). The canonical source is the repo-root ``sync/`` (shipped to
 Cloud Run via ``sync/Dockerfile``). This test fails if the vendored copy ever drifts
-from the canonical one — keeping a single source of truth for the sync + metric
+from the canonical one - keeping a single source of truth for the sync + metric
 registry.
 """
 

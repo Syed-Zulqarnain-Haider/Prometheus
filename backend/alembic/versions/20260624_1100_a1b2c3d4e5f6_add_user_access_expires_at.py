@@ -5,7 +5,7 @@ nobody's access changes on upgrade) and makes every FK that references ``users.i
 for a hard user delete:
 
 * audit_log.user_id, users.created_by, user_scopes.granted_by, app_settings.updated_by,
-  revenue_targets.set_by  -> ON DELETE SET NULL  (records PRESERVED, actor unlinked — the
+  revenue_targets.set_by  -> ON DELETE SET NULL  (records PRESERVED, actor unlinked - the
   append-only audit trail's content is untouched; the FK action, not an app UPDATE, nulls
   the link).
 * report_shares.shared_by / shared_with -> ON DELETE CASCADE (a share to/from a deleted

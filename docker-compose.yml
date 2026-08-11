@@ -1,5 +1,5 @@
 # Local development dependencies only (Postgres + Redis).
-# Production uses Cloud SQL (private IP) and Memorystore — never this compose file.
+# Production uses Cloud SQL (private IP) and Memorystore - never this compose file.
 # Bring up:   docker compose up -d
 # Then:       cd backend && alembic upgrade head
 

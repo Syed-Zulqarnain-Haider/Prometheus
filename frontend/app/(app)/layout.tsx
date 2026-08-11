@@ -20,7 +20,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   // Provisioning gate: Firebase auth alone is NOT access. We resolve /auth/me, and
   // an authenticated-but-unprovisioned user (any provider, incl. Google) is rejected
-  // server-side — we show a friendly screen instead of a broken dashboard.
+  // server-side - we show a friendly screen instead of a broken dashboard.
   const me = useMe();
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (httpStatus === 401) {
       return <AccessRequestPending onSignOut={() => void signOut()} />;
     }
-    // Anything else (5xx / network) is a transient failure — don't mislabel it as
+    // Anything else (5xx / network) is a transient failure - don't mislabel it as
     // "not provisioned" or "inactive"; let the user retry.
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-4">

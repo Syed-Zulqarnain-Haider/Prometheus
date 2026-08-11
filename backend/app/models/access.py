@@ -15,7 +15,7 @@ from app.models.base import Base
 class AccessRequest(Base):
     """One row per Firebase identity that signed in without a provisioned account.
 
-    A ``pending`` or ``rejected`` request grants ZERO access and NO role — only an admin
+    A ``pending`` or ``rejected`` request grants ZERO access and NO role - only an admin
     APPROVE provisions a user. ``firebase_uid`` is UNIQUE so repeat sign-ins update the
     existing row (idempotent; no duplicates), and a rejected identity can re-request by
     signing in again (the row flips back to ``pending``).

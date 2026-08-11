@@ -1,4 +1,4 @@
-/** DEMO DATA — placeholder series for the Overview's demo-only widgets.
+/** DEMO DATA - placeholder series for the Overview's demo-only widgets.
  *
  *  NONE of this is real. Every value here is fabricated for visual completeness
  *  and is gated by `SHOW_DEMO_WIDGETS` + a `<DemoBadge />`. See docs/DESIGN.md §3

@@ -1,5 +1,5 @@
 -- ============================================================================
--- 001_init.sql — Foundation schema (everything except the generated fact table,
+-- 001_init.sql - Foundation schema (everything except the generated fact table,
 -- which is 002_fact_table.sql, emitted from metric_registry.py).
 -- Target: PostgreSQL 15+ (Cloud SQL), private IP, SSL required.
 -- ============================================================================
@@ -45,7 +45,7 @@ CREATE TABLE user_roles (
   PRIMARY KEY (user_id, role_id)
 );
 
--- Metric-group permissions per role — DATA, admin-editable, no deploys
+-- Metric-group permissions per role - DATA, admin-editable, no deploys
 CREATE TABLE role_metric_permissions (
   role_id      SMALLINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
   metric_group TEXT NOT NULL CHECK (metric_group IN
@@ -53,7 +53,7 @@ CREATE TABLE role_metric_permissions (
   PRIMARY KEY (role_id, metric_group)
 );
 
--- Capability flags per role (export / share_report / admin_panel) — admin-editable
+-- Capability flags per role (export / share_report / admin_panel) - admin-editable
 CREATE TABLE role_capabilities (
   role_id    SMALLINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
   capability TEXT NOT NULL CHECK (capability IN ('export','share_report','admin_panel')),

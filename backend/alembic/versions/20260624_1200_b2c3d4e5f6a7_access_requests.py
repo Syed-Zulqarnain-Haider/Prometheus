@@ -1,6 +1,6 @@
 """access_requests queue (Google sign-in -> admin approves/rejects)
 
-A pending/rejected request grants ZERO access — only an admin APPROVE provisions a user.
+A pending/rejected request grants ZERO access - only an admin APPROVE provisions a user.
 firebase_uid is UNIQUE so repeat sign-ins update the existing row (idempotent).
 
 Revision ID: b2c3d4e5f6a7

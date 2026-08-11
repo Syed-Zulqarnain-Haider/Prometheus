@@ -3,7 +3,7 @@
 Adds the ``tech_cost_usd`` fact column (registry-driven; feeds Gross Profit on the
 Overview). The fact table is sync-owned and normally regenerated from the metric
 registry on every sync's atomic swap, so this migration is an idempotent safety net
-for an already-materialized table — it ADDs the column only if missing, and is a
+for an already-materialized table - it ADDs the column only if missing, and is a
 no-op once the sync has rebuilt the table with the new registry. Must run with a
 role that can ALTER the sync-owned table.
 

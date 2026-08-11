@@ -29,7 +29,7 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     # SET NULL on delete: the append-only trail is PRESERVED (action/ip/detail/time intact)
-    # when a user is removed — only the user link is nulled (a constraint action, not an
+    # when a user is removed - only the user link is nulled (a constraint action, not an
     # app-level UPDATE, so it does not weaken the no-UPDATE/DELETE rule on audit_log).
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")

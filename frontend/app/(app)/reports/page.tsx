@@ -6,7 +6,7 @@ export default function ReportsPage() {
     <div>
       <PageHeader
         title="Reports"
-        description="Build, save, share, and export reports — always scoped to your access."
+        description="Build, save, share, and export reports - always scoped to your access."
       />
       <ReportsClient />
     </div>

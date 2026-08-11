@@ -1,9 +1,9 @@
 -- ============================================================================
--- terafort.api.daily_performance_v1  —  THE STABLE CONTRACT
+-- terafort.api.daily_performance_v1  -  THE STABLE CONTRACT
 -- The platform reads ONLY this view. Change the underlying table freely;
 -- keep this view's output columns (names + types) stable. Breaking change → _v2.
 -- Derived metrics computed here in BigQuery (owner requirement). SAFE_DIVIDE
--- returns NULL on zero denominators — never errors, never fake zeros.
+-- returns NULL on zero denominators - never errors, never fake zeros.
 -- Prereq: CREATE SCHEMA IF NOT EXISTS `terafort.api`;
 -- ============================================================================
 CREATE OR REPLACE VIEW `terafort.api.daily_performance_v1` AS
@@ -42,7 +42,7 @@ SELECT
   -- Infra / tech cost per app-day (feeds Gross Profit on the Overview).
   -- PLACEHOLDER 0 until the data team adds tech_cost_usd to the source table;
   -- when it lands, replace this line with:  COALESCE(tech_cost_usd, 0) AS tech_cost_usd
-  -- The sync also tolerates this column's absence (defaults to 0) — see sync_job.py.
+  -- The sync also tolerates this column's absence (defaults to 0) - see sync_job.py.
   CAST(0 AS FLOAT64) AS tech_cost_usd,
 
   -- Adjust (data flows; NO dashboard features in v1 per requirements)

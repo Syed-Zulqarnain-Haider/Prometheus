@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       // Both sign-in methods only AUTHENTICATE via Firebase. Authorization is
       // unchanged: every backend route still requires a provisioned user (matched
-      // by Firebase UID) — an unprovisioned account gets no data and no role.
+      // by Firebase UID) - an unprovisioned account gets no data and no role.
       signIn: async (email, password) => {
         await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
       },

@@ -36,7 +36,7 @@ function Figure({ label, value }: { label: string; value: React.ReactNode }) {
 
 /** Revenue-progress donut for one period. Shows actual ÷ admin-set target (scoped to
  *  the caller, from the summary API) once that period's target exists; otherwise an
- *  honest "target not set" state — progress is never faked. */
+ *  honest "target not set" state - progress is never faked. */
 export function RevenueProgress({ period }: { period: Period }) {
   const now = useMemo(() => new Date(), []);
   const isYear = period === "year";
@@ -122,7 +122,7 @@ export function RevenueProgress({ period }: { period: Period }) {
           />
           <Figure
             label="Remaining to Target"
-            value={targetSet ? formatUSD(remaining, { compact: true }) : "—"}
+            value={targetSet ? formatUSD(remaining, { compact: true }) : "-"}
           />
           <Figure label="Target Date" value={targetDate} />
           {!targetSet && (

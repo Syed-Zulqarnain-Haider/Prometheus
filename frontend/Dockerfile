@@ -1,8 +1,8 @@
-# Prometheus dashboard — production Next.js 15 image (multi-stage, standalone output).
+# Prometheus dashboard - production Next.js 15 image (multi-stage, standalone output).
 #
 # The five NEXT_PUBLIC_* values below are PUBLIC by design (the Firebase web config +
 # the API base URL). Next inlines them into the CLIENT bundle at BUILD time, so they
-# must be present during `npm run build`. They are NOT secrets — never pass real server
+# must be present during `npm run build`. They are NOT secrets - never pass real server
 # secrets here. Requires `output: "standalone"` in next.config.mjs.
 
 # ── Builder ──────────────────────────────────────────────────────────────────

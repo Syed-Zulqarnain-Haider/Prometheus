@@ -1,4 +1,4 @@
-"""Integration tests for the admin Integration tab (PR 1 — foundation).
+"""Integration tests for the admin Integration tab (PR 1 - foundation).
 
 Covers: admin-only access (others 403); the composed status (BigQuery key presence +
 Postgres/Redis health + last-sync history) that never leaks a credential; the

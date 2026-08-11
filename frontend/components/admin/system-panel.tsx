@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Database, Play, RefreshCw, Server } from "lucide-react";
+import { Activity, BellRing, Database, Play, RefreshCw, Server } from "lucide-react";
 import { useState } from "react";
 
 import { DataHealthClient } from "@/components/admin/data-health-client";
@@ -10,14 +10,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  type AlertsEvaluateResult,
   type AppSetting,
   type ConnectionStatus,
+  type DigestResult,
   type SyncTriggerResult,
   useAppSettings,
+  useEvaluateAlerts,
   useRunSync,
+  useSendDigest,
   useSystemHealth,
   useUpdateSetting,
 } from "@/lib/api-hooks";
+
+/** Settings that exist in the backend registry but control nothing anymore. The demo
+ *  widgets were removed from the dashboard, so their toggle was a dead control - owner
+ *  chose deletion over keeping it. Hidden here until the backend registry drops the key. */
+const RETIRED_SETTING_KEYS = new Set(["show_demo_widgets"]);
 
 function StatusBadge({ status }: { status: ConnectionStatus["status"] }) {
   if (status === "up") return <Badge variant="secondary">connected</Badge>;
@@ -42,7 +51,7 @@ function HealthCard({ id, status }: { id: keyof typeof ICONS; status: Connection
         {status.latency_ms != null ? (
           <span className="tabular-nums">{status.latency_ms} ms</span>
         ) : (
-          <span>{status.detail ?? "—"}</span>
+          <span>{status.detail ?? ""}</span>
         )}
       </CardContent>
     </Card>
@@ -88,7 +97,7 @@ function IntSetting({ setting }: { setting: AppSetting }) {
   );
 }
 
-/** A single boolean (toggle) setting (e.g. show demo widgets). */
+/** A single boolean (toggle) setting. */
 function BoolSetting({ setting }: { setting: AppSetting }) {
   const update = useUpdateSetting();
   return (
@@ -113,6 +122,10 @@ export function SystemPanel() {
   const settings = useAppSettings();
   const runSync = useRunSync();
   const [syncResult, setSyncResult] = useState<SyncTriggerResult | null>(null);
+  const evalAlerts = useEvaluateAlerts();
+  const [alertsResult, setAlertsResult] = useState<AlertsEvaluateResult | null>(null);
+  const sendDigest = useSendDigest();
+  const [digestResult, setDigestResult] = useState<DigestResult | null>(null);
 
   return (
     <div className="space-y-6">
@@ -145,7 +158,7 @@ export function SystemPanel() {
             <Button
               className="gap-2"
               disabled={runSync.isPending}
-              onClick={() => runSync.mutate(undefined, { onSuccess: setSyncResult })}
+              onClick={() => runSync.mutate({}, { onSuccess: setSyncResult })}
             >
               {runSync.isPending ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
@@ -159,11 +172,94 @@ export function SystemPanel() {
             <CardContent className="pt-0">
               <p
                 className={`text-sm ${
-                  syncResult.triggered ? "text-primary" : "text-muted-foreground"
+                  syncResult.triggered ? "text-positive" : "text-muted-foreground"
                 }`}
               >
                 {syncResult.message}
               </p>
+            </CardContent>
+          )}
+        </Card>
+      </section>
+
+      {/* C2) Evaluate alerts now */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Proactive alerts
+        </h2>
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              Run the anomaly checks now (revenue drop, spend spike, low ROAS, stale data). They
+              also run automatically each day after the sync when &quot;Proactive alerts&quot; is
+              enabled in the settings below.
+            </p>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={evalAlerts.isPending}
+              onClick={() => evalAlerts.mutate(undefined, { onSuccess: setAlertsResult })}
+            >
+              {evalAlerts.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <BellRing className="h-4 w-4" />
+              )}
+              Evaluate alerts now
+            </Button>
+          </CardContent>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 border-t py-4">
+            <p className="text-sm text-muted-foreground">
+              Send the daily performance digest now. It also sends automatically each day when
+              &quot;Daily digest email&quot; is enabled below.
+            </p>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={sendDigest.isPending}
+              onClick={() => sendDigest.mutate(undefined, { onSuccess: setDigestResult })}
+            >
+              {sendDigest.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <BellRing className="h-4 w-4" />
+              )}
+              Send digest now
+            </Button>
+          </CardContent>
+          {digestResult && (
+            <CardContent className="pt-0 text-sm">
+              {digestResult.sent && digestResult.preview ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+                  {digestResult.preview}
+                </pre>
+              ) : (
+                <p className="text-muted-foreground">
+                  Digest is disabled or there&apos;s no data yet - nothing sent.
+                </p>
+              )}
+            </CardContent>
+          )}
+          {alertsResult && (
+            <CardContent className="pt-0 text-sm">
+              {alertsResult.count === 0 ? (
+                <p className="text-positive">No alerts - everything within thresholds.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {alertsResult.fired.map((a) => (
+                    <li key={a.key} className="text-muted-foreground">
+                      <span
+                        className={
+                          a.severity === "critical" ? "text-destructive" : "text-[color:var(--color-amber)]"
+                        }
+                      >
+                        ●
+                      </span>{" "}
+                      <span className="font-medium text-foreground">{a.title}</span> - {a.body}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           )}
         </Card>
@@ -179,19 +275,21 @@ export function SystemPanel() {
             {settings.isLoading || !settings.data ? (
               <p className="py-4 text-sm text-muted-foreground">Loading settings…</p>
             ) : (
-              settings.data.map((setting) =>
-                setting.type === "bool" ? (
-                  <BoolSetting key={setting.key} setting={setting} />
-                ) : (
-                  <IntSetting key={setting.key} setting={setting} />
-                ),
-              )
+              settings.data
+                .filter((setting) => !RETIRED_SETTING_KEYS.has(setting.key))
+                .map((setting) =>
+                  setting.type === "bool" ? (
+                    <BoolSetting key={setting.key} setting={setting} />
+                  ) : (
+                    <IntSetting key={setting.key} setting={setting} />
+                  ),
+                )
             )}
           </CardContent>
         </Card>
         <p className="text-xs text-muted-foreground">
           Only non-secret operational settings are shown here. Credentials and connection
-          strings are never stored in the database or displayed — they live in the
+          strings are never stored in the database or displayed - they live in the
           environment / Secret Manager.
         </p>
       </section>

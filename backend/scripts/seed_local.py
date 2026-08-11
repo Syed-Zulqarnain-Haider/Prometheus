@@ -1,13 +1,13 @@
 """Seed the local Postgres with sample fact data for a first run (no BigQuery).
 
 Creates the sync-owned ``fact_daily_performance`` table (from the metric registry),
-fills ~60 days of realistic sample rows across a few apps/pods/publishers/platforms —
+fills ~60 days of realistic sample rows across a few apps/pods/publishers/platforms -
 populating store, per-network UA (spend/impressions/clicks/engagement), ad-network,
-and IAP-breakdown columns so every dashboard page demos with sample data — refreshes
+and IAP-breakdown columns so every dashboard page demos with sample data - refreshes
 ``dim_app``, and records a successful ``sync_runs`` row. Idempotent / re-runnable.
 
 Re-seeding ONLY refreshes sample data. It never deletes, deactivates, or otherwise
-touches provisioned ``users`` / ``user_roles`` / ``user_scopes`` — and as a safety
+touches provisioned ``users`` / ``user_roles`` / ``user_scopes`` - and as a safety
 net it re-asserts ``is_active=true`` for any existing admin so a re-seed can never
 lock the admin out (roles and scopes are left exactly as they are).
 
@@ -27,8 +27,8 @@ from sqlalchemy import delete, insert, text
 
 # Per CLAUDE.md the canonical_key LINKS a game's platforms: a multi-platform game
 # shares ONE canonical_key across its Android + iOS rows (iOS rows carry apple_id,
-# Android rows android_package). That makes the table/breakdown endpoints — which
-# group by canonical_key and SUM additive measures — collapse each game into a
+# Android rows android_package). That makes the table/breakdown endpoints - which
+# group by canonical_key and SUM additive measures - collapse each game into a
 # single row spanning its platforms (Nimbus and Pulse below ship on both).
 #
 #   game:      (canonical_key, name, publisher, pod, pod_owner, hou)
@@ -204,7 +204,7 @@ async def main() -> None:
         await session.execute(delete(SyncRun))
 
         # One dim_app row per game (canonical_key is the PK), carrying BOTH platform
-        # identifiers so a multi-platform game maps to its Android and iOS stores —
+        # identifiers so a multi-platform game maps to its Android and iOS stores -
         # mirroring the linked-key model in production.
         for (key, name, publisher, pod, pod_owner, hou), platforms in GAMES:
             apple_id = next((a for _p, a, _pkg in platforms if a is not None), None)
@@ -243,7 +243,7 @@ async def main() -> None:
 
         # Safety net: re-seeding sample data must never lock the admin out. We only
         # touched fact/dim/sync tables above (never users), but here we explicitly
-        # re-assert is_active=true for every admin — preserving their role and scope
+        # re-assert is_active=true for every admin - preserving their role and scope
         # (we update ONLY the is_active flag, and only ever set it true). No-op when
         # there are no users yet (fresh DB). All SQL below is static (no user input).
         reactivated = await session.scalar(

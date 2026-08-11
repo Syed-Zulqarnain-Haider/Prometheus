@@ -1,7 +1,7 @@
 """Metrics routes: summary, timeseries, breakdown, table.
 
 All are GET, authenticated, rate-limited, and cached (agg:*, TTL aligned to the daily
-rebuild). RBAC column filtering is inherent — the query builder only aggregates the
+rebuild). RBAC column filtering is inherent - the query builder only aggregates the
 caller's permitted measures, and period ratios only appear when their components are
 permitted; the cache key also varies by scope + permitted groups so payloads are never
 shared across permission profiles.

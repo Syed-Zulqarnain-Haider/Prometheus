@@ -1,7 +1,7 @@
 """System health checks and on-demand sync trigger for the admin System tab.
 
 Health checks are lightweight pings performed at request time. They return ONLY
-up/down/not_configured + latency — never a connection string, host, or credential.
+up/down/not_configured + latency - never a connection string, host, or credential.
 """
 
 from __future__ import annotations
@@ -24,19 +24,19 @@ def _ms(start: float) -> float:
 
 
 async def ping_postgres(db: AsyncSession) -> ConnectionStatus:
-    """Lightweight Postgres liveness ping — up/down + latency only, never the DSN.
+    """Lightweight Postgres liveness ping - up/down + latency only, never the DSN.
     Reused by the Integration tab status."""
     start = perf_counter()
     try:
         await db.execute(text("SELECT 1"))
         return ConnectionStatus(name="PostgreSQL", status="up", latency_ms=_ms(start))
-    except Exception:  # noqa: BLE001 — report down, never leak the error/DSN
+    except Exception:  # noqa: BLE001 - report down, never leak the error/DSN
         log.exception("Postgres health check failed")
         return ConnectionStatus(name="PostgreSQL", status="down")
 
 
 async def ping_redis(redis: Redis) -> ConnectionStatus:
-    """Lightweight Redis liveness ping — up/down + latency only, never the URL.
+    """Lightweight Redis liveness ping - up/down + latency only, never the URL.
     Reused by the Integration tab status."""
     start = perf_counter()
     try:
@@ -49,7 +49,7 @@ async def ping_redis(redis: Redis) -> ConnectionStatus:
 
 def _bigquery_status(settings: Settings) -> ConnectionStatus:
     # By design the API never queries BigQuery (only the sync job does), so we report
-    # CONFIGURATION presence — not a live query — and never echo the project/credential.
+    # CONFIGURATION presence - not a live query - and never echo the project/credential.
     if settings.bigquery_project:
         return ConnectionStatus(
             name="BigQuery",

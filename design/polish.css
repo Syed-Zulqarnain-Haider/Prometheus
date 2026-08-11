@@ -1,15 +1,15 @@
 /* ============================================================================
-   TERAFORT — CEO COMMAND CENTER · POLISH LAYER  ·  "SWISS LEDGER"
+   TERAFORT - CEO COMMAND CENTER · POLISH LAYER  ·  "SWISS LEDGER"
    ----------------------------------------------------------------------------
    Editorial-financial treatment on top of dashboard.css (loaded LAST).
-   Direction: warm broadsheet ledger — serif display headlines & figures,
+   Direction: warm broadsheet ledger - serif display headlines & figures,
    hairline rules instead of glow, sharp corners, a single oxblood accent.
    Works in both modes (warm-dark :root, paper [data-theme="light"]).
-   Nothing here changes layout/structure — only surface, type, and motion.
+   Nothing here changes layout/structure - only surface, type, and motion.
    ============================================================================ */
 
 /* ============================================================================
-   CANVAS — flat warm ground + the faintest paper grain (no glow)
+   CANVAS - flat warm ground + the faintest paper grain (no glow)
    ============================================================================ */
 body {
   background: var(--color-bg-app);
@@ -31,7 +31,7 @@ body::before {
 *::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); background-clip: content-box; }
 
 /* ============================================================================
-   TYPOGRAPHY — Spectral serif display, Archivo grotesk labels/body
+   TYPOGRAPHY - Spectral serif display, Archivo grotesk labels/body
    ============================================================================ */
 .topbar__title {
   font-family: var(--font-display);
@@ -53,7 +53,7 @@ body::before {
 
 .nav__item > span { white-space: nowrap; flex: 0 0 auto; }
 
-/* serif tabular figures on the hero numbers — the editorial signature */
+/* serif tabular figures on the hero numbers - the editorial signature */
 .kpi__value, .donut__pct, .ratio__value, .stat-list__value,
 .bigstat__value, .year-target__value, .tile__value, .ua-metric__value,
 .pipe-step__value, .pcard__metric .v, .ptable td.is-num {
@@ -80,7 +80,7 @@ body::before {
 }
 
 /* ============================================================================
-   TOPBAR — broadsheet masthead rule
+   TOPBAR - broadsheet masthead rule
    ============================================================================ */
 .topbar { padding-bottom: var(--space-4); border-bottom: 2px solid var(--color-text-primary); }
 .topbar__titlewrap { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; }
@@ -142,7 +142,7 @@ body::before {
 @keyframes livePulse { 0% { transform: scale(0.6); opacity: 0.5; } 70%, 100% { transform: scale(2.3); opacity: 0; } }
 
 /* ============================================================================
-   CARDS — flat, hairline-framed, sharp. Depth from a DEEP STATIONARY shadow.
+   CARDS - flat, hairline-framed, sharp. Depth from a DEEP STATIONARY shadow.
    Hover is locked-in-place: only border + a faint background shift change.
    No transform, no scale, no animated shadow (enterprise interaction spec).
    ============================================================================ */
@@ -167,7 +167,7 @@ body::before {
 .kpi:hover::before { opacity: 1; }
 
 /* ============================================================================
-   SIDEBAR — masthead + ruled navigation
+   SIDEBAR - masthead + ruled navigation
    ============================================================================ */
 .brand__logo {
   border-radius: var(--radius-inner);
@@ -194,7 +194,7 @@ body::before {
 .year-target__value { font-family: var(--font-display); }
 
 /* ============================================================================
-   CONTROLS / BADGES — squared, quiet
+   CONTROLS / BADGES - squared, quiet
    ============================================================================ */
 .control { border-radius: var(--radius-inner); }
 .badge, .pill { border-radius: var(--radius-chip); box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 20%, transparent); }
@@ -203,7 +203,7 @@ body::before {
 .progress__fill { box-shadow: none; }
 
 /* ============================================================================
-   ENTRANCE MOTION — gated on body.intro (resting state always visible)
+   ENTRANCE MOTION - gated on body.intro (resting state always visible)
    ============================================================================ */
 @media (prefers-reduced-motion: no-preference) {
   body.intro .reveal { animation: riseIn 0.6s var(--ease) both; animation-delay: calc(var(--ri, 0) * 55ms); }
@@ -229,7 +229,7 @@ body::before {
 .sidebar__footer { font-family: var(--font-sans); font-size: 10px; letter-spacing: 0.05em; }
 
 /* ============================================================================
-   INTERACTIVITY AFFORDANCES — sortable headers + clickable legends
+   INTERACTIVITY AFFORDANCES - sortable headers + clickable legends
    ============================================================================ */
 .ptable th.sortable { cursor: pointer; user-select: none; white-space: nowrap; transition: color var(--dur-fast) var(--ease); }
 .ptable th.sortable:hover { color: var(--color-text-primary); }
@@ -243,7 +243,7 @@ body::before {
 .legend-row { transition: opacity 160ms var(--ease); }
 
 /* ============================================================================
-   FOCUS STATES — keyboard accessibility
+   FOCUS STATES - keyboard accessibility
    ============================================================================ */
 a:focus-visible, button:focus-visible, [tabindex]:focus-visible,
 .nav__item:focus-visible, .control:focus-visible, .ptable th.sortable:focus-visible,

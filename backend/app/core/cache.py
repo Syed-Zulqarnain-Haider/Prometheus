@@ -2,7 +2,7 @@
 
 Cache key = ``agg:<sha256(version + route + resolved_scope + perms + params)>``. Two
 callers share an entry only when their effective row-scope AND permitted metric groups
-match — so a cached payload (which contains only the producer's permitted measures) is
+match - so a cached payload (which contains only the producer's permitted measures) is
 never served to a caller with different permissions. The daily sync busts the ``agg:*``
 namespace after each successful load; TTL is a backstop aligned to that daily rebuild.
 
@@ -29,7 +29,7 @@ AGG_PREFIX = "agg:"
 # fixed TTL (which forces repeated cold recomputes against a cold Neon free-tier DB
 # throughout the day), we expire each entry shortly AFTER the next daily-rebuild
 # boundary. An entry created at any time of day therefore survives until the next
-# rebuild — at most one cold recompute per (scope, perms, params) per day.
+# rebuild - at most one cold recompute per (scope, perms, params) per day.
 REBUILD_HOUR_UTC = 5
 REBUILD_MINUTE_UTC = 16
 AGG_TTL_GRACE_SECONDS = 60 * 60  # live ~1h past the boundary (covers rebuild + bust)

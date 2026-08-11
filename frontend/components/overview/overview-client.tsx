@@ -54,7 +54,7 @@ export function OverviewClient() {
     setLayouts(savedLayouts);
   }, [savedLayouts]);
 
-  // The EXISTING widgets, wrapped untouched — each keeps its own data fetching, filter
+  // The EXISTING widgets, wrapped untouched - each keeps its own data fetching, filter
   // reactivity, loading/empty/error states and RBAC. The KPI row is a FIXED full-width
   // header (below) and is intentionally NOT part of the draggable grid.
   const items: Record<OverviewItemId, ReactNode> = {
@@ -131,7 +131,7 @@ export function OverviewClient() {
         </div>
       </div>
 
-      {/* Fixed full-width KPI header — never draggable, never clipped. */}
+      {/* Fixed full-width KPI header - never draggable, never clipped. */}
       <KpiRow filters={filters} />
 
       {/* Everything below the KPIs is the draggable/resizable grid. In view mode it is

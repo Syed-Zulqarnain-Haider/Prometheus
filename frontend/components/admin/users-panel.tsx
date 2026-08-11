@@ -149,7 +149,7 @@ function UserEditor({ user, roleNames }: { user: AdminUser; roleNames: string[] 
         )}
       </div>
 
-      {/* Hard delete — two-step confirm */}
+      {/* Hard delete - two-step confirm */}
       <div className="flex flex-wrap items-center gap-2 border-t pt-3">
         {!confirmDelete ? (
           <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>

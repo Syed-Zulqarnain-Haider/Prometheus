@@ -8,7 +8,7 @@ export function DemoBadge() {
         color: "var(--color-amber)",
         backgroundColor: "var(--color-amber-soft)",
       }}
-      title="Placeholder data — not from the live API (see docs/DESIGN.md)"
+      title="Placeholder data - not from the live API (see docs/DESIGN.md)"
     >
       Demo data
     </span>

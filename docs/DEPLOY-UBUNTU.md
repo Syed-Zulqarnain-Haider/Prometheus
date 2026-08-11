@@ -1,9 +1,9 @@
-# DEPLOY-UBUNTU.md — single-VM production deploy (Ubuntu + Docker + nginx)
+# DEPLOY-UBUNTU.md - single-VM production deploy (Ubuntu + Docker + nginx)
 
 Run the whole stack on one Ubuntu server with `docker-compose.prod.yml`: the FastAPI
-**backend**, the Next.js **frontend**, and **self-hosted Postgres + Redis** — all as
-Docker containers — behind an **nginx** reverse proxy with **HTTPS**. Postgres and Redis
-data persist in named Docker volumes. Both app containers bind to `127.0.0.1` only — nginx
+**backend**, the Next.js **frontend**, and **self-hosted Postgres + Redis** - all as
+Docker containers - behind an **nginx** reverse proxy with **HTTPS**. Postgres and Redis
+data persist in named Docker volumes. Both app containers bind to `127.0.0.1` only - nginx
 is the only thing exposed to the internet.
 
 > **Secrets never go in git.** `.env` and `secrets/` are gitignored. Use
@@ -19,7 +19,7 @@ is the only thing exposed to the internet.
                                           └──► /api ► 127.0.0.1:8000  (FastAPI)
                                                           │
                                    db (Postgres, volume) ◄┘──► redis (volume)
-                                   — all on the private compose network —
+                                   - all on the private compose network -
 ```
 
 ---
@@ -30,7 +30,7 @@ is the only thing exposed to the internet.
 - A **Firebase** project with Email/Password (and/or Google) sign-in enabled, and an
   **Admin service-account key** JSON (used by the backend to verify tokens).
 - **Optional (for real data):** a Google Cloud project with the BigQuery view and a
-  **read-only** BigQuery service-account key (BigQuery Data Viewer + Job User) — a
+  **read-only** BigQuery service-account key (BigQuery Data Viewer + Job User) - a
   DIFFERENT identity from the Firebase key. Without it the dashboard runs fine but empty
   until the sync is wired (§12).
 
@@ -72,9 +72,9 @@ cd Prometheus
 ```bash
 # Service-account KEYS are files under ./secrets (mounted read-only into the backend):
 mkdir -p secrets
-#   Firebase Admin key (REQUIRED) — scp it up, e.g.:
+#   Firebase Admin key (REQUIRED) - scp it up, e.g.:
 #     scp firebase-admin.json user@server:~/Prometheus/secrets/
-#   BigQuery READER key (OPTIONAL, for the sync — a DIFFERENT service account):
+#   BigQuery READER key (OPTIONAL, for the sync - a DIFFERENT service account):
 #     scp bq-reader.json      user@server:~/Prometheus/secrets/
 chmod 600 secrets/*.json
 
@@ -105,8 +105,8 @@ The frontend build inlines the `NEXT_PUBLIC_*` values from `.env` (public by des
 
 ## 6. Create the database schema
 The fact table must exist before the migrations that may alter it, so create it first,
-then run the migrations — both via the backend image (no extra tooling). 6a creates
-`fact_daily_performance` with its natural-key primary key `(date, platform, app_key)` —
+then run the migrations - both via the backend image (no extra tooling). 6a creates
+`fact_daily_performance` with its natural-key primary key `(date, platform, app_key)` -
 the key the daily sync UPSERTs on (it accumulates history; it never swaps/replaces the
 table). On this single-role deploy the DB superuser owns every table, so the sync's
 writes and the Integration tab's **Clear Data** both work without extra grants.
@@ -141,9 +141,9 @@ it to a DB admin (with an `all` row-scope):
 docker compose -f docker-compose.prod.yml run --rm -T backend \
   python scripts/create_admin.py --uid <FIREBASE_UID> --email you@example.com
 ```
-> **Do NOT run `scripts/seed_local.py` in production** — it writes sample fact data. Real
+> **Do NOT run `scripts/seed_local.py` in production** - it writes sample fact data. Real
 > data comes from the daily sync (§12). The dashboard works before the first sync; it just
-> shows empty/"data as of —" until then.
+> shows empty/"data as of -" until then.
 
 ## 9. nginx reverse proxy
 ```bash
@@ -168,8 +168,8 @@ Certbot auto-renews via a systemd timer; check with `sudo certbot renew --dry-ru
 - Sign in with the Firebase user you crowned in §8 → the **Executive Overview** loads.
 - `https://YOUR_DOMAIN/api/v1/meta/freshness` (while logged in) returns JSON.
 
-## 12. Real data — the daily sync (managed from the Integration tab)
-The backend runs the sync **itself** — an in-process scheduler plus on-demand controls in
+## 12. Real data - the daily sync (managed from the Integration tab)
+The backend runs the sync **itself** - an in-process scheduler plus on-demand controls in
 the admin UI. No host cron, no separate job. You only need two things in place (both from
 §4): the BigQuery reader key at `./secrets/bq-reader.json` and `SYNC_PG_DSN` set in `.env`.
 
@@ -178,21 +178,21 @@ Then, signed in as an admin, open **Admin → Integration** and:
 2. Set the **sync configuration** (stored in the DB, not env): GCP project, BigQuery view
    (e.g. `your_project.api.daily_performance_v1`), schedule time + IANA timezone.
 3. **Test connection** runs a read-only BigQuery check; **Check schema** diffs the view's
-   columns against the metric registry (informational only — never alters anything).
+   columns against the metric registry (informational only - never alters anything).
 4. **Run sync now** kicks off a one-off load; or flip **Daily sync enabled** on and the
    in-process scheduler runs it once a day at your configured time. The run is guarded by a
    Postgres advisory lock, so even multiple backend instances fire it **exactly once/day**.
 
 Each run validates the view against the registry, loads into a staging table, runs
-integrity checks, then **UPSERTs** into the live table by `(date, platform, app_key)` —
+integrity checks, then **UPSERTs** into the live table by `(date, platform, app_key)` -
 history accumulates; on any failure the live data is untouched and the reason is recorded
 in `sync_runs` (visible under **Sync history**). **Clear Data** (three confirmations + the
 typed phrase `DELETE ALL DATA`) wipes ONLY the analytics tables (`fact_daily_performance`,
-`dim_app`, `sync_runs`) — never users, roles, dashboards, settings, saved reports, or the
+`dim_app`, `sync_runs`) - never users, roles, dashboards, settings, saved reports, or the
 audit log.
 
 > The sync's BigQuery client loads `BQ_CREDENTIALS_PATH` (`/secrets/bq-reader.json`)
-> explicitly — a SEPARATE identity from the backend's Firebase `GOOGLE_APPLICATION_
+> explicitly - a SEPARATE identity from the backend's Firebase `GOOGLE_APPLICATION_
 > CREDENTIALS`. The two keys are never interchanged.
 
 ---
@@ -212,7 +212,7 @@ docker compose -f docker-compose.prod.yml ps
 # Restart / stop:
 docker compose -f docker-compose.prod.yml restart backend
 docker compose -f docker-compose.prod.yml down       # stop (data persists in the named volumes)
-#   ⚠ `down -v` ALSO deletes the pgdata/redisdata volumes — only if you mean to wipe everything.
+#   ⚠ `down -v` ALSO deletes the pgdata/redisdata volumes - only if you mean to wipe everything.
 
 # Back up Postgres (the db container):
 docker compose -f docker-compose.prod.yml exec -T db \
@@ -228,12 +228,12 @@ docker compose -f docker-compose.prod.yml exec redis redis-cli FLUSHDB
 |---|---|
 | `502 Bad Gateway` from nginx | The backend/frontend container isn't up. `docker compose -f docker-compose.prod.yml ps` / `logs`. |
 | Login works but API calls 404 | `NEXT_PUBLIC_API_BASE_URL` should be your bare domain (the app adds `/api/v1`); nginx `/api/` must have **no trailing slash** on `proxy_pass`. |
-| Every login 401s | Backend can't verify tokens — check `secrets/firebase-admin.json` is mounted and the Firebase project matches; confirm `create_admin.py` used the **same UID**. |
+| Every login 401s | Backend can't verify tokens - check `secrets/firebase-admin.json` is mounted and the Firebase project matches; confirm `create_admin.py` used the **same UID**. |
 | `alembic upgrade head` errors on a fresh DB | Run §6a (create the fact table) **before** §6b. |
 | CORS error in the browser | `CORS_ORIGINS` in `.env` must equal your exact `https://` origin; `docker compose … up -d` to reload. |
 | Backend can't reach the DB | `DATABASE_URL` host is `db` (the service name), form `postgresql+asyncpg://USER:PASSWORD@db:5432/DB`, with USER/PASSWORD/DB matching the `POSTGRES_*`. Check `docker compose … logs db`. |
 | Sync fails immediately / "not configured" | Integration tab: the BigQuery key must be at `./secrets/bq-reader.json`, `SYNC_PG_DSN` set (libpq form, `@db:5432`), and the GCP project + view filled in. `Test connection` reports the cause without leaking secrets. |
 | Redis errors | In-network `REDIS_URL=redis://redis:6379/0` (no TLS). Check `docker compose … logs redis`. (Managed Upstash instead → `rediss://`.) |
-| `nginx -t`: duplicate `connection_upgrade` map | Your base nginx config already defines it — delete the `map` block at the top of `nginx-prometheus.conf`. |
+| `nginx -t`: duplicate `connection_upgrade` map | Your base nginx config already defines it - delete the `map` block at the top of `nginx-prometheus.conf`. |
 | Out of disk during build | `docker system prune -af` and remove old images; ensure the VM has ≥ 10 GB free. |
 | Need to roll back | `git checkout <previous-tag>` then `docker compose -f docker-compose.prod.yml up -d --build`. |

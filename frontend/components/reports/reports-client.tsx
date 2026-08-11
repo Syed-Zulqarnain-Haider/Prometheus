@@ -23,7 +23,7 @@ import type { ExportFormat, ReportRunResult, SavedReport } from "@/lib/types";
 type Tab = "builder" | "mine" | "shared" | "approvals";
 
 function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   if (typeof value === "number") return new Intl.NumberFormat("en-US").format(value);
   return String(value);
 }
@@ -96,7 +96,7 @@ function ReportCard({
       );
     } catch (error) {
       setExportError(
-        error instanceof ApiError ? error.message : "Export failed — please retry.",
+        error instanceof ApiError ? error.message : "Export failed - please retry.",
       );
     } finally {
       setExporting(null);
@@ -277,7 +277,7 @@ export function ReportsClient() {
         <div className="space-y-3">
           {(myReports ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No saved reports yet — build one in the Builder tab.
+              No saved reports yet - build one in the Builder tab.
             </p>
           ) : (
             (myReports ?? []).map((report) => (

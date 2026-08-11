@@ -1,5 +1,5 @@
 -- =========================================================================
--- 002_fact_table.sql — GENERATED from metric_registry.py. Do not hand-edit;
+-- 002_fact_table.sql - GENERATED from metric_registry.py. Do not hand-edit;
 -- edit the registry and regenerate. (The sync job rebuilds this table daily
 -- via staging + atomic swap; this file exists for the FIRST deployment.)
 -- =========================================================================

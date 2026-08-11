@@ -59,7 +59,7 @@ async def client_settings(context: CurrentUser, db: DbSession) -> ClientSettings
 async def targets(
     context: CurrentUser, db: DbSession, year: int = Query(ge=2000, le=2100)
 ) -> TargetsResponse:
-    """Revenue targets for a year (read-only) — powers the Overview progress donut.
+    """Revenue targets for a year (read-only) - powers the Overview progress donut.
 
     Visible to any authenticated user; only admins can set them (``/admin/targets``).
     """

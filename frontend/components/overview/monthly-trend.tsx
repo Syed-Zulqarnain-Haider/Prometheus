@@ -54,14 +54,7 @@ export function MonthlyTrend({ filters }: { filters: Filters }) {
   };
 
   return (
-    <ChartCard
-      title="Monthly Revenue Trend"
-      action={
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          Target line: set in Admin (Step 7)
-        </span>
-      }
-    >
+    <ChartCard title="Monthly Revenue Trend">
       <Chart
         option={option}
         loading={ts.isLoading}

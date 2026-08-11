@@ -9,7 +9,7 @@ summary / timeseries / breakdown / table endpoints. Two invariants:
      ad_roas, organic_install_share) are computed per-row in the BigQuery view and
      are never re-aggregated here (CLAUDE.md contract #4).
 
-Everything is parameterized — no SQL is built from user input via string formatting.
+Everything is parameterized - no SQL is built from user input via string formatting.
 Whitelisted identifiers (group_by, bucket, sort) select pre-defined columns; they
 are never interpolated into SQL.
 """

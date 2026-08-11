@@ -73,7 +73,7 @@ async def test_reset_clears_to_default(metrics_env: MetricsEnv) -> None:
 
 
 async def test_layouts_are_private_per_user(metrics_env: MetricsEnv) -> None:
-    """admin and finance are different users — neither sees nor overwrites the other."""
+    """admin and finance are different users - neither sees nor overwrites the other."""
     admin_layout = _layout(10)
     finance_layout = _layout(20)
     await metrics_env.client.put(PAGE, json={"layout": admin_layout}, headers=_auth("admin"))
@@ -82,7 +82,7 @@ async def test_layouts_are_private_per_user(metrics_env: MetricsEnv) -> None:
     finance_before = await metrics_env.client.get(PAGE, headers=_auth("finance"))
     assert finance_before.json()["layout"] is None
 
-    # finance saves their own — must not touch admin's.
+    # finance saves their own - must not touch admin's.
     await metrics_env.client.put(PAGE, json={"layout": finance_layout}, headers=_auth("finance"))
     admin_view = (await metrics_env.client.get(PAGE, headers=_auth("admin"))).json()
     finance_view = (await metrics_env.client.get(PAGE, headers=_auth("finance"))).json()

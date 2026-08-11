@@ -1,7 +1,7 @@
 """SQLAlchemy Core definition of the sync-owned ``fact_daily_performance`` table.
 
 Generated from the metric registry. This lives in its OWN MetaData (not the ORM
-``Base``), so Alembic never manages it — the sync job owns its lifecycle. The
+``Base``), so Alembic never manages it - the sync job owns its lifecycle. The
 query builder (Step 3) and the scope resolver build SQL against this object.
 """
 
@@ -58,7 +58,7 @@ FACT_TABLE = Table(
     "fact_daily_performance",
     fact_metadata,
     *[Column(col.name, _sa_type(col.pg_type)) for col in REGISTRY],
-    # Generated natural-key component + primary key — mirrors the sync's generate_fact_ddl
+    # Generated natural-key component + primary key - mirrors the sync's generate_fact_ddl
     # and sql/postgres/002_fact_table.sql, so create_all (single-VM bootstrap + tests)
     # produces the SAME schema the sync UPSERTs into: ON CONFLICT (date, platform, app_key).
     Column(

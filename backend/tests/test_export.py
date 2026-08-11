@@ -51,7 +51,7 @@ async def test_xlsx_export(metrics_env: MetricsEnv) -> None:
     )
     assert resp.status_code == 200
     assert "openxmlformats" in resp.headers["content-type"]
-    # XLSX files are zip archives — they start with the PK magic bytes.
+    # XLSX files are zip archives - they start with the PK magic bytes.
     assert resp.content[:2] == b"PK"
 
     # Round-trip through openpyxl (the writer's own dependency) to prove the file

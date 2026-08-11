@@ -24,7 +24,7 @@ export function PaidOrganicTable({ filters }: { filters: Filters }) {
       <CardHeader>
         <CardTitle>Paid vs Organic by App</CardTitle>
       </CardHeader>
-      <CardContent className="px-0">
+      <CardContent className="overflow-x-auto px-0">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -60,7 +60,7 @@ export function PaidOrganicTable({ filters }: { filters: Filters }) {
                   key={String(row.app_name ?? row.app)}
                   className="border-b border-border-faint hover:bg-accent"
                 >
-                  <td className="px-4 py-2">{String(row.app_name ?? row.app ?? "—")}</td>
+                  <td className="px-4 py-2">{String(row.app_name ?? row.app ?? "-")}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatNumber(paid)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatNumber(organic)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatPercent(share)}</td>

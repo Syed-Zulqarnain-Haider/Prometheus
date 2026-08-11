@@ -2,7 +2,7 @@
 
 A small, framework-level hardening layer: it makes the JSON API un-embeddable and
 un-sniffable, and (in production, where TLS is terminated by Cloud Run) asserts HSTS.
-These complement — never replace — the server-side RBAC and the locked CORS policy.
+These complement - never replace - the server-side RBAC and the locked CORS policy.
 """
 
 from __future__ import annotations

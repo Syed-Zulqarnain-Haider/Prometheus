@@ -1,6 +1,6 @@
 /** Series/value formatting helpers shared by charts, KPIs, and tables. */
 
-const EMPTY = "—";
+const EMPTY = "-";
 
 function isNil(value: number | null | undefined): value is null | undefined {
   return value === null || value === undefined || Number.isNaN(value);

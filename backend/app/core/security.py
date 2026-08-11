@@ -33,7 +33,7 @@ class FirebaseTokenVerifier:
             firebase_admin.initialize_app()
         try:
             claims: dict[str, Any] = firebase_auth.verify_id_token(token)
-        except Exception as exc:  # noqa: BLE001 — any verification failure → 401
+        except Exception as exc:  # noqa: BLE001 - any verification failure → 401
             raise InvalidTokenError(str(exc)) from exc
         return claims
 
