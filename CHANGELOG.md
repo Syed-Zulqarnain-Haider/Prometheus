@@ -7,6 +7,25 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11
 
+### Notification panel restyled AdMob-style: severity cards, New badges, dismiss, sorting
+
+`components/layout/notification-bell.tsx` rebuilt on top of the deployed bell (same hooks,
+same unread-count trigger, same deep-link-on-click):
+
+- **Severity-tinted cards** instead of flat rows: 4px left accent + a pale wash of the
+  severity colour while unread (`color-mix`, falls back to the plain card where
+  unsupported). Critical = negative token, warning = amber, info = accent.
+- **"New" badge** on unread cards, coloured by severity; read cards stay listed, dimmed.
+- **Dismiss X** on unread cards - marks the notification read WITHOUT following its link
+  (there is no delete endpoint; mark-read is the server's dismiss, and the list keeps its
+  audit trail).
+- **Sort dropdown** with both requested orders: "Sort by date" (newest first, flat) and
+  "Sort by type" (Alerts / Warnings / Updates sections, newest first within each).
+
+The mirror's `lib/api-hooks.ts` gained the notifications section (NotificationItem,
+useNotifications, useMark*Read) as MIRROR SCAFFOLDING byte-compatible with the deployed
+hooks so this compiles in CI - that file must still never be pulled to the server.
+
 ### Sidebar merged with the deployed per-user reorder feature - now safe to pull whole
 
 The deployed `sidebar.tsx` turned out to carry a feature the mirror never had: **per-user

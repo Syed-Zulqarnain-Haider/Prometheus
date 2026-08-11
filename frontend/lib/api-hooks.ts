@@ -932,3 +932,54 @@ export function useAppMasterSchemaSync() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-master"] }),
   });
 }
+
+// ── Notifications (RBAC-scoped) + real-time polling ──────────────────────────────
+// MIRROR SCAFFOLDING: the deployed api-hooks.ts already carries this exact section;
+// it exists here so notification components compile in this tree. Signatures MUST
+// stay byte-compatible with the deployed hooks - never pull this file to the server.
+export interface NotificationItem {
+  id: number;
+  created_at: string;
+  type: string;
+  title: string;
+  body: string | null;
+  severity: "info" | "warning" | "critical";
+  link: string | null;
+  resource: string | null;
+  read: boolean;
+}
+
+export interface NotificationList {
+  items: NotificationItem[];
+  unread: number;
+}
+
+/** Near-real-time: polls every 15s AND refetches the moment the tab regains focus, so
+ *  notifications (and cross-user changes) surface without a manual refresh. */
+export function useNotifications() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => apiFetch<NotificationList>("/api/v1/notifications"),
+    enabled: Boolean(user),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/api/v1/notifications/${id}/read`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>("/api/v1/notifications/read-all", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
