@@ -147,9 +147,16 @@ flow.**
   `production` so the next change starts from what is live.
 - Never merge with failing or skipped checks. State explicitly anything that could not
   be verified locally (e.g. needs GCP/Firebase).
-- NOTE: the deployed tree's `origin` is GitLab, not GitHub. The GitHub mirror's
-  `production` branch is not automatically what is running on the server - the server is
-  updated by an explicit fetch + rebuild.
+- **GitLab is the ONLY repository that matters** (owner decision, 2026-08-11). It is the
+  source of truth and the deployment remote; `production` and `dev` live there.
+- GitHub is a transport pipe ONLY, because the assistant's sandbox cannot reach GitLab:
+  work is pushed to GitHub, the server fetches it from there, and the server pushes to
+  GitLab. Never raise GitHub PRs, CI results, branch cleanup or mirror bookkeeping with the
+  owner - it is plumbing, not their concern. Report status in terms of GitLab and the
+  deployed host.
+- Verification therefore happens LOCALLY before delivery (ruff, mypy --strict, pytest,
+  tsc, lint, vitest, next build) and again in the server's docker build. GitHub Actions is
+  not a gate the owner should ever hear about.
 
 
 ## Owner preferences
