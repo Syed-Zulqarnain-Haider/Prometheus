@@ -681,11 +681,22 @@ export function useUpdateSetting() {
   });
 }
 
+export interface RunSyncOpts {
+  mode?: "incremental" | "full" | "range";
+  start?: string; // YYYY-MM-DD (range mode)
+  end?: string; // YYYY-MM-DD (range mode)
+}
+
 export function useRunSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", { method: "POST" }),
+    // Optional opts to match the deployed signature (mode/range sync); the mirror build
+    // only needs the shape - the deployed api-hooks.ts is the one actually served.
+    mutationFn: (opts?: RunSyncOpts) =>
+      apiFetch<SyncTriggerResult>("/api/v1/admin/system/sync", {
+        method: "POST",
+        body: JSON.stringify(opts ?? {}),
+      }),
     onSuccess: () => {
       // A completed run (local path) updates history/status; refresh both surfaces.
       queryClient.invalidateQueries({ queryKey: ["integration-status"] });
@@ -981,5 +992,38 @@ export function useMarkAllNotificationsRead() {
   return useMutation({
     mutationFn: () => apiFetch<void>("/api/v1/notifications/read-all", { method: "POST" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+// ── Admin alerts + digest actions ────────────────────────────────────────────────
+// MIRROR SCAFFOLDING: the deployed api-hooks.ts carries these already (defined near
+// its system-settings section); shapes reconstructed from the deployed system panel's
+// usage so it compiles in this tree. Never pull this file to the server.
+export interface AlertsEvaluateResult {
+  count: number;
+  fired: { key: string; severity: "critical" | "warning"; title: string; body: string }[];
+}
+
+/** Run the anomaly-alert checks now (admin). Returns what fired; refreshes notifications. */
+export function useEvaluateAlerts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<AlertsEvaluateResult>("/api/v1/admin/alerts/evaluate", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export interface DigestResult {
+  sent: boolean;
+  preview: string | null;
+}
+
+/** Build + send the daily digest now (admin). Returns a preview of what was sent. */
+export function useSendDigest() {
+  return useMutation({
+    mutationFn: () => apiFetch<DigestResult>("/api/v1/admin/digest/send", { method: "POST" }),
   });
 }

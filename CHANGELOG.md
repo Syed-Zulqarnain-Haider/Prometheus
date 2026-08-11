@@ -5,6 +5,22 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ---
 
+## 2026-08-11 (later)
+
+### Admin System tab: dead demo-widgets toggle removed
+
+Per the owner's decision, the "show demo widgets" control is gone from Operational
+settings (`components/admin/system-panel.tsx`). It is filtered out by key via
+`RETIRED_SETTING_KEYS` rather than by deleting the `BoolSetting` renderer - the settings
+list is server-driven, so the panel must keep rendering every OTHER boolean setting, and a
+key-level filter is the smallest change that removes exactly one control.
+
+The backend still ships `show_demo_widgets` in `settings_registry.py` and
+`CLIENT_SETTING_KEYS`; nothing reads it in the UI now, and dropping the key is a separate
+backend change (registry + `test_system.py` assertions) whenever the owner wants it.
+
+---
+
 ## 2026-08-11
 
 ### Notification panel restyled AdMob-style: severity cards, New badges, dismiss, sorting
