@@ -59,11 +59,13 @@ export function ProfileClient() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Seed the form once the profile arrives (and again if it refetches after a save
-  // elsewhere). Draft edits in progress are only overwritten by a real server change.
+  // Seed the form ONCE per account. Re-seeding on every refetch wiped in-progress typing
+  // whenever anything invalidated the profile query (e.g. uploading an avatar).
   const data = profile.data;
+  const seededFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!data) return;
+    if (!data || seededFor.current === data.user_id) return;
+    seededFor.current = data.user_id;
     setFirstName(data.first_name ?? "");
     setLastName(data.last_name ?? "");
     setJobTitle(data.job_title ?? "");

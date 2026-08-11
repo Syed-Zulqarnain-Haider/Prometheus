@@ -76,7 +76,11 @@ export function useMessages(conversationId: string | null) {
       ),
     enabled: Boolean(user) && Boolean(conversationId),
     refetchInterval: 3_000,
-    placeholderData: (previous) => previous,
+    // Scoped to THIS conversation: unscoped placeholderData carries over across query
+    // keys, so switching threads briefly rendered the previous thread's messages in the
+    // new pane - the wrong person's conversation on screen is a privacy bug, not a flicker.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === conversationId ? previous : undefined,
   });
 }
 
@@ -159,6 +163,7 @@ export function useAdminMessages(conversationId: string | null) {
         `/api/v1/chat/admin/conversations/${conversationId}/messages${buildQuery({ limit: 200 })}`,
       ),
     enabled: Boolean(user) && Boolean(conversationId),
-    placeholderData: (previous) => previous,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[3] === conversationId ? previous : undefined,
   });
 }

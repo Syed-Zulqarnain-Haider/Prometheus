@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import User, UserAvatar
@@ -69,14 +70,25 @@ async def get_or_create_direct(
 
     conversation = Conversation(kind="direct", direct_key=key, created_by=me)
     db.add(conversation)
-    await db.flush()  # assign the id before adding participants
-    db.add_all(
-        [
-            ConversationParticipant(conversation_id=conversation.id, user_id=me),
-            ConversationParticipant(conversation_id=conversation.id, user_id=other),
-        ]
-    )
-    await db.commit()
+    try:
+        await db.flush()  # assign the id before adding participants
+        db.add_all(
+            [
+                ConversationParticipant(conversation_id=conversation.id, user_id=me),
+                ConversationParticipant(conversation_id=conversation.id, user_id=other),
+            ]
+        )
+        await db.commit()
+    except IntegrityError:
+        # Two people opened the same DM at the same moment; the unique direct_key makes
+        # one of them the loser. Losing the race means the thread exists - return it.
+        await db.rollback()
+        won_by_other = (
+            await db.execute(select(Conversation).where(Conversation.direct_key == key))
+        ).scalar_one_or_none()
+        if won_by_other is not None:
+            return won_by_other, False
+        raise  # a different integrity failure - surface it
     await db.refresh(conversation)
     return conversation, True
 
@@ -160,17 +172,39 @@ async def list_conversations(db: AsyncSession, redis: Redis, me: uuid.UUID) -> C
         await db.execute(
             select(Message.conversation_id, Message.body, Message.sender_id, Message.created_at)
             .where(Message.conversation_id.in_(ids), Message.deleted_at.is_(None))
-            .order_by(Message.conversation_id, Message.created_at.desc())
+            # id as tiebreaker: created_at is transaction-start time, so two messages in
+            # one transaction share it and DISTINCT ON would pick nondeterministically.
+            .order_by(Message.conversation_id, Message.created_at.desc(), Message.id.desc())
             .distinct(Message.conversation_id)
         )
     ).all()
     last_by_conversation = {row[0]: row for row in last_rows}
 
+    # Unread counts for EVERY thread in one grouped query, not one COUNT per thread: the
+    # list polls every 15s per user, and the per-thread version cost N sequential round
+    # trips on each poll.
+    unread_stmt = (
+        select(Message.conversation_id, func.count())
+        .join(
+            ConversationParticipant,
+            (ConversationParticipant.conversation_id == Message.conversation_id)
+            & (ConversationParticipant.user_id == me),
+        )
+        .where(
+            Message.conversation_id.in_(ids),
+            Message.deleted_at.is_(None),
+            Message.sender_id != me,
+            (ConversationParticipant.last_read_at.is_(None))
+            | (Message.created_at > ConversationParticipant.last_read_at),
+        )
+        .group_by(Message.conversation_id)
+    )
+    unread_by_conversation = dict((await db.execute(unread_stmt)).all())
+
     out: list[ConversationOut] = []
     unread_total = 0
     for conversation in conversations:
-        membership = memberships[conversation.id]
-        unread = await _unread_count(db, conversation.id, me, membership.last_read_at)
+        unread = int(unread_by_conversation.get(conversation.id, 0))
         unread_total += unread
         last = last_by_conversation.get(conversation.id)
         preview = None
@@ -192,27 +226,6 @@ async def list_conversations(db: AsyncSession, redis: Redis, me: uuid.UUID) -> C
             )
         )
     return ConversationList(conversations=out, unread_total=unread_total)
-
-
-async def _unread_count(
-    db: AsyncSession,
-    conversation_id: uuid.UUID,
-    me: uuid.UUID,
-    last_read_at: datetime | None,
-) -> int:
-    """Messages from other people after the caller's read mark. Your own never count."""
-    stmt = (
-        select(func.count())
-        .select_from(Message)
-        .where(
-            Message.conversation_id == conversation_id,
-            Message.deleted_at.is_(None),
-            Message.sender_id != me,
-        )
-    )
-    if last_read_at is not None:
-        stmt = stmt.where(Message.created_at > last_read_at)
-    return int((await db.execute(stmt)).scalar_one())
 
 
 async def list_messages(
@@ -279,9 +292,13 @@ async def send_message(
 
     message = Message(conversation_id=conversation_id, sender_id=me, body=body)
     db.add(message)
-    now = datetime.now(UTC)
+    # func.now(): message rows are stamped by the DATABASE clock (server_default), so the
+    # denormalised copies must come from the same clock - app-clock skew here made fresh
+    # messages read as unread (or hid them) depending on which clock ran ahead.
     await db.execute(
-        update(Conversation).where(Conversation.id == conversation_id).values(last_message_at=now)
+        update(Conversation)
+        .where(Conversation.id == conversation_id)
+        .values(last_message_at=func.now())
     )
     # Sending is also reading: otherwise your own message would leave the thread showing
     # unread to you.
@@ -291,7 +308,7 @@ async def send_message(
             ConversationParticipant.conversation_id == conversation_id,
             ConversationParticipant.user_id == me,
         )
-        .values(last_read_at=now)
+        .values(last_read_at=func.now())
     )
     await db.commit()
     await db.refresh(message)
@@ -334,6 +351,22 @@ async def delete_message(db: AsyncSession, message_id: uuid.UUID, me: uuid.UUID)
     if message.sender_id != me:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only delete your own messages")
     message.deleted_at = datetime.now(UTC)
+    # Keep the denormalised recency stamp truthful: if the deleted message WAS the latest,
+    # the conversation must sort (and preview) by the newest surviving one.
+    latest = (
+        await db.execute(
+            select(func.max(Message.created_at)).where(
+                Message.conversation_id == message.conversation_id,
+                Message.deleted_at.is_(None),
+                Message.id != message.id,
+            )
+        )
+    ).scalar_one_or_none()
+    await db.execute(
+        update(Conversation)
+        .where(Conversation.id == message.conversation_id)
+        .values(last_message_at=latest)
+    )
     await db.commit()
 
 

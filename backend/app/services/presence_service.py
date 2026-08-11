@@ -13,6 +13,7 @@ dashboard into a write-heavy one for no benefit.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -75,22 +76,35 @@ async def touch(
         logger.warning("presence: redis unavailable, skipping heartbeat", exc_info=True)
         return
 
-    if not should_write and login_at is None:
+    if not should_write:
+        # Within the throttle window. login_at is deliberately NOT an exception here: every
+        # request of a session carries the same auth_time, so it was either recorded on the
+        # first request or will be on the next throttle expiry - and letting it through
+        # would turn every request into a DB write again.
         return
 
-    values: dict[str, datetime] = {"last_seen_at": now}
-    if login_at is not None:
-        values["last_login_at"] = login_at
-
     try:
-        stmt = update(User).where(User.id == user_id).values(**values)
+        # TWO statements on purpose. The forward-only guard belongs to last_login_at
+        # alone: a single guarded UPDATE carrying both columns stops writing last_seen_at
+        # the moment the login predicate fails - which is every request after the first,
+        # since a session's auth_time never changes. That bug froze last-seen permanently.
+        await db.execute(update(User).where(User.id == user_id).values(last_seen_at=now))
         if login_at is not None:
-            # Only move the login stamp forward.
-            stmt = stmt.where((User.last_login_at.is_(None)) | (User.last_login_at < login_at))
-        await db.execute(stmt)
+            await db.execute(
+                update(User)
+                .where(
+                    User.id == user_id,
+                    (User.last_login_at.is_(None)) | (User.last_login_at < login_at),
+                )
+                .values(last_login_at=login_at)
+            )
         await db.commit()
     except Exception:  # noqa: BLE001 - same reasoning as above
         await db.rollback()
+        # Free the throttle slot so the NEXT request retries, instead of this failure
+        # suppressing last_seen_at for the whole interval.
+        with contextlib.suppress(Exception):
+            await redis.delete(_DB_WRITE_KEY.format(user_id=user_id))
         logger.warning("presence: could not persist last_seen_at", exc_info=True)
 
 
@@ -117,6 +131,11 @@ def classify(is_live: bool, last_seen: datetime | None) -> Status:
     """
     if is_live:
         return "online"
-    if last_seen is not None and datetime.now(UTC) - last_seen <= AWAY_AFTER:
-        return "away"
+    if last_seen is not None:
+        # Normalize: a naive timestamp (test fixture, cached JSON round-trip) would raise
+        # on subtraction, and one bad row must not 500 a whole directory response.
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=UTC)
+        if datetime.now(UTC) - last_seen <= AWAY_AFTER:
+            return "away"
     return "offline"

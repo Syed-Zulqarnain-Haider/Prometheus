@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -142,9 +143,11 @@ export function usePeople(query?: string) {
   });
 }
 
-/** An avatar image as an object URL. <img src> cannot carry the Authorization header, so
- *  the bytes are fetched with the token and handed over as a blob URL instead. */
-export function useAvatar(userId: string | null | undefined, hasAvatar: boolean) {
+/** An avatar image as a Blob. <img src> cannot carry the Authorization header, so the
+ *  bytes are fetched with the token; the COMPONENT turns the blob into an object URL and
+ *  revokes it on unmount - minting the URL here leaked one per avatar per refetch, since
+ *  nothing ever called revokeObjectURL. */
+export function useAvatarBlob(userId: string | null | undefined, hasAvatar: boolean) {
   return useQuery({
     queryKey: ["avatar", userId],
     enabled: Boolean(userId) && hasAvatar,
@@ -157,9 +160,20 @@ export function useAvatar(userId: string | null | undefined, hasAvatar: boolean)
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) return null;
-      return URL.createObjectURL(await response.blob());
+      return await response.blob();
     },
   });
+}
+
+/** Debounce a fast-changing value (search inputs) so each keystroke does not become an
+ *  API call and a permanent cache entry. */
+export function useDebounced<T>(value: T, delayMs = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 /** Initials for the fallback avatar - "Zulqarnain Haider" -> "ZH". */

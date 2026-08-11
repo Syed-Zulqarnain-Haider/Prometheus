@@ -1,7 +1,7 @@
 "use client";
 
 import { format, isToday, isYesterday, parseISO } from "date-fns";
-import { Eye, MessageSquarePlus, Search, Send, Trash2 } from "lucide-react";
+import { ChevronLeft, Eye, MessageSquarePlus, Search, Send, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PersonAvatar } from "@/components/people/person-avatar";
@@ -20,7 +20,7 @@ import {
   useOpenDirect,
   useSendMessage,
 } from "@/lib/chat-hooks";
-import { usePeople, type Person } from "@/lib/people-hooks";
+import { useDebounced, usePeople, type Person } from "@/lib/people-hooks";
 import { cn } from "@/lib/utils";
 
 function timeOf(iso: string): string {
@@ -36,21 +36,28 @@ function lastSeenLabel(person: { status: string; last_seen_at: string | null }):
   return `Last seen ${timeOf(person.last_seen_at)}`;
 }
 
-/** The one person on the other side of a direct thread. */
-function counterpart(conversation: Conversation) {
-  return conversation.participants[0] ?? null;
+/** The person on the other side. Oversight rows include EVERY participant (the admin
+ *  too), so filter self out rather than trusting position 0. */
+function counterpart(conversation: Conversation, meId: string | undefined) {
+  return (
+    conversation.participants.find((participant) => participant.user_id !== meId) ??
+    conversation.participants[0] ??
+    null
+  );
 }
 
 function ConversationRow({
   conversation,
   active,
+  meId,
   onSelect,
 }: {
   conversation: Conversation;
   active: boolean;
+  meId: string | undefined;
   onSelect: () => void;
 }) {
-  const other = counterpart(conversation);
+  const other = counterpart(conversation, meId);
   if (!other) return null;
   return (
     <button
@@ -131,7 +138,7 @@ function MessageBubble({
             type="button"
             aria-label="Delete message"
             onClick={() => onDelete(message.id)}
-            className="absolute -left-7 top-1/2 hidden -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive group-hover:block"
+            className="absolute -left-7 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -154,7 +161,8 @@ export function ChatClient() {
   const [draft, setDraft] = useState("");
 
   const conversations = useConversations();
-  const people = usePeople(personSearch || undefined);
+  const debouncedSearch = useDebounced(personSearch);
+  const people = usePeople(debouncedSearch || undefined);
   const openDirect = useOpenDirect();
   const markRead = useMarkRead();
 
@@ -171,23 +179,39 @@ export function ChatClient() {
       ? (conversations.data?.conversations ?? [])
       : (oversight.data?.conversations ?? []);
   const current = list.find((conversation) => conversation.id === selected) ?? null;
-  const other = current ? counterpart(current) : null;
+  const other = current ? counterpart(current, me?.user_id) : null;
 
-  // Opening a thread marks it read; new arrivals while it stays open mark on each poll.
-  const unreadInSelected = tab === "mine" ? (current?.unread ?? 0) : 0;
+  // Mark read when the open thread actually has something new from the OTHER side, at
+  // most once per (thread, newest message). Driving this off the unread badge fired a
+  // POST every badge tick and never retried a failure.
+  const lastMarked = useRef<string | null>(null);
+  const latestAt = messages?.latest_at ?? null;
+  const hasTheirMessages = (messages?.messages ?? []).some((m) => !m.mine && !m.deleted);
   useEffect(() => {
-    if (tab === "mine" && selected && unreadInSelected > 0) {
-      markRead.mutate(selected);
-    }
+    if (tab !== "mine" || !selected || !latestAt || !hasTheirMessages) return;
+    const stamp = `${selected}|${latestAt}`;
+    if (lastMarked.current === stamp) return;
+    lastMarked.current = stamp;
+    markRead.mutate(selected, {
+      onError: () => {
+        // Allow a retry on the next poll instead of leaving the badge stuck.
+        if (lastMarked.current === stamp) lastMarked.current = null;
+      },
+    });
     // markRead is a stable mutation object; listing it would re-run this every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, unreadInSelected, tab]);
+  }, [selected, latestAt, hasTheirMessages, tab]);
 
-  // Keep the view pinned to the newest message as they arrive.
+  // Pin to the newest message ONLY when the reader is already at the bottom (or has just
+  // switched threads) - yanking someone down while they read history is hostile.
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
   const messageCount = messages?.messages.length ?? 0;
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    const box = scrollBoxRef.current;
+    const nearBottom =
+      !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    if (nearBottom) bottomRef.current?.scrollIntoView({ block: "nearest" });
   }, [messageCount, selected]);
 
   // People not yet in a conversation, for starting a new one.
@@ -215,14 +239,21 @@ export function ChatClient() {
   function submit(): void {
     const body = draft.trim();
     if (!body || !selected || send.isPending) return;
-    setDraft("");
-    send.mutate(body);
+    // Clear only on SUCCESS - clearing up front destroys the typed message if the send
+    // fails, with nothing to retry from.
+    send.mutate(body, { onSuccess: () => setDraft("") });
   }
 
   return (
     <div className="flex h-[calc(100vh-9.5rem)] min-h-[24rem] overflow-hidden rounded-[var(--radius-card)] border bg-card">
-      {/* ── Left: conversations + people ─────────────────────────── */}
-      <div className="flex w-72 shrink-0 flex-col border-r">
+      {/* ── Left: conversations + people. Below md the screen shows list OR thread,
+          never both squeezed side by side. ─────────────────────── */}
+      <div
+        className={cn(
+          "w-full flex-col border-r md:flex md:w-72 md:shrink-0",
+          selected ? "hidden" : "flex",
+        )}
+      >
         <div className="space-y-2 border-b p-3">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -267,6 +298,7 @@ export function ChatClient() {
               key={conversation.id}
               conversation={conversation}
               active={conversation.id === selected}
+              meId={me?.user_id}
               onSelect={() => setSelected(conversation.id)}
             />
           ))}
@@ -311,10 +343,18 @@ export function ChatClient() {
       </div>
 
       {/* ── Middle: the thread ───────────────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={cn("min-w-0 flex-1 flex-col md:flex", selected ? "flex" : "hidden")}>
         {current && other ? (
           <>
             <div className="flex items-center gap-3 border-b px-4 py-2.5">
+              <button
+                type="button"
+                aria-label="Back to conversations"
+                className="rounded p-1 text-muted-foreground hover:bg-accent md:hidden"
+                onClick={() => setSelected(null)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
               <PersonAvatar
                 userId={other.user_id}
                 displayName={other.display_name}
@@ -336,7 +376,7 @@ export function ChatClient() {
               )}
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            <div ref={scrollBoxRef} className="flex-1 space-y-2 overflow-y-auto p-4">
               {(messages?.messages ?? []).map((message) => (
                 <MessageBubble
                   key={message.id}
@@ -354,6 +394,11 @@ export function ChatClient() {
               <div ref={bottomRef} />
             </div>
 
+            {tab === "mine" && send.isError && (
+              <p className="border-t px-3 pt-2 text-xs text-destructive">
+                Message failed to send - it is still in the box below. Try again.
+              </p>
+            )}
             {tab === "mine" && (
               <div className="flex items-end gap-2 border-t p-3">
                 <textarea

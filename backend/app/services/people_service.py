@@ -101,16 +101,17 @@ async def update_profile(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
-    user.first_name = payload.first_name
-    user.last_name = payload.last_name
-    user.job_title = payload.job_title
-    user.phone = payload.phone
-    user.timezone = payload.timezone
+    # Only fields the client actually SENT are applied - all fields are optional, so a
+    # partial PUT (e.g. {"first_name": "X"}) must not silently wipe the other four.
+    sent = payload.model_dump(exclude_unset=True)
+    for field in ("first_name", "last_name", "job_title", "phone", "timezone"):
+        if field in sent:
+            setattr(user, field, sent[field])
 
     # display_name is what the rest of the app already shows (sharing, audit, chat). Keep it
     # in step with the real name when one is given, and fall back to the email local part so
     # a user is never rendered as a blank space.
-    full = " ".join(p for p in (payload.first_name, payload.last_name) if p)
+    full = " ".join(p for p in (user.first_name, user.last_name) if p)
     user.display_name = full or user.email.split("@", 1)[0]
 
     await db.commit()

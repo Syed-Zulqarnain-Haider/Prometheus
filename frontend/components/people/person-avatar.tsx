@@ -1,6 +1,8 @@
 "use client";
 
-import { initialsOf, useAvatar, type PresenceStatus } from "@/lib/people-hooks";
+import { useEffect, useState } from "react";
+
+import { initialsOf, useAvatarBlob, type PresenceStatus } from "@/lib/people-hooks";
 import { cn } from "@/lib/utils";
 
 /** Presence dot colours: green = online now (live heartbeat), amber = seen in the last
@@ -26,18 +28,30 @@ export function PersonAvatar({
   status?: PresenceStatus;
   size?: number;
 }) {
-  const avatar = useAvatar(userId, hasAvatar);
+  const avatar = useAvatarBlob(userId, hasAvatar);
+  // The component owns the object URL so it can be revoked on unmount/refetch - minting it
+  // in the hook leaked one URL per avatar per refetch.
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!avatar.data) {
+      setUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(avatar.data);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [avatar.data]);
   const px = { width: size, height: size };
 
   return (
     <span className="relative inline-block shrink-0" style={px}>
-      {avatar.data ? (
+      {url ? (
         // Blob object URL, fetched with the auth token - a plain <img src> to the API
         // cannot carry the Authorization header. eslint-disable: next/image cannot
         // optimise blob: URLs, and the optimizer is disabled anyway.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={avatar.data}
+          src={url}
           alt={displayName ?? email}
           className="h-full w-full rounded-full object-cover"
         />

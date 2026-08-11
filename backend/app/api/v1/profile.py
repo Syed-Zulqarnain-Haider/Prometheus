@@ -65,7 +65,10 @@ async def upload_avatar(
 
     The type is determined from the file's own bytes, not its declared content type.
     """
-    data = await file.read()
+    # Bounded read: file.read() would buffer an arbitrarily large body into memory BEFORE
+    # any size check ran, so an oversized upload is cut off at the limit instead. One extra
+    # byte distinguishes "exactly at the limit" from "over it".
+    data = await file.read(people_service.MAX_AVATAR_BYTES + 1)
     size, content_type = await people_service.set_avatar(db, context.user_id, data)
     await audit.write(
         user_id=context.user_id,
@@ -104,7 +107,9 @@ async def list_people(
 
 
 @router.get("/people/{user_id}/avatar", tags=["people"])
-async def person_avatar(user_id: uuid.UUID, context: CurrentUser, db: DbSession) -> Response:
+async def person_avatar(
+    request: Request, user_id: uuid.UUID, context: CurrentUser, db: DbSession
+) -> Response:
     """Another user's avatar image.
 
     Any signed-in user may fetch any colleague's picture - the directory already shows who
@@ -115,12 +120,16 @@ async def person_avatar(user_id: uuid.UUID, context: CurrentUser, db: DbSession)
     if found is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     data, content_type, updated_at = found
+    etag = f'"{user_id}-{int(updated_at.timestamp())}"'
+    # Honour If-None-Match - emitting an ETag without checking it means the 304 path never
+    # fires and the full image bytes are re-sent on every render.
+    if request.headers.get("if-none-match") == etag:
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED,
+            headers={"Cache-Control": _AVATAR_CACHE_CONTROL, "ETag": etag},
+        )
     return Response(
         content=data,
         media_type=content_type,
-        headers={
-            "Cache-Control": _AVATAR_CACHE_CONTROL,
-            # Lets the browser skip re-downloading an unchanged picture.
-            "ETag": f'"{user_id}-{int(updated_at.timestamp())}"',
-        },
+        headers={"Cache-Control": _AVATAR_CACHE_CONTROL, "ETag": etag},
     )
