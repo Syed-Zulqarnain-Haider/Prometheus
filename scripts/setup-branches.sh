@@ -33,9 +33,17 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
 cd "$(git rev-parse --show-toplevel)"
 
 CURRENT="$(git rev-parse --abbrev-ref HEAD)"
+ORIGIN="$(git remote get-url origin 2>/dev/null || echo '(no origin remote)')"
 say "repository : $(pwd)"
 say "on branch  : ${CURRENT}"
+say "pushing to : ${ORIGIN}"
 say ""
+
+# The branches must land on the deployment remote (GitLab on the server), not wherever a
+# stray remote points - so make the target visible before anything is pushed.
+if [ "${ORIGIN}" = "(no origin remote)" ]; then
+  die "no 'origin' remote - nothing to push the new branches to"
+fi
 
 # ── What would be committed ──────────────────────────────────────────────────────
 mapfile -t TRACKED < <(git diff --name-only)          # modified, tracked
