@@ -5,6 +5,36 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ---
 
+## 2026-08-11
+
+### Sidebar merged with the deployed per-user reorder feature - now safe to pull whole
+
+The deployed `sidebar.tsx` turned out to carry a feature the mirror never had: **per-user
+nav reordering** (GripVertical toggle in the header, up/down arrows per item, order saved
+to localStorage under `nav-order:{user_id}` so it never leaks across account switches).
+The earlier grouped-sidebar rewrite would have deleted it; it was held back until the
+deployed file could be read, and is now **merged** instead of replaced:
+
+- The reorder feature is preserved verbatim: same storage key, same `applyOrder` ranking
+  (unknown/new items keep their default position), same move-arrow UX, same
+  `data-tour="nav"` hook for the product tour.
+- Groups + collapse land on top: the saved order is applied **before** grouping, so a
+  user's reorder decides the order *within* each section. Reorder mode shows the original
+  flat list (moving across a section boundary re-ranks into the destination group), and
+  entering it requires the sidebar expanded - the grip is hidden while collapsed.
+- Collapse (edge chevron, icon-only links with tooltips, "P" brand) works as shipped
+  on 2026-08-06; the preference persists via post-hydration-only localStorage.
+
+The 2026-08-06 "do NOT pull sidebar.tsx blindly" note is now RESOLVED: the deployed copy
+has been read in full and everything it carried survives, so `git checkout FETCH_HEAD --
+frontend/components/layout/sidebar.tsx` is safe.
+
+Correction for the record: an earlier claim that the deployed tree lacked a mobile nav was
+wrong - the deployed `header.tsx` mounts `MobileNav` below `md`. The mirror is what lacks
+it; nothing to fix on the server.
+
+---
+
 ## 2026-08-06 (later)
 
 ### Compare - "Top apps by metric" chart + table; sidebar groups + collapse
