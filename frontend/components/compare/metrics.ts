@@ -17,6 +17,7 @@ export const COMPARE_METRICS: CompareMetric[] = [
   { field: "total_revenue_usd", label: "Revenue", kind: "usd", goodWhenUp: true },
   { field: "total_ad_revenue_usd", label: "Ad revenue", kind: "usd", goodWhenUp: true },
   { field: "total_iap_net_usd", label: "IAP net revenue", kind: "usd", goodWhenUp: true },
+  { field: "total_iap_gross_usd", label: "IAP gross revenue", kind: "usd", goodWhenUp: true },
   { field: "total_ua_spend_usd", label: "UA spend", kind: "usd", goodWhenUp: false },
   { field: "tech_cost_usd", label: "Tech cost", kind: "usd", goodWhenUp: false },
   { field: "net_revenue_usd", label: "Net revenue", kind: "usd", goodWhenUp: true },
@@ -28,6 +29,15 @@ export const COMPARE_METRICS: CompareMetric[] = [
   { field: "store_total_installs", label: "Store installs", kind: "num", goodWhenUp: true },
   { field: "store_organic_installs", label: "Organic installs", kind: "num", goodWhenUp: true },
   { field: "total_paid_installs", label: "Paid installs", kind: "num", goodWhenUp: true },
+  {
+    field: "organic_install_share",
+    label: "Organic share",
+    kind: "pct",
+    goodWhenUp: true,
+  },
+  // More uninstalls is worse, so the delta colours invert. The uninstall RATE is excluded
+  // by owner decision; this is the raw count the store reports.
+  { field: "gp_uninstalls", label: "Play uninstalls", kind: "num", goodWhenUp: false },
 ];
 
 export function formatMetricValue(value: number | null | undefined, kind: MetricKind): string {

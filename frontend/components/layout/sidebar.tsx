@@ -104,11 +104,17 @@ export function Sidebar() {
   const sections = useMemo(() => groupItems(items), [items]);
 
   function toggleCollapsed(): void {
-    setCollapsed((current) => {
-      const next = !current;
+    // The next value is computed OUTSIDE the updater. A state updater must be pure - React
+    // may call it twice (StrictMode does) and writing to localStorage inside it made the
+    // toggle do synchronous storage I/O during the render phase, which is what made the
+    // collapse feel like it stuttered.
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
       window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
-      return next;
-    });
+    } catch {
+      /* storage blocked - the sidebar still collapses for this session */
+    }
   }
 
   function move(index: number, dir: -1 | 1) {
@@ -143,7 +149,17 @@ export function Sidebar() {
         )}
       >
         <Icon className="h-4 w-4 shrink-0" />
-        {!collapsed && <span className="truncate">{label}</span>}
+        {/* The label stays mounted and fades, rather than unmounting on collapse: removing
+            it mid-animation forces a reflow of every row at once. */}
+        <span
+          className={cn(
+            "truncate transition-opacity duration-[var(--dur-fast)]",
+            collapsed && "pointer-events-none w-0 opacity-0",
+          )}
+          aria-hidden={collapsed}
+        >
+          {label}
+        </span>
       </Link>
     );
   }
@@ -151,7 +167,11 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "relative hidden shrink-0 border-r bg-card transition-[width] duration-200 md:block",
+        // Only width animates, and overflow is clipped so labels cannot wrap mid-transition
+        // (a reflowing label is what reads as "lag"). The easing and duration come from the
+        // theme tokens, so the sidebar moves like everything else in the app.
+        "relative hidden shrink-0 overflow-hidden border-r bg-card md:block",
+        "transition-[width] duration-[var(--dur)] ease-[var(--ease)] will-change-[width]",
         collapsed ? "w-14" : "w-60",
       )}
     >
