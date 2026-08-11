@@ -7,6 +7,29 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-06 (later)
 
+### Compare - "Top apps by metric" chart + table; sidebar groups + collapse
+
+**Top apps by metric** on `/compare` (AdMob-style): pick any of the 14 catalog metrics and
+get one line per top-5 app over Period A, legend chips with per-app period totals matching
+the line colors, and a top-10 table with each app's share. Sourced from the same
+server-sorted `/metrics/table` endpoint Apps Explorer uses (RBAC + dimension filters apply),
+with one per-app timeseries per line. This chart is deliberately `adjustable={false}` - the
+house bar default would render five interleaved daily bar sets, which is unreadable for a
+multi-app line comparison. The metric catalog moved to `components/compare/metrics.ts`,
+shared by the A-vs-B table and this widget so the two can't drift.
+
+**Sidebar: grouped sections + collapse** (`components/layout/sidebar.tsx`): items now sit
+under section headings (Overview / Performance / Apps / Reporting / Administration), and an
+edge chevron collapses the sidebar to icon-only with tooltips. Grouping is keyed by href
+with a visible "More" fallback, so a page this map doesn't know lands in a group instead of
+vanishing - the two trees have different nav lists and that must never hide a page. The
+collapsed preference persists via localStorage read **post-hydration only** (effect-guarded;
+SSR never touches it - the CLAUDE.md localStorage rule exists to protect SSR, and this
+pattern cannot break it; owner can veto persistence).
+
+> Sidebar deployment note: the deployed `sidebar.tsx` has drifted from the mirror, so do
+> NOT pull it blindly - send the deployed copy first so nothing it carries is lost.
+
 ### Compare - split-screen period comparison, and a real previous-period bug
 
 **New `/compare` page** (sidebar, after Reports). Two periods side by side under the same

@@ -8,53 +8,18 @@ import { KpiRow } from "@/components/overview/kpi-row";
 import { RatioCards } from "@/components/overview/ratio-cards";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { COMPARE_METRICS, formatMetricValue } from "@/components/compare/metrics";
+import { TopAppsCompare } from "@/components/compare/top-apps-compare";
 import { useSummary } from "@/lib/api-hooks";
 import { previousWindow } from "@/lib/compare";
 import type { Filters } from "@/lib/filters";
-import { formatMultiplier, formatNumber, formatPercent, formatUSD } from "@/lib/format";
+import { formatPercent } from "@/lib/format";
 import { useFilters } from "@/lib/use-filters";
 import { cn } from "@/lib/utils";
 
 /** How Period B is derived. The two presets FOLLOW Period A as it changes; picking a range
  *  by hand switches to custom and stays put. */
 type BaselineMode = "previous" | "lastyear" | "custom";
-
-type MetricKind = "usd" | "usd2" | "pct" | "mult" | "num";
-
-/** Curated compare rows. RBAC filters columns server-side, so a metric this viewer cannot
- *  see is simply absent from the summary payload and its row is dropped - never zeroed. */
-const ROWS: { field: string; label: string; kind: MetricKind; goodWhenUp: boolean }[] = [
-  { field: "total_revenue_usd", label: "Revenue", kind: "usd", goodWhenUp: true },
-  { field: "total_ad_revenue_usd", label: "Ad revenue", kind: "usd", goodWhenUp: true },
-  { field: "total_iap_net_usd", label: "IAP net revenue", kind: "usd", goodWhenUp: true },
-  { field: "total_ua_spend_usd", label: "UA spend", kind: "usd", goodWhenUp: false },
-  { field: "tech_cost_usd", label: "Tech cost", kind: "usd", goodWhenUp: false },
-  { field: "net_revenue_usd", label: "Net revenue", kind: "usd", goodWhenUp: true },
-  { field: "gross_profit_usd", label: "Gross profit", kind: "usd", goodWhenUp: true },
-  { field: "profit_margin", label: "Profit %", kind: "pct", goodWhenUp: true },
-  { field: "roas", label: "ROAS", kind: "mult", goodWhenUp: true },
-  { field: "ad_roas", label: "Ad ROAS", kind: "mult", goodWhenUp: true },
-  { field: "cpi", label: "CPI", kind: "usd2", goodWhenUp: false },
-  { field: "store_total_installs", label: "Store installs", kind: "num", goodWhenUp: true },
-  { field: "store_organic_installs", label: "Organic installs", kind: "num", goodWhenUp: true },
-  { field: "total_paid_installs", label: "Paid installs", kind: "num", goodWhenUp: true },
-];
-
-function formatValue(value: number | null | undefined, kind: MetricKind): string {
-  if (value === null || value === undefined) return "-";
-  switch (kind) {
-    case "usd":
-      return formatUSD(value, { compact: true });
-    case "usd2":
-      return formatUSD(value, { digits: 2 });
-    case "pct":
-      return formatPercent(value);
-    case "mult":
-      return formatMultiplier(value);
-    case "num":
-      return formatNumber(value);
-  }
-}
 
 function pretty(dateIso: string): string {
   return format(parseISO(dateIso), "d MMM yyyy");
@@ -159,10 +124,10 @@ export function CompareClient() {
   const loading = left.isLoading || right.isLoading;
 
   // Only metrics at least one side actually returned (RBAC-safe, sparse-data-safe).
-  const visibleRows = ROWS.filter(
+  const visibleRows = COMPARE_METRICS.filter(
     (r) => a[r.field] !== null && a[r.field] !== undefined,
   ).concat(
-    ROWS.filter(
+    COMPARE_METRICS.filter(
       (r) =>
         (a[r.field] === null || a[r.field] === undefined) &&
         b[r.field] !== null &&
@@ -264,10 +229,10 @@ export function CompareClient() {
                     <tr key={row.field} className="border-b border-border-faint">
                       <td className="px-4 py-2">{row.label}</td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {formatValue(va, row.kind)}
+                        {formatMetricValue(va, row.kind)}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {formatValue(vb, row.kind)}
+                        {formatMetricValue(vb, row.kind)}
                       </td>
                       <td
                         className={cn(
@@ -283,7 +248,7 @@ export function CompareClient() {
                             {diff > 0 ? "+" : ""}
                             {row.kind === "pct"
                               ? `${formatPercent(diff)} pts`
-                              : formatValue(diff, row.kind)}
+                              : formatMetricValue(diff, row.kind)}
                             {pct !== null && (
                               <span className="ml-1 text-xs text-muted-foreground">
                                 ({pct > 0 ? "+" : ""}
@@ -300,6 +265,8 @@ export function CompareClient() {
           </table>
         </CardContent>
       </Card>
+
+      <TopAppsCompare filters={leftFilters} />
     </div>
   );
 }
