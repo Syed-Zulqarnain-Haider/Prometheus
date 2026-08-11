@@ -134,14 +134,22 @@ dependency upgrade, frontend tests, and observability.
 - When uncertain about a requirement, ASK the owner; do not invent features.
 
 ## Merge & branching policy (standing - applies to every step, no need to ask)
-- Before starting each new step, RESET the working branch to the latest `origin/main`
-  (`git fetch origin main && git reset --hard origin/main`, then force-push). This
-  prevents the squash-merge divergence conflicts seen in step 2.2.
-- After completing a step: if `ruff`, `mypy --strict`, and ALL tests pass, open a PR
-  and squash-merge it to `main` automatically - no need to ask. If ANY check fails,
-  do NOT merge: leave the work on the branch and report the failure to the owner.
+**Two-branch model (owner decision, 2026-08-11) - replaces the previous main + feature-branch
+flow.**
+- `production` = what the owner makes live. Only ever receives finished, tested work.
+- `dev` = the working branch. ALL changes are made and pushed here, never straight to
+  `production`.
+- Promotion is the OWNER'S call: they test on `dev`, and when a change is finalised `dev`
+  is merged into `production`. Never merge to `production` unasked.
+- Both branches are gated by CI (`.github/workflows/ci.yml` watches `production`, `dev` and
+  `main`) - a branch CI does not watch is a branch where nothing is checked.
+- Keep the two from drifting: after a promotion, `dev` should be brought back in line with
+  `production` so the next change starts from what is live.
 - Never merge with failing or skipped checks. State explicitly anything that could not
   be verified locally (e.g. needs GCP/Firebase).
+- NOTE: the deployed tree's `origin` is GitLab, not GitHub. The GitHub mirror's
+  `production` branch is not automatically what is running on the server - the server is
+  updated by an explicit fetch + rebuild.
 
 
 ## Owner preferences

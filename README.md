@@ -583,6 +583,27 @@ design.
 
 ## 8. Deployment
 
+### Branch model - `dev` → `production`
+
+Two long-lived branches, no feature branches:
+
+| Branch | Purpose |
+| --- | --- |
+| `production` | What the owner makes live. Receives only finished, tested work. |
+| `dev` | The working branch. Every change is made and pushed here first. |
+
+The flow: changes land on `dev` → the owner tests them → once finalised, `dev` is merged
+into `production`, and `production` is what goes live. Promotion is the owner's call; nothing
+is merged to `production` automatically. After a promotion, bring `dev` back in line with
+`production` so the next change starts from what is live.
+
+CI (`.github/workflows/ci.yml`) watches **both** branches on push and pull request - a branch
+CI does not watch is a branch where nothing is checked.
+
+> The deployed host's `origin` is **GitLab**, not GitHub, and the server is updated by an
+> explicit fetch + `docker compose up -d --build`. Pushing to `production` therefore stages a
+> release; it does not by itself change what is running.
+
 Backend → **Cloud Run**, frontend → **Vercel**, data → **Neon** + **Upstash**, auth →
 **Firebase**. All secrets live in **GCP Secret Manager** (backend) or **Vercel env vars**
 (frontend) - **never in the repo**. The daily sync runs as a **Cloud Run Job** on **Cloud

@@ -7,6 +7,23 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11 (later)
 
+### Branch model: `dev` → `production` (owner decision)
+
+Two long-lived branches replace the previous main + feature-branch flow. `dev` takes every
+change; `production` holds only finished, tested work and is what the owner makes live.
+Promotion (`dev` → `production`) is the owner's call, never automatic.
+
+Both were created from the up-to-date working branch, so all three heads are identical -
+nothing had to be merged and nothing was lost.
+
+**CI would otherwise have gone silent.** `.github/workflows/ci.yml` triggered on `main`
+only, so pushes to `dev` and `production` would have run no checks at all. It now watches
+`production`, `dev` and `main` on both push and pull request.
+
+`main` is left untouched for now: it is the repository's default branch and cannot be
+deleted until the default is switched to `production` in the GitHub settings. It is 28
+commits behind `dev`/`production` and holds nothing that is not already in both.
+
 ### Compare - self-comparison warning, baseline dropdown, panel sizing, honest empty charts
 
 Reported from a wide screen: KPI figures clipped inside the Compare panels, Period B showing
