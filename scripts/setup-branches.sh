@@ -87,6 +87,22 @@ if [ "${#DANGER[@]}" -gt 0 ]; then
 fi
 say "secret scan            : clean"
 
+# ── Identity check ───────────────────────────────────────────────────────────────
+# Checked BEFORE anything is staged: a fresh server often has no git identity, and
+# discovering that at `git commit` leaves the index half-prepared for no reason.
+IDENT_OK=yes
+git config user.email >/dev/null 2>&1 || IDENT_OK=no
+git config user.name  >/dev/null 2>&1 || IDENT_OK=no
+if [ "${IDENT_OK}" = "no" ]; then
+  say "git identity           : NOT SET"
+  say ""
+  say "Set it for this repository first (no --global needed), using your own details:"
+  say "    git config user.name  \"Your Name\""
+  say "    git config user.email \"you@terafort.com\""
+  die "git has no author identity, so the commit would fail"
+fi
+say "git identity           : $(git config user.name) <$(git config user.email)>"
+
 # ── Branch collision check ───────────────────────────────────────────────────────
 for branch in production dev; do
   if git show-ref --verify --quiet "refs/heads/${branch}"; then

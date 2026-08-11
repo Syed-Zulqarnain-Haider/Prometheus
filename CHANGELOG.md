@@ -22,9 +22,15 @@ the backups the nginx patch script leaves behind), then **aborts** if anything m
 the commit set (`.example`/`.sample`/`.template` are allowed through). It also refuses to
 run if `production` or `dev` already exist locally, rather than clobbering them.
 
+It also pre-flights the **git author identity**, which the deployed host did not have. That
+first surfaced as a failure at `git commit`, i.e. after the index had already been staged -
+a pointless half-done state. The check now runs before anything is staged and prints the
+exact `git config` lines to fix it.
+
 Verified against a scratch repo: junk skipped and left on disk, new source files included,
-`.env` aborts while `.env.example` passes, the real run creates and pushes both branches and
-lands on `dev`, and a second run aborts on the existing branches.
+`.env` aborts while `.env.example` passes, a missing identity aborts with the index left
+untouched, the real run creates and pushes both branches and lands on `dev`, and a second
+run aborts on the existing branches.
 
 ### Branch model: `dev` → `production` (owner decision)
 
