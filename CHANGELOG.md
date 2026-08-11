@@ -7,6 +7,25 @@ matters - **how to tell it's working**, so an incident can be traced back later.
 
 ## 2026-08-11 (later)
 
+### `scripts/setup-branches.sh` - branch split on the deployed host, without losing the tree
+
+The deployed host sits on `main` with a very large uncommitted working tree: everything
+running in production exists only as unstaged edits. Creating branches there starts by
+committing that, and a blind `git add -A` would sweep in `backups/`, caches, and any `.env`
+sitting on the box - a secret in git history cannot be taken back with a revert.
+
+So: **dry run by default** (prints exactly what it would commit, changes nothing), `--yes`
+to act. It stages tracked edits plus untracked files that survive a junk denylist
+(`backups/`, `node_modules`, `__pycache__`, `.next`, caches, logs, `*.bak.<n>` - including
+the backups the nginx patch script leaves behind), then **aborts** if anything matching
+`.env`, `secrets/`, `*.pem/key/p12`, `credentials*.json` or `service-account*.json` is in
+the commit set (`.example`/`.sample`/`.template` are allowed through). It also refuses to
+run if `production` or `dev` already exist locally, rather than clobbering them.
+
+Verified against a scratch repo: junk skipped and left on disk, new source files included,
+`.env` aborts while `.env.example` passes, the real run creates and pushes both branches and
+lands on `dev`, and a second run aborts on the existing branches.
+
 ### Branch model: `dev` → `production` (owner decision)
 
 Two long-lived branches replace the previous main + feature-branch flow. `dev` takes every
