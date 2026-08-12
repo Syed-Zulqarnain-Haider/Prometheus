@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMe } from "@/lib/api-hooks";
+import { AnnouncementBar } from "@/components/layout/announcement-bar";
 import { useConversations } from "@/lib/chat-hooks";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
@@ -180,11 +181,24 @@ export function Sidebar() {
           }
         }}
         className={cn(
-          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-          collapsed && "justify-center px-0",
-          active
-            ? "bg-accent font-medium text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          "relative flex items-center gap-3 text-sm",
+          "transition-all duration-[var(--dur)] ease-[var(--ease)]",
+          collapsed
+            ? cn(
+                // Bubble mode: each item is a floating circular button (the reference
+                // medical-sidebar look) - active fills solid, others sit on a soft disc
+                // that lifts and scales on hover.
+                "mx-auto h-10 w-10 justify-center rounded-full",
+                active
+                  ? "scale-105 bg-[color:var(--color-accent)] text-[color:var(--color-accent-foreground)] shadow-md"
+                  : "bg-[color:var(--color-bg-elevated)] text-muted-foreground hover:scale-110 hover:text-foreground hover:shadow-md",
+              )
+            : cn(
+                "rounded-md px-3 py-2 hover:translate-x-0.5",
+                active
+                  ? "bg-accent font-medium text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              ),
         )}
       >
         <Icon className="h-4 w-4 shrink-0" />
@@ -214,6 +228,8 @@ export function Sidebar() {
   }
 
   return (
+    <>
+    <AnnouncementBar />
     <aside
       className={cn(
         // Only width animates; the easing and duration come from the theme tokens, so the
@@ -285,7 +301,7 @@ export function Sidebar() {
           ))}
         </nav>
       ) : (
-        <nav className={cn("space-y-4 overflow-y-auto overflow-x-hidden p-2", collapsed && "space-y-2")} data-tour="nav">
+        <nav className={cn("space-y-4 overflow-y-auto overflow-x-hidden p-2", collapsed && "space-y-3 py-3")} data-tour="nav">
           {sections.map((section) => (
             <div key={section.title}>
               {collapsed ? (
@@ -301,5 +317,6 @@ export function Sidebar() {
         </nav>
       )}
     </aside>
+    </>
   );
 }
