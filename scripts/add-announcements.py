@@ -124,8 +124,9 @@ def detect_head() -> str:
 
 def patch_main(text: str) -> str:
     """Add the import and the include_router call, matching this file's own conventions."""
-    # Import: keep the block alphabetical, which is what ruff/isort enforces.
-    import_anchor = "from app.api.v1 import layouts as layouts_routes\n"
+    # Import: keep the block alphabetical, which is what ruff/isort enforces -
+    # "announcements" sorts immediately after "admin", so anchor on the admin import.
+    import_anchor = "from app.api.v1 import admin as admin_routes\n"
     if text.count(import_anchor) != 1:
         die(f"{MAIN}: expected one '{import_anchor.strip()}', found {text.count(import_anchor)}")
     text = text.replace(

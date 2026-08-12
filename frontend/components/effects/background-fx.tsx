@@ -248,19 +248,27 @@ export function BackgroundFx() {
     };
   }, []);
 
+  // Intensity lives in a ref so the slider can preview live WITHOUT tearing down and
+  // rebuilding the whole canvas/loop on every pointermove (that reallocation dozens of
+  // times a second is what a drag used to cost).
+  const alphaRef = useRef(0.06);
+  useEffect(() => {
+    if (pref) alphaRef.current = 0.06 + pref.intensity * 0.22;
+  }, [pref]);
+
+  const effectId = pref?.effect ?? "none";
   useEffect(() => {
     const canvas = canvasRef.current;
-    const effect = BG_EFFECTS.find((entry) => entry.id === pref?.effect);
-    if (!canvas || !pref || !effect?.draw) return;
+    const effect = BG_EFFECTS.find((entry) => entry.id === effectId);
+    if (!canvas || !effect?.draw) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const draw = effect.draw;
-    // Visual ceiling: even at full user intensity the wash stays below legibility risk.
-    const alpha = 0.06 + pref.intensity * 0.22;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0;
     let running = true;
+    let scheduled = false;
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -270,22 +278,31 @@ export function BackgroundFx() {
     window.addEventListener("resize", resize);
 
     const render = (now: number) => {
+      scheduled = false;
       if (!running) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alphaRef.current;
       draw(ctx, canvas.width, canvas.height, now / 1000);
       ctx.globalAlpha = 1;
-      if (!reduced) frame = requestAnimationFrame(render);
+      if (!reduced && !scheduled) {
+        scheduled = true;
+        frame = requestAnimationFrame(render);
+      }
     };
+    scheduled = true;
     frame = requestAnimationFrame(render);
 
-    // A background may never cost battery in a hidden tab.
+    // A background may never cost battery in a hidden tab. cancel + the `scheduled`
+    // guard together make resume idempotent - a start-while-hidden left one callback
+    // pending, and resume used to stack a SECOND loop on top of it, forever.
     const onVisibility = () => {
+      cancelAnimationFrame(frame);
+      scheduled = false;
       if (document.hidden) {
         running = false;
-        cancelAnimationFrame(frame);
       } else {
         running = true;
+        scheduled = true;
         frame = requestAnimationFrame(render);
       }
     };
@@ -297,7 +314,7 @@ export function BackgroundFx() {
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [pref]);
+  }, [effectId]);
 
   if (!pref || pref.effect === "none" || typeof document === "undefined") return null;
 

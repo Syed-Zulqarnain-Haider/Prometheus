@@ -74,10 +74,11 @@ export function SpotlightClient() {
 
   const go = useCallback(
     (dir: -1 | 1) => {
+      // Step from the CLAMPED position: after a filter change shrinks the deck, the raw
+      // index can sit far past the end, and stepping from it froze the deck entirely.
       setIndex((current) => {
-        const next = current + dir;
-        if (next < 0 || next >= apps.length) return current;
-        return next;
+        const base = apps.length ? Math.min(current, apps.length - 1) : 0;
+        return Math.min(Math.max(base + dir, 0), Math.max(apps.length - 1, 0));
       });
     },
     [apps.length],
@@ -184,6 +185,7 @@ export function SpotlightClient() {
                       <img
                         src={icons.data[String(app.appleId)]}
                         alt=""
+                        draggable={false}
                         className="h-12 w-12 shrink-0 rounded-[var(--radius-inner)] object-cover shadow"
                       />
                     ) : (

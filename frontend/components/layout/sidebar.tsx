@@ -88,15 +88,19 @@ export function Sidebar() {
   // engaged with chat once (clicked the entry), never on first page load.
   const { data: chatState } = useConversations();
   const unreadTotal = chatState?.unread_total ?? 0;
-  const previousUnread = useRef(0);
+  // null until the FIRST real payload arrives: pre-existing unread found on page load is
+  // a baseline, not a new arrival, so it must never fire the popup.
+  const previousUnread = useRef<number | null>(null);
   useEffect(() => {
     const base = document.title.replace(/^\(\d+\+?\)\s/, "");
     document.title = unreadTotal > 0 ? `(${unreadTotal > 99 ? "99+" : unreadTotal}) ${base}` : base;
   }, [unreadTotal]);
   useEffect(() => {
-    const grew = unreadTotal > previousUnread.current;
+    if (!chatState) return; // nothing fetched yet - don't seed from the placeholder zero
+    const prior = previousUnread.current;
     previousUnread.current = unreadTotal;
-    if (!grew || document.hasFocus()) return;
+    if (prior === null) return; // first data arrival seeds the baseline only
+    if (unreadTotal <= prior || document.hasFocus()) return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     const notification = new Notification("New message", {
       body: "You have a new chat message in Prometheus.",
@@ -106,7 +110,7 @@ export function Sidebar() {
       window.focus();
       window.location.assign("/chat");
     };
-  }, [unreadTotal]);
+  }, [chatState, unreadTotal]);
 
   // Collapsed starts false on BOTH server and first client render, then reads the saved
   // preference in an effect - localStorage is touched post-hydration only, so SSR can

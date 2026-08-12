@@ -1,7 +1,7 @@
 "use client";
 
 import { Megaphone, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -176,11 +176,24 @@ export function AnnouncementBar() {
     }
   }
 
+  const visible = ready ? (data ?? []).filter((entry) => !dismissed.includes(entry.id)) : [];
+  const bar = visible[0]; // newest first from the API; one at a time keeps it a banner, not a feed
+
+  // The banner is fixed to the viewport top, which is where the app header lives. While
+  // one is showing, pad <body> by the banner's real rendered height so the whole app
+  // shifts down under it - covering the header's buttons is not an option.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const barId = bar?.id;
+  useEffect(() => {
+    if (!barId) return;
+    document.body.style.paddingTop = `${barRef.current?.offsetHeight ?? 0}px`;
+    return () => {
+      document.body.style.paddingTop = "";
+    };
+  }, [barId]);
+
   // Portals need the DOM; on the server (and before hydration) render nothing.
   if (!ready || typeof document === "undefined") return null;
-
-  const visible = (data ?? []).filter((entry) => !dismissed.includes(entry.id));
-  const bar = visible[0]; // newest first from the API; one at a time keeps it a banner, not a feed
 
   return createPortal(
     <>
@@ -192,6 +205,7 @@ export function AnnouncementBar() {
       `}</style>
       {bar && (
         <div
+          ref={barRef}
           role="status"
           className={cn(
             "fixed inset-x-0 top-0 z-[60] flex items-center gap-3 border-b px-4 py-2 text-sm shadow-lg backdrop-blur",
