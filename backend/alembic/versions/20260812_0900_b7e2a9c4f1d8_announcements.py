@@ -1,6 +1,6 @@
 """Platform announcements banner.
 
-Revision ID: d4e5f6a7b8c9
+Revision ID: b7e2a9c4f1d8
 Revises: b2c3d4e5f6a7
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "d4e5f6a7b8c9"
+revision = "b7e2a9c4f1d8"
 down_revision = "b2c3d4e5f6a7"
 branch_labels = None
 depends_on = None

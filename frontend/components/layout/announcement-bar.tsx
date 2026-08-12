@@ -228,14 +228,21 @@ export function AnnouncementBar() {
         <div className="fixed bottom-4 right-4 z-[60]">
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                size="icon"
-                aria-label="Publish announcement"
-                title="Publish announcement"
-                className="h-11 w-11 rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95"
-              >
-                <Megaphone className="h-5 w-5" />
-              </Button>
+              <span className="relative inline-flex">
+                <span
+                  aria-hidden
+                  className="absolute inset-0 animate-ping rounded-full bg-[color:var(--color-accent)] opacity-20"
+                  style={{ animationDuration: "2.5s" }}
+                />
+                <Button
+                  size="icon"
+                  aria-label="Publish announcement"
+                  title="Publish announcement"
+                  className="relative h-11 w-11 rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95"
+                >
+                  <Megaphone className="h-5 w-5" />
+                </Button>
+              </span>
             </PopoverTrigger>
             <PopoverContent align="end" side="top" className="w-80 p-0">
               <Composer />

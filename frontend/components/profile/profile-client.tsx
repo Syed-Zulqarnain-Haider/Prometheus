@@ -4,11 +4,20 @@ import { format, parseISO } from "date-fns";
 import { Camera, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  BG_CHANGE_EVENT,
+  BG_EFFECT_KEY,
+  BG_EFFECTS,
+  BG_INTENSITY_KEY,
+  readBgPreference,
+} from "@/components/effects/background-fx";
+import { ElasticSlider } from "@/components/effects/elastic-slider";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   useDeleteAvatar,
   useProfile,
@@ -108,6 +117,7 @@ export function ProfileClient() {
   }
 
   return (
+    <div className="space-y-4">
     <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
       {/* ── Picture + account facts ─────────────────────────────── */}
       <Card>
@@ -211,6 +221,78 @@ export function ProfileClient() {
           </div>
         </CardContent>
       </Card>
+    </div>
+
+    {/* ── Appearance: the ambient background, chosen per taste (owner request). The
+        preference is per-browser; the canvas honours reduced-motion and hidden tabs. */}
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-semibold normal-case tracking-normal text-foreground">
+          Appearance
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <AppearancePicker />
+      </CardContent>
+    </Card>
+    </div>
+  );
+}
+
+function AppearancePicker() {
+  const [effect, setEffect] = useState("none");
+  const [intensity, setIntensity] = useState(0.5);
+  useEffect(() => {
+    const pref = readBgPreference();
+    setEffect(pref.effect);
+    setIntensity(pref.intensity);
+  }, []);
+
+  function apply(nextEffect: string, nextIntensity: number): void {
+    setEffect(nextEffect);
+    setIntensity(nextIntensity);
+    try {
+      localStorage.setItem(BG_EFFECT_KEY, nextEffect);
+      localStorage.setItem(BG_INTENSITY_KEY, String(nextIntensity));
+    } catch {
+      /* storage blocked - applies for this session only */
+    }
+    window.dispatchEvent(new Event(BG_CHANGE_EVENT));
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Background effect</p>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+          {BG_EFFECTS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => apply(entry.id, intensity)}
+              className={cn(
+                "rounded-[var(--radius-inner)] border px-2 py-2 text-[11px] transition-all duration-[var(--dur-fast)] hover:scale-[1.03]",
+                effect === entry.id
+                  ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] font-semibold"
+                  : "text-muted-foreground hover:bg-accent",
+              )}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="max-w-xs">
+        <ElasticSlider
+          label="Effect intensity"
+          value={intensity}
+          onChange={(value) => apply(effect, value)}
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Backgrounds pause in hidden tabs and switch off automatically for reduced-motion
+        preferences. Intensity is capped so charts stay readable.
+      </p>
     </div>
   );
 }

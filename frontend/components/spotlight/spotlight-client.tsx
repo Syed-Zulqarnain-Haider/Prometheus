@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { RollingNumber } from "@/components/effects/rolling-number";
-import { useTable } from "@/lib/api-hooks";
+import { TextScramble } from "@/components/effects/text-scramble";
+import { useAppIcons, useTable } from "@/lib/api-hooks";
 import type { Filters } from "@/lib/filters";
 import { formatNumber, formatUSD } from "@/lib/format";
 import { useFilters } from "@/lib/use-filters";
@@ -22,6 +23,7 @@ const SWIPE_THRESHOLD = 80;
 interface SpotlightApp {
   key: string;
   name: string;
+  appleId: number | null;
   revenue: number | null;
   installs: number | null;
   uaCost: number | null;
@@ -59,10 +61,13 @@ export function SpotlightClient() {
   const apps: SpotlightApp[] = (table.data?.rows ?? []).map((row) => ({
     key: String(row.canonical_key ?? ""),
     name: String(row.app_name ?? row.canonical_key ?? "-"),
+    appleId: typeof row.apple_id === "number" ? row.apple_id : null,
     revenue: metric(row, "total_revenue_usd"),
     installs: metric(row, "store_total_installs"),
     uaCost: metric(row, "total_ua_spend_usd"),
   }));
+
+  const icons = useAppIcons(apps.map((app) => app.appleId));
 
   const [index, setIndex] = useState(0);
   const clamped = apps.length ? Math.min(index, apps.length - 1) : 0;
@@ -173,9 +178,26 @@ export function SpotlightClient() {
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     #{clamped + depth + 1} by revenue
                   </p>
-                  <h3 className="mt-1 truncate font-display text-2xl" title={app.name}>
-                    {app.name}
-                  </h3>
+                  <div className="mt-1 flex items-center gap-3">
+                    {app.appleId && icons.data?.[String(app.appleId)] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={icons.data[String(app.appleId)]}
+                        alt=""
+                        className="h-12 w-12 shrink-0 rounded-[var(--radius-inner)] object-cover shadow"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-inner)] bg-[color:var(--color-accent-soft)] font-display text-xl text-[color:var(--color-accent)]"
+                      >
+                        {app.name.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <h3 className="min-w-0 truncate font-display text-2xl" title={app.name}>
+                      {top ? <TextScramble text={app.name} /> : app.name}
+                    </h3>
+                  </div>
                   <div className="mt-5 grid grid-cols-3 gap-3">
                     <Stat
                       label="Revenue"

@@ -25,7 +25,7 @@ VERSIONS = Path("backend/alembic/versions")
 MAIN = Path("backend/app/main.py")
 MODELS_INIT = Path("backend/app/models/__init__.py")
 
-MIGRATION_ID = "d4e5f6a7b8c9"
+MIGRATION_ID = "b7e2a9c4f1d8"
 MIGRATION_NAME = "announcements"
 
 MODEL_EDITS: list[tuple[str, str]] = [
@@ -195,7 +195,7 @@ def main() -> None:
         print(f"skipped  migration (already present: {existing[0].name})")
     else:
         assert head is not None
-        target = VERSIONS / f"20260811_1800_{MIGRATION_ID}_{MIGRATION_NAME}.py"
+        target = VERSIONS / f"20260812_0900_{MIGRATION_ID}_{MIGRATION_NAME}.py"
         target.write_text(MIGRATION_TEMPLATE.format(rev=MIGRATION_ID, down=head))
         print(f"created  {target}")
         print(f"         down_revision detected as {head}")

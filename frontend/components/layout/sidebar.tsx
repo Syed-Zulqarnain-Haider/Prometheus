@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMe } from "@/lib/api-hooks";
+import { BackgroundFx } from "@/components/effects/background-fx";
 import { ClickSpark } from "@/components/effects/click-spark";
 import { AnnouncementBar } from "@/components/layout/announcement-bar";
 import { useConversations } from "@/lib/chat-hooks";
@@ -232,6 +233,7 @@ export function Sidebar() {
     <>
     <AnnouncementBar />
     <ClickSpark />
+    <BackgroundFx />
     <aside
       className={cn(
         // Only width animates; the easing and duration come from the theme tokens, so the
