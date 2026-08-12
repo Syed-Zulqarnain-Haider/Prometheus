@@ -201,14 +201,17 @@ export function AnnouncementBar() {
     };
   }, [barId]);
 
-  // The owner's split-flap treatment: the message reads as plain text first, then after a
-  // few seconds it deals itself onto a departure-board and keeps re-dealing on a cycle.
-  const [flapping, setFlapping] = useState(false);
+  // The owner's attention loop: the message scrolls left-to-right as a looping ticker,
+  // and every few seconds it deals itself onto the split-flap board instead, forever
+  // alternating between the two.
+  const [phase, setPhase] = useState<"marquee" | "flap">("marquee");
   useEffect(() => {
     if (!barId) return;
-    setFlapping(false);
-    const timer = window.setTimeout(() => setFlapping(true), 4000);
-    return () => window.clearTimeout(timer);
+    setPhase("marquee");
+    const timer = window.setInterval(() => {
+      setPhase((current) => (current === "marquee" ? "flap" : "marquee"));
+    }, 8000);
+    return () => window.clearInterval(timer);
   }, [barId]);
 
   // Portals need the DOM; on the server (and before hydration) render nothing.
@@ -220,6 +223,14 @@ export function AnnouncementBar() {
         @keyframes announce-in {
           from { transform: translateY(-100%); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes announce-marquee {
+          from { transform: translateX(-50%); }
+          to { transform: translateX(0); }
+        }
+        .announce-marquee { animation: announce-marquee linear infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .announce-marquee { animation: none; }
         }
       `}</style>
       {bar && (
@@ -234,12 +245,11 @@ export function AnnouncementBar() {
         >
           <Megaphone className="h-4 w-4 shrink-0" />
           <div className="min-w-0 flex-1 overflow-hidden" title={bar.body}>
-            {flapping ? (
+            {phase === "flap" ? (
               <SplitFlapText
                 words={[bar.body.length > 42 ? `${bar.body.slice(0, 42)}…` : bar.body]}
                 flipDuration={0.12}
                 stagger={0.06}
-                cycleDelay={2400}
                 charset="alphanumeric"
                 flipsPerChar={8}
                 tileColor="#111827"
@@ -247,10 +257,19 @@ export function AnnouncementBar() {
                 tileRadius={4}
                 gap={3}
                 fontSize={12}
-                loop
               />
             ) : (
-              <p className="truncate font-medium">{bar.body}</p>
+              // Two copies with a fixed gap make the -50% -> 0 slide a seamless
+              // left-to-right loop; reduced-motion shows the text statically.
+              <div
+                className="announce-marquee flex w-max items-center font-medium"
+                style={{ animationDuration: `${Math.max(14, bar.body.length * 0.45)}s` }}
+              >
+                <span className="whitespace-nowrap pr-16">{bar.body}</span>
+                <span aria-hidden className="whitespace-nowrap pr-16">
+                  {bar.body}
+                </span>
+              </div>
             )}
           </div>
           {visible.length > 1 && (

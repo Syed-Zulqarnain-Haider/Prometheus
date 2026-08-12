@@ -11,6 +11,13 @@ import {
   BG_INTENSITY_KEY,
   readBgPreference,
 } from "@/components/effects/background-fx";
+import {
+  CURSOR_CHANGE_EVENT,
+  CURSOR_KEY,
+  CURSOR_STYLES,
+  type CursorStyle,
+  readCursorPreference,
+} from "@/components/effects/custom-cursor";
 import { ElasticSlider } from "@/components/effects/elastic-slider";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -242,11 +249,23 @@ export function ProfileClient() {
 function AppearancePicker() {
   const [effect, setEffect] = useState("none");
   const [intensity, setIntensity] = useState(0.5);
+  const [cursor, setCursor] = useState<CursorStyle>("default");
   useEffect(() => {
     const pref = readBgPreference();
     setEffect(pref.effect);
     setIntensity(pref.intensity);
+    setCursor(readCursorPreference());
   }, []);
+
+  function applyCursor(next: CursorStyle): void {
+    setCursor(next);
+    try {
+      localStorage.setItem(CURSOR_KEY, next);
+    } catch {
+      /* storage blocked - applies for this session only */
+    }
+    window.dispatchEvent(new Event(CURSOR_CHANGE_EVENT));
+  }
 
   function apply(nextEffect: string, nextIntensity: number): void {
     setEffect(nextEffect);
@@ -288,6 +307,29 @@ function AppearancePicker() {
           value={intensity}
           onChange={(value) => apply(effect, value)}
         />
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Cursor style</p>
+        <div className="flex flex-wrap gap-2">
+          {CURSOR_STYLES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => applyCursor(entry.id)}
+              className={cn(
+                "rounded-[var(--radius-inner)] border px-3 py-2 text-[11px] transition-all duration-[var(--dur-fast)] hover:scale-[1.03]",
+                cursor === entry.id
+                  ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] font-semibold"
+                  : "text-muted-foreground hover:bg-accent",
+              )}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Custom cursors switch off on touch screens and follow reduced-motion preferences.
+        </p>
       </div>
       <p className="text-[11px] text-muted-foreground">
         Backgrounds pause in hidden tabs and switch off automatically for reduced-motion
