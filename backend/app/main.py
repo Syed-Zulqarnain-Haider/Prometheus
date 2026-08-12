@@ -21,11 +21,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.middleware import audit_query_middleware
 from app.api.v1 import admin as admin_routes
+from app.api.v1 import announcements as announcements_routes
 from app.api.v1 import apps as apps_routes
 from app.api.v1 import auth as auth_routes
 from app.api.v1 import export as export_routes
 from app.api.v1 import layouts as layouts_routes
-from app.api.v1 import announcements as announcements_routes
 from app.api.v1 import meta as meta_routes
 from app.api.v1 import metrics as metrics_routes
 from app.api.v1 import reports as reports_routes
