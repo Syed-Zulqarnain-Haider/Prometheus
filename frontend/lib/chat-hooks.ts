@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import { apiFetch, buildQuery } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -64,19 +65,53 @@ export function useConversations() {
     enabled: Boolean(user),
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
+    // A focus/remount inside this window rides the cache instead of firing a duplicate
+    // request on top of the 15s poll.
+    staleTime: 10_000,
   });
 }
 
-/** The open thread. Refetches every 3 seconds; TanStack keeps the previous data on screen
- *  while the next poll runs, so the thread never flickers. */
+const FULL_REFRESH_EVERY = 5; // every 5th poll is a full page so receipt ticks stay live
+const MAX_KEPT_MESSAGES = 400; // bound what one open thread holds in memory
+
+/** The open thread. Polls every 3 seconds, but INCREMENTALLY: after the first full page,
+ *  each poll sends the server's `after` cursor and gets back only messages newer than
+ *  what is already on screen - a quiet thread costs one empty response instead of
+ *  re-downloading up to 200 messages. Every 5th poll re-fetches the full page so the
+ *  delivery/read ticks on older messages keep advancing and remote deletions reconcile. */
 export function useMessages(conversationId: string | null) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const pollsSinceFull = useRef(0);
+  useEffect(() => {
+    pollsSinceFull.current = 0; // a newly opened thread always starts with a full page
+  }, [conversationId]);
+
   return useQuery({
     queryKey: ["chat", "messages", conversationId],
-    queryFn: () =>
-      apiFetch<MessagePage>(
-        `/api/v1/chat/conversations/${conversationId}/messages${buildQuery({ limit: 200 })}`,
-      ),
+    queryFn: async (): Promise<MessagePage> => {
+      const base = `/api/v1/chat/conversations/${conversationId}/messages`;
+      const cached = queryClient.getQueryData<MessagePage>(["chat", "messages", conversationId]);
+      if (!cached?.latest_at || pollsSinceFull.current >= FULL_REFRESH_EVERY - 1) {
+        pollsSinceFull.current = 0;
+        return apiFetch<MessagePage>(`${base}${buildQuery({ limit: 200 })}`);
+      }
+      pollsSinceFull.current += 1;
+      const delta = await apiFetch<MessagePage>(
+        `${base}${buildQuery({ after: cached.latest_at, limit: 200 })}`,
+      );
+      const latest = delta.latest_at ?? cached.latest_at;
+      // Reuse the cached array identity when nothing changed - downstream memoized rows
+      // and the scroll-pinning effect then have nothing to re-do.
+      if (delta.messages.length === 0) return { ...cached, latest_at: latest };
+      const known = new Set(cached.messages.map((message) => message.id));
+      const fresh = delta.messages.filter((message) => !known.has(message.id));
+      if (fresh.length === 0) return { ...cached, latest_at: latest };
+      return {
+        messages: [...cached.messages, ...fresh].slice(-MAX_KEPT_MESSAGES),
+        latest_at: latest,
+      };
+    },
     enabled: Boolean(user) && Boolean(conversationId),
     refetchInterval: 3_000,
     // Scoped to THIS conversation: unscoped placeholderData carries over across query
@@ -133,8 +168,19 @@ export function useDeleteMessage(conversationId: string | null) {
   return useMutation({
     mutationFn: (messageId: string) =>
       apiFetch<void>(`/api/v1/chat/messages/${messageId}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["chat", "messages", conversationId] });
+    onSuccess: (_result, messageId) => {
+      // Tombstone locally: the incremental poll only ever sees NEW messages, so a
+      // deletion must not wait for the next full refresh to disappear from screen.
+      queryClient.setQueryData<MessagePage>(["chat", "messages", conversationId], (page) =>
+        page
+          ? {
+              ...page,
+              messages: page.messages.map((message) =>
+                message.id === messageId ? { ...message, deleted: true, body: "" } : message,
+              ),
+            }
+          : page,
+      );
       queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     },
   });

@@ -13,7 +13,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,9 @@ function counterpart(conversation: Conversation, meId: string | undefined) {
   );
 }
 
-function ConversationRow({
+/** Memoized: the conversation list re-polls every 15s and TanStack's structural sharing
+ *  keeps unchanged rows' identity, so unchanged rows skip re-rendering entirely. */
+const ConversationRow = memo(function ConversationRow({
   conversation,
   active,
   meId,
@@ -71,14 +73,14 @@ function ConversationRow({
   conversation: Conversation;
   active: boolean;
   meId: string | undefined;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
 }) {
   const other = counterpart(conversation, meId);
   if (!other) return null;
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={() => onSelect(conversation.id)}
       className={cn(
         "flex w-full items-center gap-3 rounded-[var(--radius-inner)] px-3 py-2.5 text-left transition-colors",
         active ? "bg-accent" : "hover:bg-accent/60",
@@ -117,7 +119,7 @@ function ConversationRow({
       </span>
     </button>
   );
-}
+});
 
 /** WhatsApp-style delivery ticks on your own messages: one grey = sent, two grey = the
  *  recipient's account has been active since, two blue = their read marker passed it.
@@ -152,7 +154,9 @@ function renderBody(body: string) {
   );
 }
 
-function MessageBubble({
+/** Memoized: incremental polling keeps existing message objects' identity, so only NEW
+ *  bubbles render on a poll instead of the whole thread every 3 seconds. */
+const MessageBubble = memo(function MessageBubble({
   message,
   onDelete,
 }: {
@@ -201,7 +205,7 @@ function MessageBubble({
       </div>
     </div>
   );
-}
+});
 
 /** Slack-style messaging: conversations on the left, the thread in the middle, contact
  *  details on the right. Admins get a read-only "All chats" oversight tab (audit-logged
@@ -294,6 +298,20 @@ export function ChatClient() {
       (person) => person.user_id !== me?.user_id && (personSearch || !inThreads.has(person.user_id)),
     );
   }, [people.data, conversations.data, me?.user_id, personSearch]);
+
+  // Stable callbacks so the memoized rows and bubbles actually skip re-renders - a fresh
+  // inline arrow per render would defeat the memo entirely.
+  const selectConversation = useCallback((id: string) => setSelected(id), []);
+  const deleteMine = removeMessage.mutate;
+  const deleteAsAdmin = adminDeleteMessage.mutate;
+  const handleDelete = useCallback(
+    (id: string) => {
+      if (tab === "mine") deleteMine(id);
+      else deleteAsAdmin(id);
+    },
+    [tab, deleteMine, deleteAsAdmin],
+  );
+  const onDeleteProp = tab === "mine" ? handleDelete : isAdmin ? handleDelete : undefined;
 
   function startChat(person: Person): void {
     openDirect.mutate(person.user_id, {
@@ -494,7 +512,7 @@ export function ChatClient() {
               conversation={conversation}
               active={conversation.id === selected}
               meId={me?.user_id}
-              onSelect={() => setSelected(conversation.id)}
+              onSelect={selectConversation}
             />
           ))}
           {list.length === 0 && (
@@ -620,17 +638,7 @@ export function ChatClient() {
             )}
             <div ref={scrollBoxRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
               {(messages?.messages ?? []).map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onDelete={
-                    tab === "mine"
-                      ? (id) => removeMessage.mutate(id)
-                      : isAdmin
-                        ? (id) => adminDeleteMessage.mutate(id)
-                        : undefined
-                  }
-                />
+                <MessageBubble key={message.id} message={message} onDelete={onDeleteProp} />
               ))}
               {messages && messages.messages.length === 0 && (
                 <p className="pt-8 text-center text-sm text-muted-foreground">
