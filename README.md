@@ -384,14 +384,107 @@ correctly kept serving yesterday's data, and this class of failure is now handle
 
 ---
 
+### Team chat (person-to-person messaging)
+
+`/chat` is Slack-style messaging between platform users - DISTINCT from the AI
+ask-your-data assistant (`chat_service.py`), which shares nothing but the word "chat".
+
+- **Model** (`models/messaging.py`): `conversations` (kind direct|group, title,
+  `direct_key` = sorted participant-id pair with a UNIQUE index so a DM can never split
+  into two threads, denormalised `last_message_at`), `conversation_participants`
+  (membership IS the access rule; per-participant `last_read_at` timestamp instead of
+  per-message read rows), `messages` (soft-delete via `deleted_at`; sender FK is
+  SET NULL so deleting a user never rewrites a conversation).
+- **Access rule**: every read/write requires a participant row; non-participants get 404
+  (never 403), matching the platform convention. The DM-open race is handled: the unique
+  key's IntegrityError loser re-selects and joins the winner's thread.
+- **Transport**: polling, not WebSockets (nginx `/api/` passes no Upgrade headers). Open
+  thread polls 3s, conversation list 15s, people 30s. Unread counts are ONE grouped query
+  per list call, not one COUNT per thread.
+- **Delivery ticks**: computed per page from two watermarks (other participants'
+  min `last_read_at` and min `last_seen_at`): sent -> delivered (account active since) ->
+  read (read marker passed it). Groups only advance when EVERY member has.
+- **Groups + invites**: named groups with chosen members; single-use invite codes
+  (CSPRNG `secrets.token_hex(4)`, 15-min Redis TTL, atomic GETDEL redemption so a raced
+  code admits exactly one person; direct threads REFUSE codes).
+- **@mentions**: client sends `mentions: [user_id]`; server drops any id that is not a
+  participant of that thread. Rendered highlighted client-side.
+- **Admin oversight** (owner decision): admins get a read-only "All chats" tab - list
+  every conversation, read any thread, soft-delete any message, hard-delete a whole
+  thread (the storage-reclaiming path). No admin send - oversight is seeing, not
+  impersonating. EVERY oversight view/delete is audit-logged, so looking leaves a trail.
+- **Notifications**: sidebar unread badge, "(N)" tab-title prefix, and a browser
+  Notification popup when a new message arrives in an unfocused tab (permission asked on
+  first Chat click, never on load).
+
+### Profiles, presence & people
+
+- `users` gained `first_name/last_name/job_title/phone/timezone/last_login_at/
+  last_seen_at`; avatars live in a `user_avatars` table (bytes in Postgres - covered by
+  the pre-deploy DB backup, no volume to manage). Upload is bounded-read, and the image
+  type comes from the file's magic bytes, never the client header. The avatar route
+  honours If-None-Match.
+- **Presence**: every authenticated request refreshes a self-expiring Redis key (120s);
+  online = key exists, away = seen <15 min, offline otherwise. `last_seen_at` persists at
+  most once per 5 min (Redis NX throttle; the slot is freed on a failed write).
+  `last_login_at` comes from the token's auth_time and only moves forward.
+- `/me/profile` (GET/PUT partial-update semantics via exclude_unset), `/me/people`
+  (directory + live status; last-login visible to admins only), header presence menu
+  ("N online" with per-person last-seen), `/profile` page with avatar upload and an
+  Appearance section (see Effects).
+
+### Announcements (broadcast bar)
+
+Admin-published banner shown across every page: body (<=500 chars), level
+(info|success|warning|critical), `audience_roles` (Postgres ARRAY; empty = everyone -
+filtering is SERVER-side so a client never receives someone else's banner), optional
+expiry. Publish/retire are audit-logged; retire is a flag, not a delete. Rendered via a
+portal onto <body> (works on mobile where the sidebar host is display:none); per-user
+dismissal in localStorage; admins get a floating megaphone composer.
+
+### App Spotlight & UI effects
+
+- `/spotlight`: Tinder-style depth deck of the top-20 apps by revenue (same RBAC'd
+  `/metrics/table` endpoint as Apps Explorer) - swipe/arrows/keyboard, real iOS store
+  icons via the icon service (`useAppIcons`), branded initial tile otherwise, rolling
+  counters for revenue/installs/UA cost, scramble-in titles, conic star-border on the
+  active card only.
+- **Effects library** (`components/effects/`): `BackgroundFx` - eleven ambient canvas
+  backgrounds (aurora, soft-aurora, line-waves, galaxy, pixel-snow, iridescence,
+  liquid-chrome, molten-metal, ferrofluid, dark-veil, letter-glitch) behind ONE rAF loop;
+  per-user choice + intensity persisted in localStorage (`bg-effect`/`bg-intensity`),
+  default none, alpha-capped, paused when the tab is hidden, static frame under
+  prefers-reduced-motion. `ClickSpark` - global pointer-click burst (Web Animations API,
+  zero idle cost). `ElasticSlider`, `RollingNumber` (numbers settle, never scramble),
+  `TextScramble` (titles only - never data).
+- **Sidebar**: grouped sections + per-user drag-reorder (`nav-order:{uid}`), collapsible
+  to a bubble menu (circular icon buttons, active filled), chat unread badge. The sidebar
+  also hosts the portal cluster: AnnouncementBar, ClickSpark, BackgroundFx.
+
+### Delivery pipeline (how code reaches production)
+
+The assistant's sandbox can reach GitHub but NOT GitLab; the server can reach both.
+Flow: verify locally (ruff, mypy, pytest, tsc, lint, vitest, next build) -> push to the
+GitHub transport branch -> on the server: `git fetch <github-url> dev` +
+`git checkout FETCH_HEAD -- <explicit file paths>` (NEVER whole directories - the sandbox
+tree is stale for server-drifted files) -> anchored patch scripts for drifted files
+(two-pass: verify every anchor exactly once, else write nothing; idempotent via marker)
+-> docker build + import smoke test (`python -c "import app.main"`) in a throwaway
+container BEFORE anything restarts -> `alembic upgrade head` -> `up -d --build` ->
+commit + push to GitLab (`origin`). Alembic revision ids must be NEW - a reused id
+silently no-ops the idempotency check (this bit once: d4e5f6a7b8c9 collided with July's
+app-master migration).
+
 ## 4. Repository structure
 
 ```
 backend/                 FastAPI service
   app/
-    api/v1/              routes: auth, metrics, apps, meta, views, reports, export, admin, layouts
+    api/v1/              routes: auth, metrics, apps, meta, views, reports, export, admin,
+                         layouts, messaging (chat), profile (people/presence), announcements
     core/               config, database, redis, cache, security, rate_limit, metric_registry, fact_table
-    models/             SQLAlchemy ORM (identity, rbac, reports, layouts, settings, targets, dim, operations, dynamic_columns)
+    models/             SQLAlchemy ORM (identity incl. avatars/presence, rbac, reports,
+                        layouts, settings, targets, dim, operations, messaging, announcements)
     schemas/            Pydantic request/response models
     services/           query_builder, auth, admin, reports, metrics, audit, settings, system, cache_warm, schema_reconcile, fact_schema, app_master
   alembic/              migrations (ORM-managed tables; the fact table is sync-owned)
@@ -399,7 +492,8 @@ backend/                 FastAPI service
   scripts/              seed_local.py (sample data), create_admin.py (link a Firebase UID → admin)
 frontend/                Next.js app
   app/                  App Router pages: overview, revenue, ua, store, apps, data-health, admin, login
-  components/           charts, tables, filters, layout, overview/, admin/, ui/ (shadcn)
+  components/           charts, tables, filters, layout, overview/, admin/, ui/ (shadcn),
+                        chat/, people/, profile/, spotlight/, compare/, effects/
   lib/                  api client + hooks, filters, formatting, echarts theme, chart-adjust, overview layout
 sync/                    daily BigQuery → Postgres job (sync_job.py) + its metric_registry copy
 sql/                     bigquery/ (the contract view) + postgres/ (001 init, 002 fact, 003 targets)
