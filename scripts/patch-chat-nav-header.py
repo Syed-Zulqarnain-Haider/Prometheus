@@ -46,6 +46,18 @@ PATCHES: list[tuple[Path, str, list[tuple[str, str]]]] = [
             ),
         ],
     ),
+    (
+        Path("frontend/lib/nav.ts"),
+        '"/spotlight"',
+        [
+            ("  Scale,\n", "  Scale,\n  Sparkles,\n"),
+            (
+                '  { href: "/chat", label: "Chat", icon: MessagesSquare },\n',
+                '  { href: "/chat", label: "Chat", icon: MessagesSquare },\n'
+                '  { href: "/spotlight", label: "Spotlight", icon: Sparkles },\n',
+            ),
+        ],
+    ),
 ]
 
 

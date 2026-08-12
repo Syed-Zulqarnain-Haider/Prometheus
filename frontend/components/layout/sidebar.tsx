@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMe } from "@/lib/api-hooks";
+import { ClickSpark } from "@/components/effects/click-spark";
 import { AnnouncementBar } from "@/components/layout/announcement-bar";
 import { useConversations } from "@/lib/chat-hooks";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
@@ -21,7 +22,7 @@ const COLLAPSE_KEY = "sidebar-collapsed";
 const GROUPS: { title: string; hrefs: string[] }[] = [
   { title: "Overview", hrefs: ["/overview", "/compare"] },
   { title: "Performance", hrefs: ["/revenue", "/ua", "/store"] },
-  { title: "Apps", hrefs: ["/apps", "/explore", "/app-master"] },
+  { title: "Apps", hrefs: ["/apps", "/explore", "/app-master", "/spotlight"] },
   { title: "Reporting", hrefs: ["/reports", "/glossary"] },
   { title: "People", hrefs: ["/chat", "/profile"] },
 ];
@@ -230,6 +231,7 @@ export function Sidebar() {
   return (
     <>
     <AnnouncementBar />
+    <ClickSpark />
     <aside
       className={cn(
         // Only width animates; the easing and duration come from the theme tokens, so the
