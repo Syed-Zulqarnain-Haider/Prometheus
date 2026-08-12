@@ -1,7 +1,18 @@
 "use client";
 
 import { format, isToday, isYesterday, parseISO } from "date-fns";
-import { ChevronLeft, Eye, MessageSquarePlus, Search, Send, Trash2 } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  Eye,
+  KeyRound,
+  MessageSquarePlus,
+  Search,
+  Send,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PersonAvatar } from "@/components/people/person-avatar";
@@ -12,8 +23,13 @@ import {
   type ChatMessage,
   type Conversation,
   useAdminConversations,
+  useAdminDeleteConversation,
+  useAdminDeleteMessage,
   useAdminMessages,
   useConversations,
+  useCreateGroup,
+  useCreateInvite,
+  useJoinByCode,
   useDeleteMessage,
   useMarkRead,
   useMessages,
@@ -103,6 +119,39 @@ function ConversationRow({
   );
 }
 
+/** WhatsApp-style delivery ticks on your own messages: one grey = sent, two grey = the
+ *  recipient's account has been active since, two blue = their read marker passed it.
+ *  In groups a state only shows once EVERY member reached it. */
+function Ticks({ receipt }: { receipt: "sent" | "delivered" | "read" | null }) {
+  if (!receipt) return null;
+  if (receipt === "sent") return <Check className="h-3 w-3" aria-label="Sent" />;
+  return (
+    <CheckCheck
+      className={cn("h-3 w-3", receipt === "read" && "text-[#53bdeb]")}
+      aria-label={receipt === "read" ? "Read" : "Delivered"}
+    />
+  );
+}
+
+/** Highlight @mentions in a message body. Display-only - the authoritative mention list
+ *  went to the server at send time. */
+function renderBody(body: string) {
+  const parts = body.split(/(@[\w.][\w.\s]{0,40}?)(?=\s@|\s{2}|[,.!?;:]|$)/g);
+  if (parts.length === 1) return body;
+  return parts.map((part, index) =>
+    part.startsWith("@") ? (
+      <mark
+        key={index}
+        className="rounded bg-transparent px-0.5 font-semibold text-inherit underline decoration-dotted underline-offset-2"
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
 function MessageBubble({
   message,
   onDelete,
@@ -128,12 +177,18 @@ function MessageBubble({
         {message.deleted ? (
           <p className="italic opacity-60">Message deleted</p>
         ) : (
-          <p className="whitespace-pre-wrap break-words">{message.body}</p>
+          <p className="whitespace-pre-wrap break-words">{renderBody(message.body)}</p>
         )}
-        <p className={cn("mt-0.5 text-[10px]", message.mine ? "opacity-70" : "text-muted-foreground")}>
+        <p
+          className={cn(
+            "mt-0.5 flex items-center justify-end gap-1 text-[10px]",
+            message.mine ? "opacity-70" : "text-muted-foreground",
+          )}
+        >
           {timeOf(message.created_at)}
+          {message.mine && !message.deleted && <Ticks receipt={message.receipt} />}
         </p>
-        {message.mine && !message.deleted && onDelete && (
+        {!message.deleted && onDelete && (
           <button
             type="button"
             aria-label="Delete message"
@@ -173,6 +228,20 @@ export function ChatClient() {
 
   const send = useSendMessage(selected);
   const removeMessage = useDeleteMessage(selected);
+  const createGroup = useCreateGroup();
+  const createInvite = useCreateInvite();
+  const joinByCode = useJoinByCode();
+  const adminDeleteMessage = useAdminDeleteMessage(selected);
+  const adminDeleteConversation = useAdminDeleteConversation();
+
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupMembers, setGroupMembers] = useState<string[]>([]);
+  const [joinCode, setJoinCode] = useState("");
+  const [inviteShown, setInviteShown] = useState<string | null>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  // user_ids attached to the next send, collected as autocomplete picks happen.
+  const mentionIds = useRef<Set<string>>(new Set());
 
   const list: Conversation[] =
     tab === "mine"
@@ -240,17 +309,49 @@ export function ChatClient() {
     const body = draft.trim();
     if (!body || !selected || send.isPending) return;
     // Clear only on SUCCESS - clearing up front destroys the typed message if the send
-    // fails, with nothing to retry from.
-    send.mutate(body, { onSuccess: () => setDraft("") });
+    // fails, with nothing to retry from. Mentions only count if their @text survived edits.
+    const roster = current?.participants ?? [];
+    const mentions = [...mentionIds.current].filter((id) => {
+      const person = roster.find((entry) => entry.user_id === id);
+      return person && body.includes(`@${person.display_name ?? person.email}`);
+    });
+    send.mutate(
+      { body, mentions },
+      {
+        onSuccess: () => {
+          setDraft("");
+          mentionIds.current.clear();
+        },
+      },
+    );
+  }
+
+  const mentionQuery = /@([\w.]*)$/.exec(draft.slice(0, undefined))?.[1] ?? null;
+  const mentionCandidates =
+    mentionOpen && current
+      ? current.participants
+          .filter((participant) =>
+            (participant.display_name ?? participant.email)
+              .toLowerCase()
+              .includes((mentionQuery ?? "").toLowerCase()),
+          )
+          .slice(0, 5)
+      : [];
+
+  function pickMention(person: { user_id: string; display_name: string | null; email: string }) {
+    const name = person.display_name ?? person.email;
+    setDraft((value) => value.replace(/@[\w.]*$/, `@${name} `));
+    mentionIds.current.add(person.user_id);
+    setMentionOpen(false);
   }
 
   return (
-    <div className="flex h-[calc(100vh-9.5rem)] min-h-[24rem] overflow-hidden rounded-[var(--radius-card)] border bg-card">
+    <div className="flex h-[calc(100dvh-10.5rem)] min-h-[24rem] overflow-hidden rounded-[var(--radius-card)] border bg-card">
       {/* ── Left: conversations + people. Below md the screen shows list OR thread,
           never both squeezed side by side. ─────────────────────── */}
       <div
         className={cn(
-          "w-full flex-col border-r md:flex md:w-72 md:shrink-0",
+          "min-h-0 w-full flex-col border-r md:flex md:w-72 md:shrink-0",
           selected ? "hidden" : "flex",
         )}
       >
@@ -264,6 +365,100 @@ export function ChatClient() {
               className="h-8 pl-8"
             />
           </div>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant={groupMode ? "default" : "outline"}
+              className="h-7 flex-1 gap-1 text-xs"
+              onClick={() => setGroupMode((value) => !value)}
+            >
+              <Users className="h-3 w-3" /> New group
+            </Button>
+          </div>
+          {groupMode && (
+            <div className="space-y-2 rounded-[var(--radius-inner)] border p-2">
+              <Input
+                value={groupTitle}
+                onChange={(event) => setGroupTitle(event.target.value)}
+                placeholder="Group name"
+                className="h-8"
+              />
+              <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                {(people.data?.people ?? [])
+                  .filter((person) => person.user_id !== me?.user_id)
+                  .map((person) => (
+                    <label
+                      key={person.user_id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent/60"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={groupMembers.includes(person.user_id)}
+                        onChange={(event) =>
+                          setGroupMembers((current) =>
+                            event.target.checked
+                              ? [...current, person.user_id]
+                              : current.filter((id) => id !== person.user_id),
+                          )
+                        }
+                      />
+                      <span className="truncate">{person.display_name ?? person.email}</span>
+                    </label>
+                  ))}
+              </div>
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={!groupTitle.trim() || groupMembers.length === 0 || createGroup.isPending}
+                onClick={() =>
+                  createGroup.mutate(
+                    { title: groupTitle.trim(), memberIds: groupMembers },
+                    {
+                      onSuccess: (group) => {
+                        setGroupMode(false);
+                        setGroupTitle("");
+                        setGroupMembers([]);
+                        setTab("mine");
+                        setSelected(group.id);
+                      },
+                    },
+                  )
+                }
+              >
+                Create group ({groupMembers.length})
+              </Button>
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="Join with code"
+              className="h-7 text-xs"
+              maxLength={16}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={joinCode.trim().length < 4 || joinByCode.isPending}
+              onClick={() =>
+                joinByCode.mutate(joinCode.trim(), {
+                  onSuccess: (group) => {
+                    setJoinCode("");
+                    setTab("mine");
+                    setSelected(group.id);
+                  },
+                })
+              }
+            >
+              Join
+            </Button>
+          </div>
+          {joinByCode.isError && (
+            <p className="text-xs text-destructive">That code is invalid or has expired.</p>
+          )}
           {isAdmin && (
             <div className="flex gap-1">
               <Button
@@ -343,7 +538,7 @@ export function ChatClient() {
       </div>
 
       {/* ── Middle: the thread ───────────────────────────────────── */}
-      <div className={cn("min-w-0 flex-1 flex-col md:flex", selected ? "flex" : "hidden")}>
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col md:flex", selected ? "flex" : "hidden")}>
         {current && other ? (
           <>
             <div className="flex items-center gap-3 border-b px-4 py-2.5">
@@ -365,10 +560,48 @@ export function ChatClient() {
               />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">
-                  {other.display_name ?? other.email}
+                  {current.kind === "group"
+                    ? (current.title ?? "Group")
+                    : (other.display_name ?? other.email)}
                 </p>
-                <p className="text-xs text-muted-foreground">{lastSeenLabel(other)}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {current.kind === "group"
+                    ? `${current.participants.length + 1} members`
+                    : lastSeenLabel(other)}
+                </p>
               </div>
+              {tab === "mine" && current.kind === "group" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 gap-1 text-xs"
+                  disabled={createInvite.isPending}
+                  onClick={() =>
+                    createInvite.mutate(current.id, {
+                      onSuccess: (invite) => setInviteShown(invite.code),
+                    })
+                  }
+                >
+                  <KeyRound className="h-3 w-3" /> Invite code
+                </Button>
+              )}
+              {tab === "oversight" && isAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 gap-1 text-xs text-destructive"
+                  disabled={adminDeleteConversation.isPending}
+                  onClick={() => {
+                    if (window.confirm("Permanently delete this entire conversation? This reclaims its storage and cannot be undone.")) {
+                      adminDeleteConversation.mutate(current.id, {
+                        onSuccess: () => setSelected(null),
+                      });
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete thread
+                </Button>
+              )}
               {tab === "oversight" && (
                 <span className="ml-auto rounded-full border border-[color:var(--color-amber)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[color:var(--color-amber)]">
                   Read-only oversight
@@ -376,13 +609,26 @@ export function ChatClient() {
               )}
             </div>
 
-            <div ref={scrollBoxRef} className="flex-1 space-y-2 overflow-y-auto p-4">
+            {inviteShown && (
+              <p className="border-b bg-[color:var(--color-accent-soft)] px-4 py-2 text-xs">
+                Invite code: <span className="font-mono text-sm font-bold tracking-widest">{inviteShown}</span>
+                {" "}- one use, expires in 15 minutes. Share it only with the person you mean to add.
+                <button type="button" className="ml-2 underline" onClick={() => setInviteShown(null)}>
+                  dismiss
+                </button>
+              </p>
+            )}
+            <div ref={scrollBoxRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
               {(messages?.messages ?? []).map((message) => (
                 <MessageBubble
                   key={message.id}
                   message={message}
                   onDelete={
-                    tab === "mine" ? (id) => removeMessage.mutate(id) : undefined
+                    tab === "mine"
+                      ? (id) => removeMessage.mutate(id)
+                      : isAdmin
+                        ? (id) => adminDeleteMessage.mutate(id)
+                        : undefined
                   }
                 />
               ))}
@@ -400,10 +646,27 @@ export function ChatClient() {
               </p>
             )}
             {tab === "mine" && (
-              <div className="flex items-end gap-2 border-t p-3">
+              <div className="relative flex items-end gap-2 border-t p-3">
+                {mentionOpen && mentionCandidates.length > 0 && (
+                  <div className="absolute bottom-16 left-3 z-10 w-64 rounded-[var(--radius-inner)] border bg-card p-1 shadow-lg">
+                    {mentionCandidates.map((person) => (
+                      <button
+                        key={person.user_id}
+                        type="button"
+                        className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        onClick={() => pickMention(person)}
+                      >
+                        @{person.display_name ?? person.email}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setMentionOpen(/@[\w.]*$/.test(event.target.value));
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();

@@ -244,6 +244,24 @@ async def list_messages(
     await _require_participant(db, conversation_id, me)
     limit = max(1, min(limit, MAX_PAGE))
 
+    # Delivery watermarks for the caller's own bubbles: the OTHER participants' read
+    # markers and last-active stamps, reduced with min() so a group state is only reached
+    # when every member has reached it. Two scalars per page, not per message.
+    watermark_rows = (
+        await db.execute(
+            select(ConversationParticipant.last_read_at, User.last_seen_at)
+            .join(User, User.id == ConversationParticipant.user_id)
+            .where(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id != me,
+            )
+        )
+    ).all()
+    read_marks = [row[0] for row in watermark_rows]
+    seen_marks = [row[1] for row in watermark_rows]
+    all_read_at = min(read_marks) if read_marks and all(m is not None for m in read_marks) else None
+    all_seen_at = min(seen_marks) if seen_marks and all(m is not None for m in seen_marks) else None
+
     stmt = select(Message).where(Message.conversation_id == conversation_id)
     if after is not None:
         stmt = stmt.where(Message.created_at > after).order_by(Message.created_at).limit(limit)
@@ -266,6 +284,15 @@ async def list_messages(
             edited_at=row.edited_at,
             deleted=row.deleted_at is not None,
             mine=row.sender_id == me,
+            receipt=(
+                None
+                if row.sender_id != me
+                else "read"
+                if all_read_at is not None and all_read_at >= row.created_at
+                else "delivered"
+                if all_seen_at is not None and all_seen_at >= row.created_at
+                else "sent"
+            ),
         )
         for row in rows
     ]
@@ -286,9 +313,26 @@ async def _sender_names(db: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UUI
 
 
 async def send_message(
-    db: AsyncSession, conversation_id: uuid.UUID, me: uuid.UUID, body: str
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    me: uuid.UUID,
+    body: str,
+    mentions: list[uuid.UUID] | None = None,
 ) -> MessageOut:
     await _require_participant(db, conversation_id, me)
+
+    # Mentions may only point INTO the thread: anything else is dropped silently rather
+    # than becoming a side channel for pinging arbitrary users.
+    if mentions:
+        member_rows = (
+            await db.execute(
+                select(ConversationParticipant.user_id).where(
+                    ConversationParticipant.conversation_id == conversation_id
+                )
+            )
+        ).all()
+        members = {row[0] for row in member_rows}
+        mentions = [user_id for user_id in set(mentions) if user_id in members and user_id != me]
 
     message = Message(conversation_id=conversation_id, sender_id=me, body=body)
     db.add(message)
@@ -324,6 +368,7 @@ async def send_message(
         edited_at=None,
         deleted=False,
         mine=True,
+        receipt="sent",
     )
 
 
@@ -473,3 +518,68 @@ async def admin_list_messages(
         for row in rows
     ]
     return MessagePage(messages=messages, latest_at=messages[-1].created_at if messages else None)
+
+
+async def create_group(
+    db: AsyncSession, me: uuid.UUID, title: str, member_ids: list[uuid.UUID]
+) -> Conversation:
+    """A named thread with chosen members. The creator is always a member."""
+    wanted = {user_id for user_id in member_ids if user_id != me}
+    if not wanted:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A group needs at least one other person")
+    found = (
+        await db.execute(select(User.id).where(User.id.in_(wanted), User.is_active.is_(True)))
+    ).all()
+    active_ids = {row[0] for row in found}
+    missing = wanted - active_ids
+    if missing:
+        # Same 404 convention as everywhere else - do not confirm which ids exist.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
+
+    conversation = Conversation(kind="group", title=title, created_by=me)
+    db.add(conversation)
+    await db.flush()
+    db.add_all(
+        [
+            ConversationParticipant(conversation_id=conversation.id, user_id=user_id)
+            for user_id in (active_ids | {me})
+        ]
+    )
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation
+
+
+async def add_participant(db: AsyncSession, conversation_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Join a user to a thread (the invite-code path). Idempotent."""
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    if conversation.kind != "group":
+        # A direct thread is exactly two people by definition; joining a third via a
+        # leaked code must not silently turn it into a group.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only group chats accept invites")
+    existing = await db.get(ConversationParticipant, (conversation_id, user_id))
+    if existing is not None:
+        return
+    db.add(ConversationParticipant(conversation_id=conversation_id, user_id=user_id))
+    await db.commit()
+
+
+async def admin_delete_message(db: AsyncSession, message_id: uuid.UUID) -> None:
+    """Soft-delete any single message (moderation). Audit-logged at the route."""
+    message = await db.get(Message, message_id)
+    if message is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    message.deleted_at = datetime.now(UTC)
+    await db.commit()
+
+
+async def admin_delete_conversation(db: AsyncSession, conversation_id: uuid.UUID) -> None:
+    """Hard-delete a whole thread and its messages (CASCADE). Moderation tool: this is
+    the storage-reclaiming path - soft-deleted rows keep their bytes, this does not."""
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    await db.delete(conversation)
+    await db.commit()

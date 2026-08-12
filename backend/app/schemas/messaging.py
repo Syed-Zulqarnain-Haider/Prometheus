@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -25,10 +26,18 @@ class MessageOut(BaseModel):
     deleted: bool
     # True when the caller wrote it, so the client can align the bubble without comparing ids.
     mine: bool
+    # Delivery state for YOUR OWN messages, None for everyone else's. "delivered" means the
+    # recipient's account has been active since the message was sent (this is a web app -
+    # there is no device push to confirm against); "read" means their read marker passed it.
+    # In a group, a state is only reached when EVERY other member has reached it.
+    receipt: Literal["sent", "delivered", "read"] | None = None
 
 
 class MessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=MAX_BODY)
+    # user_ids this message @mentions. Validated server-side against the thread's
+    # participants - a client cannot mention someone into a conversation they cannot see.
+    mentions: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
     @field_validator("body")
     @classmethod
@@ -95,3 +104,25 @@ class AdminConversationOut(ConversationOut):
 
 class AdminConversationList(BaseModel):
     conversations: list[AdminConversationOut]
+
+
+class GroupCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    member_ids: list[uuid.UUID] = Field(min_length=1, max_length=49)
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Group name cannot be empty")
+        return trimmed
+
+
+class InviteCode(BaseModel):
+    code: str
+    expires_in_seconds: int
+
+
+class JoinByCode(BaseModel):
+    code: str = Field(min_length=4, max_length=32)

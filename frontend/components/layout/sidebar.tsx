@@ -3,9 +3,10 @@
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMe } from "@/lib/api-hooks";
+import { useConversations } from "@/lib/chat-hooks";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +79,32 @@ export function Sidebar() {
   const [order, setOrder] = useState<string[]>([]);
   const [reordering, setReordering] = useState(false);
 
+  // Chat unread state powers three things wherever the user is in the app: the badge on
+  // the Chat entry, the "(N)" tab-title prefix, and a browser popup when a NEW message
+  // arrives while this tab is unfocused. Permission is only requested after the user has
+  // engaged with chat once (clicked the entry), never on first page load.
+  const { data: chatState } = useConversations();
+  const unreadTotal = chatState?.unread_total ?? 0;
+  const previousUnread = useRef(0);
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\+?\)\s/, "");
+    document.title = unreadTotal > 0 ? `(${unreadTotal > 99 ? "99+" : unreadTotal}) ${base}` : base;
+  }, [unreadTotal]);
+  useEffect(() => {
+    const grew = unreadTotal > previousUnread.current;
+    previousUnread.current = unreadTotal;
+    if (!grew || document.hasFocus()) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const notification = new Notification("New message", {
+      body: "You have a new chat message in Prometheus.",
+      tag: "prometheus-chat", // replaces rather than stacks
+    });
+    notification.onclick = () => {
+      window.focus();
+      window.location.assign("/chat");
+    };
+  }, [unreadTotal]);
+
   // Collapsed starts false on BOTH server and first client render, then reads the saved
   // preference in an effect - localStorage is touched post-hydration only, so SSR can
   // never crash on it and hydration never mismatches.
@@ -141,8 +168,19 @@ export function Sidebar() {
         href={href}
         title={collapsed ? label : undefined}
         aria-label={label}
+        onClick={() => {
+          // First engagement with chat is the moment to ask for popup permission - asking
+          // on page load is the pattern browsers (rightly) punish.
+          if (
+            href === "/chat" &&
+            typeof Notification !== "undefined" &&
+            Notification.permission === "default"
+          ) {
+            void Notification.requestPermission();
+          }
+        }}
         className={cn(
-          "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
           collapsed && "justify-center px-0",
           active
             ? "bg-accent font-medium text-accent-foreground"
@@ -150,6 +188,16 @@ export function Sidebar() {
         )}
       >
         <Icon className="h-4 w-4 shrink-0" />
+        {href === "/chat" && unreadTotal > 0 && (
+          <span
+            className={cn(
+              "absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-[color:var(--color-accent)] px-1 text-[9px] font-semibold text-[color:var(--color-accent-foreground)]",
+              collapsed ? "right-0.5 top-0.5" : "right-2 top-1/2 -translate-y-1/2",
+            )}
+          >
+            {unreadTotal > 99 ? "99+" : unreadTotal}
+          </span>
+        )}
         {/* The label stays mounted and fades, rather than unmounting on collapse: removing
             it mid-animation forces a reflow of every row at once. */}
         <span

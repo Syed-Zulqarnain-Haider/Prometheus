@@ -8,21 +8,26 @@ swapped later without changing these contracts.
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import CurrentUser, DbSession, RedisClient, require_capability
 from app.core.http import client_ip
 from app.core.rate_limit import enforce_rate_limit
+from app.models.messaging import ConversationParticipant
 from app.schemas.messaging import (
     AdminConversationList,
     AdminConversationOut,
     ConversationList,
     ConversationOut,
     DirectConversationCreate,
+    GroupCreate,
+    InviteCode,
+    JoinByCode,
     MessageCreate,
     MessageOut,
     MessagePage,
@@ -116,7 +121,9 @@ async def send_message(
     Deliberately not audit-logged per message: the messages table IS the record, and
     duplicating every line into the audit log would bury the security events it exists for.
     """
-    return await messaging_service.send_message(db, conversation_id, context.user_id, payload.body)
+    return await messaging_service.send_message(
+        db, conversation_id, context.user_id, payload.body, mentions=payload.mentions
+    )
 
 
 @router.post("/conversations/{conversation_id}/read", response_model=ReadResult)
@@ -131,6 +138,99 @@ async def delete_message(message_id: uuid.UUID, context: CurrentUser, db: DbSess
     """Delete one of your own messages. It keeps its place in the thread, without its text."""
     await messaging_service.delete_message(db, message_id, context.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Groups + single-use invite codes ─────────────────────────────────────────────
+
+_INVITE_KEY = "chatinvite:{code}"
+INVITE_TTL_SECONDS = 15 * 60
+
+
+@router.post("/groups", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
+async def create_group(
+    request: Request,
+    payload: GroupCreate,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> ConversationOut:
+    """Create a named group chat with chosen members."""
+    conversation = await messaging_service.create_group(
+        db, context.user_id, payload.title, payload.member_ids
+    )
+    await audit.write(
+        user_id=context.user_id,
+        action="group_created",
+        resource=str(conversation.id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    listing = await messaging_service.list_conversations(db, redis, context.user_id)
+    for item in listing.conversations:
+        if item.id == conversation.id:
+            return item
+    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Group creation failed")
+
+
+@router.post("/conversations/{conversation_id}/invite", response_model=InviteCode)
+async def create_invite(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> InviteCode:
+    """Mint a single-use invite code for a group (owner decision on the whole flow):
+    15-minute expiry, one use, one person - Redis TTL enforces the expiry and an atomic
+    GETDEL at redemption enforces single use even under concurrent attempts. Minting a
+    new code does NOT invalidate an unexpired old one; each is its own one-shot."""
+    membership = await db.get(ConversationParticipant, (conversation_id, context.user_id))
+    if membership is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    # 8 hex chars from a CSPRNG: 4 billion codes against a 15-minute window and a
+    # rate-limited endpoint - and a code is worthless without also being authenticated.
+    code = secrets.token_hex(4).upper()
+    await redis.set(_INVITE_KEY.format(code=code), str(conversation_id), ex=INVITE_TTL_SECONDS)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_invite_created",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return InviteCode(code=code, expires_in_seconds=INVITE_TTL_SECONDS)
+
+
+@router.post("/join", response_model=ConversationOut)
+async def join_by_code(
+    request: Request,
+    payload: JoinByCode,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> ConversationOut:
+    """Redeem an invite code. GETDEL makes redemption atomic: of two people racing the
+    same code, exactly one wins; expiry has already been enforced by the key's TTL."""
+    raw = await redis.getdel(_INVITE_KEY.format(code=payload.code.strip().upper()))
+    if raw is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That code is invalid or has expired")
+    joined_id = uuid.UUID(raw.decode() if isinstance(raw, bytes) else raw)
+    await messaging_service.add_participant(db, joined_id, context.user_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_joined_by_code",
+        resource=str(joined_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    listing = await messaging_service.list_conversations(db, redis, context.user_id)
+    for item in listing.conversations:
+        if item.id == joined_id:
+            return item
+    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Join failed")
 
 
 # ── Admin oversight (owner decision: admins can read all chats) ──────────────────
@@ -190,3 +290,52 @@ async def admin_messages(
         user_agent=request.headers.get("user-agent"),
     )
     return page
+
+
+@router.delete(
+    "/admin/messages/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_admin_only)],
+)
+async def admin_remove_message(
+    request: Request,
+    message_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> Response:
+    """Moderation: soft-delete anyone's message. Audit-logged."""
+    await messaging_service.admin_delete_message(db, message_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_message_removed_by_admin",
+        resource=str(message_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/admin/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_admin_only)],
+)
+async def admin_remove_conversation(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> Response:
+    """Moderation: HARD-delete a whole thread and its messages. This is the
+    storage-reclaiming path (soft deletes keep their bytes). Audit-logged."""
+    await messaging_service.admin_delete_conversation(db, conversation_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_conversation_removed_by_admin",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

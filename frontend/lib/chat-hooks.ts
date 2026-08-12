@@ -46,6 +46,9 @@ export interface ChatMessage {
   edited_at: string | null;
   deleted: boolean;
   mine: boolean;
+  /** Delivery state for YOUR messages: sent -> delivered (they have been active since)
+   *  -> read (their read marker passed it). null on other people's messages. */
+  receipt: "sent" | "delivered" | "read" | null;
 }
 
 export interface MessagePage {
@@ -101,10 +104,10 @@ export function useOpenDirect() {
 export function useSendMessage(conversationId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) =>
+    mutationFn: ({ body, mentions }: { body: string; mentions?: string[] }) =>
       apiFetch<ChatMessage>(`/api/v1/chat/conversations/${conversationId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, mentions: mentions ?? [] }),
       }),
     onSuccess: () => {
       // Refetch the thread immediately rather than waiting out the poll interval.
@@ -165,5 +168,67 @@ export function useAdminMessages(conversationId: string | null) {
     enabled: Boolean(user) && Boolean(conversationId),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[3] === conversationId ? previous : undefined,
+  });
+}
+
+
+export function useCreateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ title, memberIds }: { title: string; memberIds: string[] }) =>
+      apiFetch<Conversation>("/api/v1/chat/groups", {
+        method: "POST",
+        body: JSON.stringify({ title, member_ids: memberIds }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+  });
+}
+
+export interface InviteCode {
+  code: string;
+  expires_in_seconds: number;
+}
+
+export function useCreateInvite() {
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch<InviteCode>(`/api/v1/chat/conversations/${conversationId}/invite`, {
+        method: "POST",
+      }),
+  });
+}
+
+export function useJoinByCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) =>
+      apiFetch<Conversation>("/api/v1/chat/join", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+  });
+}
+
+export function useAdminDeleteMessage(conversationId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) =>
+      apiFetch<void>(`/api/v1/chat/admin/messages/${messageId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", "admin", "messages", conversationId] });
+    },
+  });
+}
+
+export function useAdminDeleteConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch<void>(`/api/v1/chat/admin/conversations/${conversationId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", "admin", "conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    },
   });
 }
