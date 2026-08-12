@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { SplitFlapText } from "@/components/effects/split-flap-text";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiFetch } from "@/lib/api-client";
@@ -186,10 +187,28 @@ export function AnnouncementBar() {
   const barId = bar?.id;
   useEffect(() => {
     if (!barId) return;
-    document.body.style.paddingTop = `${barRef.current?.offsetHeight ?? 0}px`;
+    const el = barRef.current;
+    if (!el) return;
+    const sync = () => {
+      document.body.style.paddingTop = `${el.offsetHeight}px`;
+    };
+    sync();
+    const observer = new ResizeObserver(sync); // tracks the flap-board swap and text wrap
+    observer.observe(el);
     return () => {
+      observer.disconnect();
       document.body.style.paddingTop = "";
     };
+  }, [barId]);
+
+  // The owner's split-flap treatment: the message reads as plain text first, then after a
+  // few seconds it deals itself onto a departure-board and keeps re-dealing on a cycle.
+  const [flapping, setFlapping] = useState(false);
+  useEffect(() => {
+    if (!barId) return;
+    setFlapping(false);
+    const timer = window.setTimeout(() => setFlapping(true), 4000);
+    return () => window.clearTimeout(timer);
   }, [barId]);
 
   // Portals need the DOM; on the server (and before hydration) render nothing.
@@ -214,7 +233,26 @@ export function AnnouncementBar() {
           style={{ animation: "announce-in var(--dur, 200ms) var(--ease, ease-out)" }}
         >
           <Megaphone className="h-4 w-4 shrink-0" />
-          <p className="min-w-0 flex-1 truncate font-medium">{bar.body}</p>
+          <div className="min-w-0 flex-1 overflow-hidden" title={bar.body}>
+            {flapping ? (
+              <SplitFlapText
+                words={[bar.body.length > 42 ? `${bar.body.slice(0, 42)}…` : bar.body]}
+                flipDuration={0.12}
+                stagger={0.06}
+                cycleDelay={2400}
+                charset="alphanumeric"
+                flipsPerChar={8}
+                tileColor="#111827"
+                textColor="#f8fafc"
+                tileRadius={4}
+                gap={3}
+                fontSize={12}
+                loop
+              />
+            ) : (
+              <p className="truncate font-medium">{bar.body}</p>
+            )}
+          </div>
           {visible.length > 1 && (
             <span className="shrink-0 text-xs opacity-70">+{visible.length - 1} more</span>
           )}
