@@ -126,6 +126,72 @@ async def send_message(
     )
 
 
+@router.post("/conversations/{conversation_id}/accept", response_model=ConversationOut)
+async def accept_request(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    redis: RedisClient,
+    audit: AuditDep,
+) -> ConversationOut:
+    """Accept a pending chat request. Only the requested person can; then both can talk."""
+    await messaging_service.accept_direct(db, conversation_id, context.user_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_request_accepted",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    listing = await messaging_service.list_conversations(db, redis, context.user_id)
+    for item in listing.conversations:
+        if item.id == conversation_id:
+            return item
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_conversation(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> Response:
+    """Remove a direct contact: declines a received request, cancels a sent one, or
+    disconnects an existing contact. Either participant may do it. Audit-logged."""
+    await messaging_service.remove_direct(db, conversation_id, context.user_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_contact_removed",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/conversations/{conversation_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_group(
+    request: Request,
+    conversation_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> Response:
+    """Leave a group you were added to. The thread survives for whoever remains."""
+    await messaging_service.leave_conversation(db, conversation_id, context.user_id)
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_group_left",
+        resource=str(conversation_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/conversations/{conversation_id}/read", response_model=ReadResult)
 async def mark_read(conversation_id: uuid.UUID, context: CurrentUser, db: DbSession) -> ReadResult:
     """Mark everything in this thread as read up to now."""
@@ -134,9 +200,24 @@ async def mark_read(conversation_id: uuid.UUID, context: CurrentUser, db: DbSess
 
 
 @router.delete("/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_message(message_id: uuid.UUID, context: CurrentUser, db: DbSession) -> Response:
+async def delete_message(
+    request: Request,
+    message_id: uuid.UUID,
+    context: CurrentUser,
+    db: DbSession,
+    audit: AuditDep,
+) -> Response:
     """Delete one of your own messages. It keeps its place in the thread, without its text."""
     await messaging_service.delete_message(db, message_id, context.user_id)
+    # Sends are deliberately not audited (the messages table IS that record), but a
+    # DESTRUCTIVE action is a different class and leaves a trail like every other one.
+    await audit.write(
+        user_id=context.user_id,
+        action="chat_message_deleted",
+        resource=str(message_id),
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -189,6 +270,12 @@ async def create_invite(
     membership = await db.get(ConversationParticipant, (conversation_id, context.user_id))
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    # Reject a direct thread HERE rather than at redemption: /join consumes the code
+    # atomically before add_participant refuses, which burned the one-shot code and
+    # handed the redeemer an error for a code that was never valid to begin with.
+    conversation = await messaging_service.get_conversation(db, conversation_id)
+    if conversation is None or conversation.kind != "group":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only group chats accept invites")
     # 8 hex chars from a CSPRNG: 4 billion codes against a 15-minute window and a
     # rate-limited endpoint - and a code is worthless without also being authenticated.
     code = secrets.token_hex(4).upper()

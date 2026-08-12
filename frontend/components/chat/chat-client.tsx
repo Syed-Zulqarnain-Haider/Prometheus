@@ -12,6 +12,7 @@ import {
   Send,
   Trash2,
   Users,
+  UserX,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,6 +23,7 @@ import { useMe } from "@/lib/api-hooks";
 import {
   type ChatMessage,
   type Conversation,
+  useAcceptRequest,
   useAdminConversations,
   useAdminDeleteConversation,
   useAdminDeleteMessage,
@@ -30,10 +32,12 @@ import {
   useCreateGroup,
   useCreateInvite,
   useJoinByCode,
+  useLeaveGroup,
   useDeleteMessage,
   useMarkRead,
   useMessages,
   useOpenDirect,
+  useRemoveConversation,
   useSendMessage,
 } from "@/lib/chat-hooks";
 import { useDebounced, usePeople, type Person } from "@/lib/people-hooks";
@@ -106,10 +110,23 @@ const ConversationRow = memo(function ConversationRow({
           )}
         </span>
         <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-xs text-muted-foreground">
-            {conversation.last_message_mine && "You: "}
-            {conversation.last_message_preview ?? "No messages yet"}
-          </span>
+          {conversation.status === "pending" ? (
+            <span
+              className={cn(
+                "truncate text-xs",
+                conversation.requested_by_me
+                  ? "text-muted-foreground"
+                  : "font-semibold text-[color:var(--color-accent)]",
+              )}
+            >
+              {conversation.requested_by_me ? "Chat request sent" : "Wants to chat with you"}
+            </span>
+          ) : (
+            <span className="truncate text-xs text-muted-foreground">
+              {conversation.last_message_mine && "You: "}
+              {conversation.last_message_preview ?? "No messages yet"}
+            </span>
+          )}
           {conversation.unread > 0 && (
             <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--color-accent)] px-1.5 text-[10px] font-semibold text-[color:var(--color-accent-foreground)]">
               {conversation.unread > 99 ? "99+" : conversation.unread}
@@ -237,6 +254,9 @@ export function ChatClient() {
   const joinByCode = useJoinByCode();
   const adminDeleteMessage = useAdminDeleteMessage(selected);
   const adminDeleteConversation = useAdminDeleteConversation();
+  const acceptRequest = useAcceptRequest();
+  const removeConversation = useRemoveConversation();
+  const leaveGroup = useLeaveGroup();
 
   const [groupMode, setGroupMode] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
@@ -530,6 +550,7 @@ export function ChatClient() {
                 <button
                   key={person.user_id}
                   type="button"
+                  title="Send a chat request"
                   onClick={() => startChat(person)}
                   className="flex w-full items-center gap-3 rounded-[var(--radius-inner)] px-3 py-2 text-left hover:bg-accent/60"
                 >
@@ -588,11 +609,49 @@ export function ChatClient() {
                     : lastSeenLabel(other)}
                 </p>
               </div>
+              {tab === "mine" && current.kind === "direct" && current.status === "accepted" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 gap-1 text-xs text-destructive"
+                  disabled={removeConversation.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Remove ${other.display_name ?? other.email}? The conversation and its history will be deleted for both of you.`,
+                      )
+                    ) {
+                      removeConversation.mutate(current.id, { onSuccess: () => setSelected(null) });
+                    }
+                  }}
+                >
+                  <UserX className="h-3 w-3" /> Remove
+                </Button>
+              )}
               {tab === "mine" && current.kind === "group" && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="ml-auto h-7 gap-1 text-xs"
+                  className="ml-auto h-7 gap-1 text-xs text-destructive"
+                  disabled={leaveGroup.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Leave "${current.title ?? "this group"}"? You will stop receiving its messages.`,
+                      )
+                    ) {
+                      leaveGroup.mutate(current.id, { onSuccess: () => setSelected(null) });
+                    }
+                  }}
+                >
+                  <UserX className="h-3 w-3" /> Leave
+                </Button>
+              )}
+              {tab === "mine" && current.kind === "group" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-xs"
                   disabled={createInvite.isPending}
                   onClick={() =>
                     createInvite.mutate(current.id, {
@@ -640,7 +699,7 @@ export function ChatClient() {
               {(messages?.messages ?? []).map((message) => (
                 <MessageBubble key={message.id} message={message} onDelete={onDeleteProp} />
               ))}
-              {messages && messages.messages.length === 0 && (
+              {messages && messages.messages.length === 0 && current.status === "accepted" && (
                 <p className="pt-8 text-center text-sm text-muted-foreground">
                   Say hello - this is the start of your conversation.
                 </p>
@@ -648,12 +707,62 @@ export function ChatClient() {
               <div ref={bottomRef} />
             </div>
 
+            {tab === "mine" && current.status === "pending" && (
+              <div className="border-t p-4 text-center text-sm">
+                {current.requested_by_me ? (
+                  <>
+                    <p className="text-muted-foreground">
+                      Chat request sent - waiting for {other.display_name ?? other.email} to
+                      accept.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      disabled={removeConversation.isPending}
+                      onClick={() =>
+                        removeConversation.mutate(current.id, { onSuccess: () => setSelected(null) })
+                      }
+                    >
+                      Cancel request
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">
+                      {other.display_name ?? other.email} wants to chat with you.
+                    </p>
+                    <div className="mt-2 flex justify-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={acceptRequest.isPending}
+                        onClick={() => acceptRequest.mutate(current.id)}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={removeConversation.isPending}
+                        onClick={() =>
+                          removeConversation.mutate(current.id, {
+                            onSuccess: () => setSelected(null),
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {tab === "mine" && send.isError && (
               <p className="border-t px-3 pt-2 text-xs text-destructive">
                 Message failed to send - it is still in the box below. Try again.
               </p>
             )}
-            {tab === "mine" && (
+            {tab === "mine" && current.status === "accepted" && (
               <div className="relative flex items-end gap-2 border-t p-3">
                 {mentionOpen && mentionCandidates.length > 0 && (
                   <div className="absolute bottom-16 left-3 z-10 w-64 rounded-[var(--radius-inner)] border bg-card p-1 shadow-lg">

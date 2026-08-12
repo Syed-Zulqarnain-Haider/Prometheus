@@ -23,7 +23,7 @@ COMMIT_MSG="chore: snapshot deployed state before branch split"
 JUNK_RE='(^|/)(backups?|node_modules|__pycache__|\.next|\.venv|venv|\.mypy_cache|\.pytest_cache|\.ruff_cache)(/|$)|\.(log|bak|pyc|swp)$|\.bak\.[0-9]+$'
 
 # Anything matching this must NEVER enter git history. `.env.example` is fine; `.env` is not.
-SECRET_RE='(^|/)\.env($|\.[^/]*$)|(^|/)secrets?/|\.(pem|key|p12|pfx)$|credentials.*\.json$|service[-_]account.*\.json$'
+SECRET_RE='(^|/)\.env($|\.[^/]*$)|(^|/)secrets?/|\.(pem|key|p12|pfx)$|credentials.*\.json$|service[-_]account.*\.json$|adminsdk.*\.json$|firebase.*\.json$'
 SECRET_ALLOW_RE='\.example$|\.sample$|\.template$'
 
 say() { printf '%s\n' "$*"; }

@@ -98,3 +98,16 @@ Thumbs.db
 logs/
 tmp/
 *.tmp
+
+# Redis/Postgres dumps and local backups - these carry real user contexts and data.
+*.rdb
+dump.rdb
+*.sql.gz
+*.dump
+backups/
+
+# Firebase admin SDK keys download as "<project>-firebase-adminsdk-<hash>-<hash>.json",
+# which matched none of the patterns above and would have been committable.
+*adminsdk*.json
+*firebase*.json
+*-sa.json

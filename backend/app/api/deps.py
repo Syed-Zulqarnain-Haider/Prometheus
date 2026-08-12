@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 
+import anyio.to_thread
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from redis.asyncio import Redis
@@ -47,7 +48,11 @@ async def get_user_context(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication token")
 
     try:
-        decoded = verifier.verify(credentials.credentials)
+        # Token verification is synchronous and CPU-bound (RSA signature check, plus a
+        # network fetch when Google's signing certs rotate). Called inline it ran ON the
+        # event loop, so a burst of junk tokens - each costing a full verification before
+        # being rejected - stalled every other request in the process.
+        decoded = await anyio.to_thread.run_sync(verifier.verify, credentials.credentials)
     except InvalidTokenError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authentication token") from exc
 
@@ -59,6 +64,11 @@ async def get_user_context(
     cached = await cache.get(cache_key)
     if cached is not None:
         context = UserContext.model_validate_json(cached)
+        # Deactivation must bite immediately, exactly like expiry below. Checking
+        # is_active only on the cache-MISS branch left a deactivated user with up to
+        # five more minutes of full access whenever their context was already cached.
+        if not context.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
     else:
         resolved = await resolve_user_context(db, firebase_uid)
         if resolved is None:
@@ -105,7 +115,11 @@ async def get_verified_identity(
     if credentials is None or not credentials.credentials:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication token")
     try:
-        decoded = verifier.verify(credentials.credentials)
+        # Token verification is synchronous and CPU-bound (RSA signature check, plus a
+        # network fetch when Google's signing certs rotate). Called inline it ran ON the
+        # event loop, so a burst of junk tokens - each costing a full verification before
+        # being rejected - stalled every other request in the process.
+        decoded = await anyio.to_thread.run_sync(verifier.verify, credentials.credentials)
     except InvalidTokenError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authentication token") from exc
     firebase_uid = decoded.get("uid")

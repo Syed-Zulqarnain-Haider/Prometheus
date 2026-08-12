@@ -144,7 +144,12 @@ export function NotificationBell() {
 
   function activate(n: NotificationItem) {
     if (!n.read) markRead.mutate(n.id);
-    if (n.link) {
+    // Only an in-app path is ever navigated to. router.push() hands anything with a
+    // foreign origin to location.assign(), and a "javascript:" URL has an opaque origin -
+    // so an unchecked link would execute script in this authenticated session. The
+    // leading-slash test (rejecting "//host", which is protocol-relative) closes both
+    // that and the silent off-site redirect.
+    if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) {
       setOpen(false);
       router.push(n.link); // deep-link straight to where the change happened
     }

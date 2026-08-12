@@ -85,7 +85,7 @@ async def timeseries(
     context: CurrentUser,
     db: DbSession,
     redis: RedisClient,
-    metrics: Annotated[list[str], Query(min_length=1)],
+    metrics: Annotated[list[str], Query(min_length=1, max_length=25)],
     bucket: Bucket = "day",
 ) -> dict[str, Any]:
     qb = QueryBuilder(context)
@@ -113,7 +113,7 @@ async def breakdown(
     db: DbSession,
     redis: RedisClient,
     group_by: GroupBy,
-    metrics: Annotated[list[str], Query(min_length=1)],
+    metrics: Annotated[list[str], Query(min_length=1, max_length=25)],
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, Any]:
     qb = QueryBuilder(context)

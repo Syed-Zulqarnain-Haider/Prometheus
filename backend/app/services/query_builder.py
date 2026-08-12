@@ -115,6 +115,11 @@ class QueryBuilder:
     def _validate_metrics(self, metrics: list[str]) -> None:
         if not metrics:
             raise ValueError("at least one metric is required")
+        # Duplicates are not free: each repeat added another SUM() to the statement and
+        # produced a distinct cache key, so ?metrics=x&metrics=x&... let one caller
+        # inflate both query cost and the shared aggregate cache.
+        if len(set(metrics)) != len(metrics):
+            raise ValueError("metrics must be unique")
         forbidden = [m for m in metrics if m not in self.permitted_measures]
         if forbidden:
             raise ValueError(f"metrics not permitted or not additive: {forbidden}")

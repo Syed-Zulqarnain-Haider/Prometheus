@@ -30,6 +30,12 @@ export interface Conversation {
   last_message_preview: string | null;
   last_message_mine: boolean;
   unread: number;
+  /** Contact-request state: a direct thread is "pending" until the requested person
+   *  accepts; groups are always "accepted". */
+  status: "pending" | "accepted";
+  /** On a pending thread: true if the CALLER sent the request (waiting), false if the
+   *  caller received it (must accept or remove). */
+  requested_by_me: boolean;
 }
 
 export interface ConversationList {
@@ -147,6 +153,44 @@ export function useSendMessage(conversationId: string | null) {
     onSuccess: () => {
       // Refetch the thread immediately rather than waiting out the poll interval.
       queryClient.invalidateQueries({ queryKey: ["chat", "messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    },
+  });
+}
+
+export function useAcceptRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch<Conversation>(`/api/v1/chat/conversations/${conversationId}/accept`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+  });
+}
+
+/** Remove a direct contact: declines a received request, cancels a sent one, or
+ *  disconnects an existing contact. The thread and its history are deleted for both. */
+export function useRemoveConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch<void>(`/api/v1/chat/conversations/${conversationId}`, { method: "DELETE" }),
+    onSuccess: (_result, conversationId) => {
+      queryClient.removeQueries({ queryKey: ["chat", "messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    },
+  });
+}
+
+/** Leave a group you were added to. The thread survives for whoever remains. */
+export function useLeaveGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch<void>(`/api/v1/chat/conversations/${conversationId}/leave`, { method: "POST" }),
+    onSuccess: (_result, conversationId) => {
+      queryClient.removeQueries({ queryKey: ["chat", "messages", conversationId] });
       queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     },
   });

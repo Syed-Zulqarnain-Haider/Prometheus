@@ -72,6 +72,11 @@ class ConversationOut(BaseModel):
     last_message_preview: str | None
     last_message_mine: bool
     unread: int
+    # Contact-request state: a direct thread is "pending" until the requested person
+    # accepts; groups are always "accepted". requested_by_me tells the client which side
+    # of a pending request the caller is on (sent vs received).
+    status: Literal["pending", "accepted"] = "accepted"
+    requested_by_me: bool = False
 
 
 class ConversationList(BaseModel):

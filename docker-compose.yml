@@ -11,7 +11,9 @@ services:
       POSTGRES_PASSWORD: prometheus
       POSTGRES_DB: prometheus
     ports:
-      - "5432:5432"
+      # Loopback only: published on 0.0.0.0 this dev database (with a guessable
+      # password) was reachable by anyone on the same network as the developer.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +25,8 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      # Loopback only - this Redis holds cached user contexts and has no password.
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

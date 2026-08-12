@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     # pydantic-settings does not attempt to JSON-decode it). Use cors_origin_list.
     cors_origins: str = ""
 
+    # Is a reverse proxy of OURS in front of this app, rewriting X-Real-IP /
+    # X-Forwarded-For? Only then may those headers be believed. Default false: reached
+    # directly, any caller could otherwise forge the client IP written into the
+    # append-only audit_log, which is the field that says WHO did something. Set true on
+    # the nginx deployment (docs/nginx-prometheus.conf), false for a direct-to-app URL.
+    trusted_proxy: bool = False
+
     @property
     def cors_origin_list(self) -> list[str]:
         """Parsed list of exact CORS origins (never wildcards)."""

@@ -32,6 +32,7 @@ from app.api.v1 import reports as reports_routes
 from app.api.v1 import views as views_routes
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.rate_limit import pre_auth_rate_limit_middleware
 from app.core.redis import redis_client
 from app.core.security_headers import build_security_headers_middleware
 from app.services.cache_warm import warm_overview_cache
@@ -95,13 +96,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await scheduler_task
 
 
-app = FastAPI(title=settings.project_name, lifespan=lifespan)
+app = FastAPI(
+    title=settings.project_name,
+    lifespan=lifespan,
+    # Interactive docs and the OpenAPI document are development tools. In production they
+    # would hand any caller the complete route inventory - admin endpoints, parameter
+    # names, response schemas, the metric groups RBAC is built on - for free.
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+)
 
 # Session factory used by the audit middleware (overridable in tests).
 app.state.sessionmaker = AsyncSessionLocal
 
 # Security headers on every response (HSTS only in production, where TLS exists).
 app.middleware("http")(build_security_headers_middleware(enable_hsts=_is_production))
+
+# Pre-auth ceiling per source address. Registered here (not as a route dependency) so it
+# runs BEFORE token verification - the cost it exists to bound.
+app.middleware("http")(pre_auth_rate_limit_middleware)
 
 # Audit api_query for data routes (added before CORS so it wraps the response).
 app.middleware("http")(audit_query_middleware)

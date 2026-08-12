@@ -32,6 +32,11 @@ class Announcement(Base):
     audience_roles: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'")
     )
+    # Optional call-to-action rendered as a pill button beside the message in the ticker.
+    # The URL is validated server-side to relative paths or https:// only - a stored
+    # "javascript:" URL would be XSS with an admin as the author.
+    cta_label: Mapped[str | None] = mapped_column(Text)
+    cta_url: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[uuid.UUID | None] = mapped_column(

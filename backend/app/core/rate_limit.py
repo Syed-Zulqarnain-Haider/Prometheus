@@ -10,12 +10,18 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.api.deps import CurrentUser, VerifiedUser
+from app.core.http import client_ip
 from app.core.redis import get_redis
 
 RATE_LIMIT = 300
@@ -23,6 +29,12 @@ EXPORT_RATE_LIMIT = 10
 SYNC_RATE_LIMIT = 3
 ACCESS_REQUEST_RATE_LIMIT = 5
 WINDOW_SECONDS = 60
+# Pre-auth ceiling, keyed on the source address. Every other limiter in this module is
+# keyed on an identity, so it only engages AFTER a token has been verified - which left
+# unauthenticated traffic (each request costing a full RSA signature verification)
+# entirely unbounded. Set well above what a real user's tab produces so a person behind
+# a shared NAT is never the one who trips it.
+PRE_AUTH_RATE_LIMIT = 600
 
 
 async def _enforce(redis: Redis, key: str, limit: int) -> None:
@@ -42,6 +54,39 @@ async def _enforce(redis: Redis, key: str, limit: int) -> None:
         )
     await redis.zadd(key, {f"{now:.6f}-{uuid.uuid4().hex}": now})
     await redis.expire(key, WINDOW_SECONDS)
+
+
+async def enforce_pre_auth_rate_limit(request: Request, redis: Redis) -> None:
+    """Cap requests per source address BEFORE authentication is attempted.
+
+    Called from middleware rather than as a route dependency, because a route
+    dependency would run after ``CurrentUser`` has already paid for token
+    verification - which is the cost this exists to bound.
+    """
+    source = client_ip(request) or "unknown"
+    await _enforce(redis, f"rl:ip:{source}", PRE_AUTH_RATE_LIMIT)
+
+
+async def pre_auth_rate_limit_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Apply the pre-auth ceiling to API traffic, and fail OPEN if Redis is down.
+
+    A cache outage must not take the dashboard with it: the limiter is a safety valve,
+    not an authorization control, and everything behind it still authenticates.
+    """
+    if request.url.path.startswith("/api/"):
+        try:
+            await enforce_pre_auth_rate_limit(request, get_redis())
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": {"code": "rate_limited", "message": str(exc.detail)}},
+                headers=exc.headers,
+            )
+        except RedisError:
+            pass
+    return await call_next(request)
 
 
 async def enforce_rate_limit(

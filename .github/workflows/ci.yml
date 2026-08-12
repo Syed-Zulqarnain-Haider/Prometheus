@@ -3,6 +3,10 @@ name: CI
 # Branch model: work lands on `dev`, and `dev` is merged into `production` once a change is
 # finalised. Both are gated here - a branch that CI does not watch is a branch where nothing
 # is checked. `main` stays listed until it is retired, so the old flow keeps its gate too.
+# Least privilege: nothing in this workflow writes to the repository.
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [production, dev, main]

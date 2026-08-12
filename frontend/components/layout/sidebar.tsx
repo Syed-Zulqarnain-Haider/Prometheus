@@ -89,7 +89,12 @@ export function Sidebar() {
   // arrives while this tab is unfocused. Permission is only requested after the user has
   // engaged with chat once (clicked the entry), never on first page load.
   const { data: chatState } = useConversations();
-  const unreadTotal = chatState?.unread_total ?? 0;
+  // Pending chat requests you RECEIVED count toward the badge: a request carries no
+  // messages yet, so without this it would be invisible until you stumbled onto /chat.
+  const pendingRequests = (chatState?.conversations ?? []).filter(
+    (conversation) => conversation.status === "pending" && !conversation.requested_by_me,
+  ).length;
+  const unreadTotal = (chatState?.unread_total ?? 0) + pendingRequests;
   // null until the FIRST real payload arrives: pre-existing unread found on page load is
   // a baseline, not a new arrival, so it must never fire the popup.
   const previousUnread = useRef<number | null>(null);
@@ -105,7 +110,7 @@ export function Sidebar() {
     if (unreadTotal <= prior || document.hasFocus()) return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     const notification = new Notification("New message", {
-      body: "You have a new chat message in Prometheus.",
+      body: "A new chat message or request is waiting in Prometheus.",
       tag: "prometheus-chat", // replaces rather than stacks
     });
     notification.onclick = () => {

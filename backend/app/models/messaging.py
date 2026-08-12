@@ -37,6 +37,13 @@ class Conversation(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+    # Contact-request flow (owner decision): a NEW direct thread starts "pending" and no
+    # one can message in it until the requested person accepts. Groups are always
+    # "accepted", and the server_default grandfathers every pre-existing thread in.
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'accepted'"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

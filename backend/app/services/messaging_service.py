@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,7 +68,11 @@ async def get_or_create_direct(
     if existing is not None:
         return existing, False
 
-    conversation = Conversation(kind="direct", direct_key=key, created_by=me)
+    # A brand-new direct thread is a REQUEST: nobody can message until the other person
+    # accepts. (Pre-existing threads were grandfathered to "accepted" by the migration.)
+    conversation = Conversation(
+        kind="direct", direct_key=key, created_by=me, status="pending", requested_by=me
+    )
     db.add(conversation)
     try:
         await db.flush()  # assign the id before adding participants
@@ -223,6 +227,8 @@ async def list_conversations(db: AsyncSession, redis: Redis, me: uuid.UUID) -> C
                 last_message_preview=preview,
                 last_message_mine=last_mine,
                 unread=unread,
+                status="pending" if conversation.status == "pending" else "accepted",
+                requested_by_me=conversation.requested_by == me,
             )
         )
     return ConversationList(conversations=out, unread_total=unread_total)
@@ -321,6 +327,15 @@ async def send_message(
 ) -> MessageOut:
     await _require_participant(db, conversation_id, me)
 
+    # The contact-request gate: a pending direct thread carries no messages in either
+    # direction until it is accepted. 403, not 404 - the caller IS a participant, the
+    # thread just is not open yet.
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is not None and conversation.status != "accepted":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "This chat request has not been accepted yet"
+        )
+
     # Mentions may only point INTO the thread: anything else is dropped silently rather
     # than becoming a side channel for pinging arbitrary users.
     if mentions:
@@ -370,6 +385,103 @@ async def send_message(
         mine=True,
         receipt="sent",
     )
+
+
+async def get_conversation(db: AsyncSession, conversation_id: uuid.UUID) -> Conversation | None:
+    """Fetch a thread row (callers do their own membership check first)."""
+    return await db.get(Conversation, conversation_id)
+
+
+async def accept_direct(db: AsyncSession, conversation_id: uuid.UUID, me: uuid.UUID) -> None:
+    """Accept a pending chat request. Only the person who RECEIVED it can accept."""
+    await _require_participant(db, conversation_id, me)
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None or conversation.kind != "direct":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    if conversation.status == "accepted":
+        return  # idempotent - accepting twice is not an error
+    if conversation.requested_by == me:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Waiting for the other person to accept your request"
+        )
+    conversation.status = "accepted"
+    await db.commit()
+
+
+async def remove_direct(db: AsyncSession, conversation_id: uuid.UUID, me: uuid.UUID) -> None:
+    """Remove a direct thread: declines a received request, cancels a sent one, or
+    disconnects an accepted contact.
+
+    A thread that never carried a message is hard-deleted, which frees its unique
+    ``direct_key`` so the pair can start fresh later. A thread WITH history is not:
+    one participant must never be able to erase the other's messages and the oversight
+    record along with them - every other deletion on this platform is non-destructive,
+    and this is the one path a user could otherwise use to destroy evidence. There, the
+    caller simply detaches; the conversation is removed once nobody is left in it.
+    """
+    await _require_participant(db, conversation_id, me)
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None or conversation.kind != "direct":
+        # Groups leave via leave_conversation(); this path is for direct contacts.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    has_history = (
+        await db.execute(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.conversation_id == conversation_id)
+        )
+    ).scalar_one()
+    if not has_history:
+        await db.delete(conversation)
+        await db.commit()
+        return
+
+    await db.execute(
+        delete(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == me,
+        )
+    )
+    remaining = (
+        await db.execute(
+            select(func.count())
+            .select_from(ConversationParticipant)
+            .where(ConversationParticipant.conversation_id == conversation_id)
+        )
+    ).scalar_one()
+    if not remaining:
+        # Both sides have walked away - nothing is being hidden from anyone now.
+        await db.delete(conversation)
+    await db.commit()
+
+
+async def leave_conversation(db: AsyncSession, conversation_id: uuid.UUID, me: uuid.UUID) -> None:
+    """Leave a group. Without this there was no way out of a group someone added you to.
+
+    The thread and its history survive for the members who remain (and for oversight);
+    only when the last member leaves is it removed.
+    """
+    await _require_participant(db, conversation_id, me)
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None or conversation.kind != "group":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    await db.execute(
+        delete(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == me,
+        )
+    )
+    remaining = (
+        await db.execute(
+            select(func.count())
+            .select_from(ConversationParticipant)
+            .where(ConversationParticipant.conversation_id == conversation_id)
+        )
+    ).scalar_one()
+    if not remaining:
+        await db.delete(conversation)
+    await db.commit()
 
 
 async def mark_read(db: AsyncSession, conversation_id: uuid.UUID, me: uuid.UUID) -> datetime:
@@ -481,6 +593,7 @@ async def admin_list_conversations(db: AsyncSession, redis: Redis) -> list[dict[
                 "last_message_preview": None,
                 "last_message_mine": False,
                 "unread": 0,
+                "status": "pending" if conversation.status == "pending" else "accepted",
                 "message_count": int(counts.get(conversation.id, 0)),
             }
         )

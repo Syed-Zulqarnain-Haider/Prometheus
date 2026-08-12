@@ -22,9 +22,43 @@ interface Announcement {
   body: string;
   level: "info" | "success" | "warning" | "critical";
   audience_roles: string[];
+  cta_label: string | null;
+  cta_url: string | null;
   is_active: boolean;
   expires_at: string | null;
   created_at: string;
+}
+
+/** Second line of defence behind the server's allow-list: only an in-app path or an
+ *  https:// URL is ever turned into an href, so a javascript:/data: URL that somehow
+ *  reached the database still cannot be clicked into execution. */
+function safeHref(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  if (url.startsWith("https://")) return url;
+  return null;
+}
+
+/** One message in the scrolling track: the text, an optional pill button, and the
+ *  small square separator that divides it from the next. */
+function TickerItem({ announcement }: { announcement: Announcement }) {
+  const href = safeHref(announcement.cta_url);
+  const external = href?.startsWith("https://") ?? false;
+  return (
+    <span className="flex shrink-0 items-center gap-3 pr-4">
+      <span className="whitespace-nowrap font-medium">{announcement.body}</span>
+      {href && (
+        <a
+          href={href}
+          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          className="shrink-0 whitespace-nowrap rounded-full border border-current/40 bg-[color:var(--color-bg-card)] px-3 py-0.5 text-xs font-semibold transition-transform hover:scale-105"
+        >
+          {announcement.cta_label ?? "Learn more"}
+        </a>
+      )}
+      <span aria-hidden className="ml-1 h-1.5 w-1.5 shrink-0 rounded-[1px] bg-current opacity-40" />
+    </span>
+  );
 }
 
 const ROLES = ["admin", "executive", "pod_owner", "marketing", "finance", "viewer"] as const;
@@ -57,17 +91,27 @@ function Composer() {
   const [body, setBody] = useState("");
   const [level, setLevel] = useState<Announcement["level"]>("info");
   const [roles, setRoles] = useState<string[]>([]);
+  const [ctaLabel, setCtaLabel] = useState("");
+  const [ctaUrl, setCtaUrl] = useState("");
 
   const publish = useMutation({
     mutationFn: () =>
       apiFetch<Announcement>("/api/v1/announcements", {
         method: "POST",
-        body: JSON.stringify({ body: body.trim(), level, audience_roles: roles }),
+        body: JSON.stringify({
+          body: body.trim(),
+          level,
+          audience_roles: roles,
+          cta_label: ctaLabel.trim() || null,
+          cta_url: ctaUrl.trim() || null,
+        }),
       }),
     onSuccess: () => {
       setBody("");
       setRoles([]);
       setLevel("info");
+      setCtaLabel("");
+      setCtaUrl("");
       queryClient.invalidateQueries({ queryKey: ["announcements"] });
     },
   });
@@ -128,6 +172,27 @@ function Composer() {
           ))}
         </div>
       </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Button (optional)
+        </p>
+        <div className="flex gap-1">
+          <input
+            value={ctaLabel}
+            onChange={(event) => setCtaLabel(event.target.value)}
+            placeholder="Learn how"
+            maxLength={40}
+            className="w-28 shrink-0 rounded-[var(--radius-inner)] border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+          <input
+            value={ctaUrl}
+            onChange={(event) => setCtaUrl(event.target.value)}
+            placeholder="/reports or https://…"
+            maxLength={500}
+            className="min-w-0 flex-1 rounded-[var(--radius-inner)] border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
       <Button
         size="sm"
         className="w-full"
@@ -149,17 +214,24 @@ export function AnnouncementBar() {
   const { data } = useActiveAnnouncements();
   const queryClient = useQueryClient();
 
-  // Per-user dismissal, localStorage, read post-hydration only (the SSR rule).
+  // Dismissals are stored PER USER (keyed by id, like the nav order): on a shared
+  // workstation an unscoped key let one person's dismissal hide a role-targeted -
+  // possibly critical - announcement from the colleague it was actually aimed at.
+  const dismissKey = me ? `${DISMISS_KEY}:${me.user_id}` : null;
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    if (!dismissKey) return;
     try {
-      setDismissed(JSON.parse(localStorage.getItem(DISMISS_KEY) ?? "[]") as string[]);
+      const parsed: unknown = JSON.parse(localStorage.getItem(dismissKey) ?? "[]");
+      // A stored non-array parses fine, then blanks the app on .includes() during
+      // render - shape-check rather than trusting the cast.
+      setDismissed(Array.isArray(parsed) ? (parsed as string[]) : []);
     } catch {
       setDismissed([]);
     }
     setReady(true);
-  }, []);
+  }, [dismissKey]);
 
   const retire = useMutation({
     mutationFn: (id: string) =>
@@ -167,18 +239,22 @@ export function AnnouncementBar() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["announcements"] }),
   });
 
-  function dismiss(id: string): void {
-    const next = [...dismissed, id].slice(-50); // cap so the key cannot grow forever
+  function dismissAll(ids: string[]): void {
+    const next = [...dismissed, ...ids].slice(-50); // cap so the key cannot grow forever
     setDismissed(next);
+    if (!dismissKey) return;
     try {
-      localStorage.setItem(DISMISS_KEY, JSON.stringify(next));
+      localStorage.setItem(dismissKey, JSON.stringify(next));
     } catch {
       /* storage blocked - dismissal lasts the session */
     }
   }
 
   const visible = ready ? (data ?? []).filter((entry) => !dismissed.includes(entry.id)) : [];
-  const bar = visible[0]; // newest first from the API; one at a time keeps it a banner, not a feed
+  // EVERY active announcement rides one continuous ticker (the owner's reference), so a
+  // second message never has to wait for the first to be dismissed. The newest one sets
+  // the bar's colour.
+  const bar = visible[0];
 
   // The banner is fixed to the viewport top, which is where the app header lives. While
   // one is showing, pad <body> by the banner's real rendered height so the whole app
@@ -201,17 +277,22 @@ export function AnnouncementBar() {
     };
   }, [barId]);
 
-  // The owner's attention loop: the message scrolls left-to-right as a looping ticker,
-  // and every few seconds it deals itself onto the split-flap board instead, forever
-  // alternating between the two.
+  // The attention loop: the ticker scrolls continuously, and every so often it hands the
+  // bar to the split-flap board for one headline deal before scrolling again.
   const [phase, setPhase] = useState<"marquee" | "flap">("marquee");
+  const trackLength = visible.reduce((total, entry) => total + entry.body.length + 12, 0);
   useEffect(() => {
     if (!barId) return;
     setPhase("marquee");
-    const timer = window.setInterval(() => {
-      setPhase((current) => (current === "marquee" ? "flap" : "marquee"));
-    }, 8000);
-    return () => window.clearInterval(timer);
+    let timer = 0;
+    const swap = (next: "marquee" | "flap") => {
+      setPhase(next);
+      // The board gets a short slot; the ticker gets long enough to read a full lap.
+      timer = window.setTimeout(() => swap(next === "marquee" ? "flap" : "marquee"),
+        next === "flap" ? 7000 : 16000);
+    };
+    timer = window.setTimeout(() => swap("flap"), 16000);
+    return () => window.clearTimeout(timer);
   }, [barId]);
 
   // Portals need the DOM; on the server (and before hydration) render nothing.
@@ -229,6 +310,8 @@ export function AnnouncementBar() {
           to { transform: translateX(0); }
         }
         .announce-marquee { animation: announce-marquee linear infinite; }
+        /* Hovering pauses the scroll so a CTA can actually be clicked. */
+        .announce-track:hover .announce-marquee { animation-play-state: paused; }
         @media (prefers-reduced-motion: reduce) {
           .announce-marquee { animation: none; }
         }
@@ -244,7 +327,7 @@ export function AnnouncementBar() {
           style={{ animation: "announce-in var(--dur, 200ms) var(--ease, ease-out)" }}
         >
           <Megaphone className="h-4 w-4 shrink-0" />
-          <div className="min-w-0 flex-1 overflow-hidden" title={bar.body}>
+          <div className="announce-track min-w-0 flex-1 overflow-hidden">
             {phase === "flap" ? (
               <SplitFlapText
                 words={[bar.body.length > 42 ? `${bar.body.slice(0, 42)}…` : bar.body]}
@@ -259,25 +342,26 @@ export function AnnouncementBar() {
                 fontSize={12}
               />
             ) : (
-              // Two copies with a fixed gap make the -50% -> 0 slide a seamless
-              // left-to-right loop; reduced-motion shows the text statically.
+              // Two identical copies make the -50% -> 0 slide seamless: as the first
+              // finishes leaving, the second is exactly where it started.
               <div
-                className="announce-marquee flex w-max items-center font-medium"
-                style={{ animationDuration: `${Math.max(14, bar.body.length * 0.45)}s` }}
+                className="announce-marquee flex w-max items-center"
+                style={{ animationDuration: `${Math.max(20, trackLength * 0.42)}s` }}
               >
-                <span className="whitespace-nowrap pr-16">{bar.body}</span>
-                <span aria-hidden className="whitespace-nowrap pr-16">
-                  {bar.body}
-                </span>
+                {[0, 1].map((copy) => (
+                  <div key={copy} aria-hidden={copy === 1} className="flex items-center">
+                    {visible.map((entry) => (
+                      <TickerItem key={`${copy}-${entry.id}`} announcement={entry} />
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          {visible.length > 1 && (
-            <span className="shrink-0 text-xs opacity-70">+{visible.length - 1} more</span>
-          )}
           {isAdmin && (
             <button
               type="button"
+              title="Retire the newest announcement for everyone"
               className="shrink-0 text-xs underline opacity-80 hover:opacity-100"
               disabled={retire.isPending}
               onClick={() => retire.mutate(bar.id)}
@@ -287,9 +371,9 @@ export function AnnouncementBar() {
           )}
           <button
             type="button"
-            aria-label="Dismiss announcement"
+            aria-label="Dismiss announcements"
             className="shrink-0 rounded p-1 opacity-70 transition-opacity hover:opacity-100"
-            onClick={() => dismiss(bar.id)}
+            onClick={() => dismissAll(visible.map((entry) => entry.id))}
           >
             <X className="h-4 w-4" />
           </button>

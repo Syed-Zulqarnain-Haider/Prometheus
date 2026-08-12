@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from starlette.requests import Request
 
+from app.core.config import settings
+
 
 def client_ip(request: Request) -> str | None:
     """Client IP as our own edge saw it - not as the caller claims it is.
@@ -21,11 +23,23 @@ def client_ip(request: Request) -> str | None:
     every audit row simply by sending the header - forging the one field that says who did
     something. We prefer ``X-Real-IP`` and fall back to the last forwarded hop.
 
+    Both rules assume our own proxy actually rewrote the headers. When the app is
+    reached DIRECTLY (a Cloud Run URL, a port-forward, anything without the nginx in
+    front), nothing overwrites them and every caller can stamp an arbitrary address on
+    the audit row that records what they did. So header trust is OPT-IN via
+    ``TRUSTED_PROXY``: off by default, on only where the deployment really does put a
+    rewriting proxy in front. Off, we use the socket's peer address, which cannot be
+    forged.
+
     NOTE: "last hop" is correct for exactly one reverse proxy, which is what
     ``docs/nginx-prometheus.conf`` deploys. Putting a CDN in front (Cloudflare and the
     like) would make the last hop the CDN's address; that setup needs an explicit
     trusted-proxy count instead of this rule.
     """
+    peer = request.client.host if request.client else None
+    if not settings.trusted_proxy:
+        return peer
+
     real = request.headers.get("x-real-ip", "").strip()
     if real:
         return real
@@ -36,4 +50,4 @@ def client_ip(request: Request) -> str | None:
         if hops:
             return hops[-1]
 
-    return request.client.host if request.client else None
+    return peer

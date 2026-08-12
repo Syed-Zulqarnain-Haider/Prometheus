@@ -38,9 +38,14 @@ export function CpiVolumeScatter({ filters }: { filters: Filters }) {
     grid: { top: 16, bottom: 40, left: 8, right: 16, containLabel: true },
     tooltip: {
       trigger: "item",
+      // richText, not HTML: ECharts assigns an HTML formatter's return value straight to
+      // innerHTML, and the app name here comes from upstream store/attribution metadata,
+      // not from us. A name carrying markup would run in every analyst's session; in
+      // richText mode the string is drawn as text and can never be markup.
+      renderMode: "richText",
       formatter: (p: unknown) => {
         const point = (p as { data: ScatterPoint }).data;
-        return `${point.name}<br/>CPI ${formatUSD(point.value[1], { digits: 2 })}<br/>Installs ${formatCompact(point.value[0])}`;
+        return `${point.name}\nCPI ${formatUSD(point.value[1], { digits: 2 })}\nInstalls ${formatCompact(point.value[0])}`;
       },
     },
     xAxis: {
