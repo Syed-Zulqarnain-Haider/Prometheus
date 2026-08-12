@@ -1,11 +1,19 @@
 "use client";
 
-import { endOfMonth, endOfYear, format, startOfMonth, startOfYear } from "date-fns";
+import {
+  endOfMonth,
+  endOfYear,
+  format,
+  getDayOfYear,
+  getDaysInYear,
+  startOfMonth,
+  startOfYear,
+} from "date-fns";
 import { useMemo } from "react";
 
 import { Chart } from "@/components/charts/chart";
 import { ChartCard } from "@/components/charts/chart-card";
-import { useSummary, useTargets } from "@/lib/api-hooks";
+import { usePacing, useSummary, useTargets } from "@/lib/api-hooks";
 import { token } from "@/lib/chart-helpers";
 import type { EChartsOption } from "@/lib/echarts";
 import { defaultFilters, type Filters } from "@/lib/filters";
@@ -34,9 +42,16 @@ function Figure({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** Revenue-progress donut for one period. Shows actual ÷ admin-set target (scoped to
+/** Revenue-progress donut for one period. Shows actual / admin-set target (scoped to
  *  the caller, from the summary API) once that period's target exists; otherwise an
- *  honest "target not set" state - progress is never faked. */
+ *  honest "target not set" state - progress is never faked.
+ *
+ *  Both cards render the SAME five rows (revenue, remaining, date, projection, pace) so
+ *  the yearly and monthly cards are identical in size - the earlier version gave the
+ *  monthly card two extra rows and the pair sat visibly lopsided on the Overview. The
+ *  monthly projection comes from the pacing service; the yearly one is a linear
+ *  run-rate (YTD / days elapsed x days in year), labeled as such.
+ */
 export function RevenueProgress({ period }: { period: Period }) {
   const now = useMemo(() => new Date(), []);
   const isYear = period === "year";
@@ -46,6 +61,8 @@ export function RevenueProgress({ period }: { period: Period }) {
 
   const { data: targets } = useTargets(now.getFullYear());
   const summary = useSummary(filters);
+  // Forward-looking pacing (projection + on/off-pace) for the monthly card.
+  const pacing = usePacing(now.getFullYear(), now.getMonth() + 1);
 
   const target = isYear
     ? (targets?.annual?.target_usd ?? null)
@@ -62,6 +79,16 @@ export function RevenueProgress({ period }: { period: Period }) {
   const achieved = targetSet ? Math.min(actual, target as number) : 0;
   const remaining = targetSet ? Math.max((target as number) - actual, 0) : 1;
   const ringColor = exceeded ? token("--color-positive") : token("--chart-grad-from");
+
+  // Projection + pace, one pair of values per period so both cards carry five rows.
+  // Monthly comes from the pacing service; yearly is a linear run-rate, and days-elapsed
+  // is never 0 (Jan 1 = day 1), so the division is safe.
+  const projected = isYear
+    ? (summary.data ? (actual / getDayOfYear(now)) * getDaysInYear(now) : null)
+    : (pacing.data?.projected_usd ?? null);
+  const pacePct = isYear
+    ? (targetSet && projected != null ? projected / (target as number) : null)
+    : (pacing.data?.pace_pct ?? null);
 
   const option: EChartsOption = {
     series: [
@@ -86,9 +113,10 @@ export function RevenueProgress({ period }: { period: Period }) {
 
   return (
     <ChartCard title={title}>
-      {/* Reference layout: ring on the LEFT, three labeled rows on the RIGHT.
-          Container-responsive (flex-wrap) so the rows never clip in a narrow cell. */}
-      <div className="flex flex-wrap items-center gap-6">
+      {/* Reference layout: ring on the LEFT, labeled rows on the RIGHT. h-full so the
+          card stretches to its grid cell instead of floating at its content height -
+          uneven card bottoms were what made the row read as badly spaced. */}
+      <div className="flex h-full flex-wrap items-center gap-6">
         <div className="relative h-[180px] w-[180px] shrink-0">
           <Chart option={option} height={180} loading={summary.isLoading && targetSet} />
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
@@ -122,9 +150,30 @@ export function RevenueProgress({ period }: { period: Period }) {
           />
           <Figure
             label="Remaining to Target"
-            value={targetSet ? formatUSD(remaining, { compact: true }) : "-"}
+            value={targetSet ? formatUSD(remaining, { compact: true }) : ""}
           />
           <Figure label="Target Date" value={targetDate} />
+          <Figure
+            label={isYear ? "Projected (run-rate)" : "Projected (month-end)"}
+            value={projected != null ? formatUSD(projected, { compact: true }) : "-"}
+          />
+          <Figure
+            label="Pace vs plan"
+            value={
+              pacePct != null ? (
+                <span
+                  style={{
+                    color: pacePct >= 1 ? "var(--color-positive)" : "var(--color-amber)",
+                  }}
+                >
+                  {formatPercent(Math.abs(pacePct - 1))}
+                  {pacePct >= 1 ? " ahead" : " behind"}
+                </span>
+              ) : (
+                "-"
+              )
+            }
+          />
           {!targetSet && (
             <p className="text-[11px] text-muted-foreground">
               Set the {period}ly target in Admin to track progress.

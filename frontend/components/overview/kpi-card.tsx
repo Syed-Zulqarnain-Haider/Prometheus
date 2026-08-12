@@ -33,6 +33,7 @@ export function KpiCard({
   previous,
   spark,
   loading,
+  description,
 }: {
   label: string;
   value: string;
@@ -40,9 +41,10 @@ export function KpiCard({
   previous?: number | null;
   spark?: number[];
   loading?: boolean;
+  description?: string;
 }) {
   return (
-    <Card>
+    <Card title={description}>
       <CardContent className="pt-4">
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {label}

@@ -1027,3 +1027,20 @@ export function useSendDigest() {
     mutationFn: () => apiFetch<DigestResult>("/api/v1/admin/digest/send", { method: "POST" }),
   });
 }
+
+// ── Pacing (MIRROR SCAFFOLDING - the deployed api-hooks.ts carries the real hook; shape
+// reconstructed from the deployed revenue-progress card. Never pull this file to server.)
+export interface PacingOut {
+  projected_usd: number | null;
+  pace_pct: number | null;
+}
+
+export function usePacing(year: number, month: number) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["pacing", year, month],
+    queryFn: () => apiFetch<PacingOut>(`/api/v1/metrics/pacing?year=${year}&month=${month}`),
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+}
