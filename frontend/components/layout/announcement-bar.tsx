@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { SplitFlapText } from "@/components/effects/split-flap-text";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiFetch } from "@/lib/api-client";
@@ -251,6 +250,9 @@ export function AnnouncementBar() {
   }
 
   const visible = ready ? (data ?? []).filter((entry) => !dismissed.includes(entry.id)) : [];
+  // Scroll duration scales with how much text is on the track, so a long tape does not
+  // whip past and a short one does not crawl.
+  const trackLength = visible.reduce((total, entry) => total + entry.body.length + 12, 0);
   // EVERY active announcement rides one continuous ticker (the owner's reference), so a
   // second message never has to wait for the first to be dismissed. The newest one sets
   // the bar's colour.
@@ -275,24 +277,6 @@ export function AnnouncementBar() {
       observer.disconnect();
       document.body.style.paddingTop = "";
     };
-  }, [barId]);
-
-  // The attention loop: the ticker scrolls continuously, and every so often it hands the
-  // bar to the split-flap board for one headline deal before scrolling again.
-  const [phase, setPhase] = useState<"marquee" | "flap">("marquee");
-  const trackLength = visible.reduce((total, entry) => total + entry.body.length + 12, 0);
-  useEffect(() => {
-    if (!barId) return;
-    setPhase("marquee");
-    let timer = 0;
-    const swap = (next: "marquee" | "flap") => {
-      setPhase(next);
-      // The board gets a short slot; the ticker gets long enough to read a full lap.
-      timer = window.setTimeout(() => swap(next === "marquee" ? "flap" : "marquee"),
-        next === "flap" ? 7000 : 16000);
-    };
-    timer = window.setTimeout(() => swap("flap"), 16000);
-    return () => window.clearTimeout(timer);
   }, [barId]);
 
   // Portals need the DOM; on the server (and before hydration) render nothing.
@@ -328,20 +312,7 @@ export function AnnouncementBar() {
         >
           <Megaphone className="h-4 w-4 shrink-0" />
           <div className="announce-track min-w-0 flex-1 overflow-hidden">
-            {phase === "flap" ? (
-              <SplitFlapText
-                words={[bar.body.length > 42 ? `${bar.body.slice(0, 42)}…` : bar.body]}
-                flipDuration={0.12}
-                stagger={0.06}
-                charset="alphanumeric"
-                flipsPerChar={8}
-                tileColor="#111827"
-                textColor="#f8fafc"
-                tileRadius={4}
-                gap={3}
-                fontSize={12}
-              />
-            ) : (
+            {(
               // Two identical copies make the -50% -> 0 slide seamless: as the first
               // finishes leaving, the second is exactly where it started.
               <div
