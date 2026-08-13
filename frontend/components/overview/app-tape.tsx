@@ -21,7 +21,7 @@ import { useFilters } from "@/lib/use-filters";
  * -50% -> 0), which the compositor runs off the main thread - no rAF loop, no jank
  * while the charts below are rendering. */
 
-const TAPE_SIZE = 14;
+const TAPE_SIZE = 20;
 const PX_PER_SECOND = 42; // steady reading pace, independent of how many items there are
 
 interface TapeItem {
@@ -32,15 +32,12 @@ interface TapeItem {
   pct: number | null;
 }
 
-/** A short, tape-style ticker from the app name: uppercase, no spaces, ~10 chars. */
+/** The app's own name, uppercased for the tape look. Initials were unreadable - a tape
+ *  is only useful if you can tell WHICH app you are looking at. */
 function symbolOf(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9 ]/g, "").trim().toUpperCase();
+  const cleaned = name.trim().toUpperCase();
   if (!cleaned) return "APP";
-  const words = cleaned.split(/\s+/);
-  if (words.length === 1) return words[0].slice(0, 10);
-  // Multi-word: initials if that reads well, else the first word.
-  const initials = words.map((word) => word[0]).join("");
-  return (initials.length >= 3 ? initials : words[0]).slice(0, 10);
+  return cleaned.length > 22 ? `${cleaned.slice(0, 21)}\u2026` : cleaned;
 }
 
 function num(value: unknown): number | null {
@@ -136,8 +133,8 @@ export function AppTape() {
       `}</style>
 
       {/* Control cell - fixed, the tape slides past it. */}
-      <div className="flex shrink-0 items-center gap-2 border-r border-[color:var(--color-border)] bg-[#131317] px-3 py-1.5">
-        <span className="font-mono text-[10px] font-bold tracking-[0.18em] text-[color:var(--color-amber)]">
+      <div className="flex shrink-0 items-center gap-2 border-r border-[color:var(--color-border)] bg-[#131317] px-3.5 py-2.5">
+        <span className="font-mono text-[11px] font-bold tracking-[0.18em] text-[color:var(--color-amber)]">
           TAPE
         </span>
         <button
@@ -173,7 +170,7 @@ export function AppTape() {
                 return (
                   <div
                     key={`${copy}-${item.key}`}
-                    className="flex shrink-0 items-center gap-2 whitespace-nowrap border-r border-[color:var(--color-border)] px-3 py-1.5 font-mono text-[11px] tabular-nums"
+                    className="flex shrink-0 items-center gap-2.5 whitespace-nowrap border-r border-[color:var(--color-border)] px-4 py-2.5 font-mono text-[13px] tabular-nums"
                   >
                     <span className="font-bold tracking-wide text-[color:var(--color-amber)]">
                       {item.symbol}
@@ -193,7 +190,7 @@ export function AppTape() {
                         {(item.pct * 100).toFixed(2)}%
                       </span>
                     )}
-                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-70">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground opacity-70">
                       {item.delta === null ? "NEW" : up ? "UP" : down ? "DOWN" : "FLAT"}
                     </span>
                   </div>
