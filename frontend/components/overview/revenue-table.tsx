@@ -35,8 +35,8 @@ interface ColumnDef {
 // Left → right, mapped to the metric registry's existing fields. Derived columns
 // (Gross Rev, Net Rev, ROAS) are computed per row from summed, permitted components.
 const COLUMNS: ColumnDef[] = [
-  { id: "publisher", label: "Publisher", requires: [], align: "left", fmt: "text",
-    value: (r) => (r.publisher == null ? "-" : String(r.publisher)) },
+  { id: "hou", label: "HOU", requires: [], align: "left", fmt: "text",
+    value: (r) => (r.hou == null ? "-" : String(r.hou)) },
   { id: "game", label: "Game", requires: [], align: "left", fmt: "text",
     value: (r) => String(r.app_name ?? r.canonical_key ?? "-") },
   { id: "installs", label: "Installs", requires: ["store_total_installs"], align: "right", fmt: "count",
