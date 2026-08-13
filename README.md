@@ -756,3 +756,75 @@ Verify with `docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Config}}
 
 *Secrets never belong in this repo. Use `.env*` files locally (gitignored) and Secret
 Manager / Vercel env vars in production.*
+
+## Recent additions (2026-08-13)
+
+### Chat contact requests
+A new direct thread starts as a **request**, not an open channel. `conversations.status`
+(`pending` | `accepted`, default `accepted` so pre-existing threads are grandfathered) plus
+`conversations.requested_by` record it. `send_message` refuses a pending thread with 403
+(the caller IS a participant, so 404 would be wrong). Only the recipient can accept
+(`POST /chat/conversations/{id}/accept`); the requester gets 403 if they try. Removal
+(`DELETE /chat/conversations/{id}`) works from either side and covers decline, cancel and
+disconnect. Removal hard-deletes ONLY a thread with no messages (freeing the unique
+`direct_key` so the pair can start over); a thread with history instead detaches the caller
+and is deleted only when nobody remains - one participant must never be able to erase the
+other's messages or the oversight record. `POST /chat/conversations/{id}/leave` exits a
+group. Pending requests you received count toward the sidebar unread badge.
+
+### Announcements
+`announcements.cta_label` / `cta_url` add an optional pill button. The URL is allow-listed
+server-side to an in-app path (`/…`, not `//…`) or `https://` - a stored `javascript:` URL
+would be persistent XSS in a banner every user sees; the client re-checks before building
+an href. The bar renders every active announcement on one continuous plain-text ticker,
+pausing on hover. Audience filtering happens in SQL BEFORE the `LIMIT`, so role-targeted
+banners cannot push an everyone-banner off the page.
+
+### App Spotlight (incomplete records worklist)
+Reads the BigQuery `app_master_v2` table through the existing admin App Master API. An app
+appears only when `publisher`, `hou`, `pod`, `pod_owner`, `partner_name` or
+`net_revenue_share` is blank; missing fields are flagged and editable in place, with a
+dropdown of values already present in the table plus free text for new ones. Saving PATCHes
+only the filled fields, so it can never blank a neighbouring column. A numeric `0` counts as
+a real value, not a blank.
+
+### Presence, privacy and appearance
+Header presence menu (who is online now, plus last-seen). A privacy shield toggle blurs the
+whole screen and reveals only a circle following the pointer - shoulder-surfing protection,
+not access control (RBAC remains the real boundary). Cursor styles and ambient backgrounds
+are per-user preferences on the Profile page.
+
+### Security hardening
+Findings from three audits (API, frontend, infrastructure):
+
+- Firebase token verification runs in a worker thread (`anyio.to_thread`); inline it blocked
+  the event loop, so junk bearer tokens - each costing a full RSA verification before
+  rejection - stalled every other request.
+- `pre_auth_rate_limit_middleware` caps requests per source address BEFORE authentication
+  (every other limiter keys on an identity, so unauthenticated traffic was unbounded). Fails
+  open on Redis errors.
+- `client_ip()` believes `X-Real-IP` / `X-Forwarded-For` only when `TRUSTED_PROXY=true`.
+  Reached directly, any caller could otherwise forge the IP written into the append-only
+  `audit_log` - the field that says who did something.
+- `/docs`, `/redoc` and `/openapi.json` are disabled when `ENV=production`.
+- `is_active` is re-checked on the cached-context path, so deactivation bites immediately
+  rather than up to five minutes later.
+- `metrics` query params are bounded (max 25) and reject duplicates, which inflated both
+  query cost and the number of distinct aggregate-cache keys.
+- Invite codes are refused for direct threads at MINT time; previously `/join` consumed the
+  one-shot code before rejecting it.
+- Own-message deletion is audit-logged (sends deliberately are not - the messages table is
+  that record - but destructive actions are a different class).
+- Frontend: notification links must be in-app paths (`router.push` hands a foreign origin to
+  `location.assign`, and a `javascript:` URL has an opaque origin); the CPI scatter tooltip
+  uses `renderMode: "richText"` so an upstream app name cannot reach `innerHTML`;
+  announcement dismissals are scoped per user and shape-checked.
+- Dev compose binds Postgres/Redis to loopback; `.gitignore` and the secret-scan denylist
+  cover `*.rdb`, `backups/` and Firebase `*adminsdk*.json` key filenames; CI `GITHUB_TOKEN`
+  is reduced to `contents: read`.
+
+### Operational note
+The deployed tree and the working mirror drift. Before any backend deploy, diff the target
+files against the branch being deployed and use anchored patch scripts (verify every anchor
+exactly once or abort) for anything that differs - never a directory-wide checkout, and never
+overwrite a file the server has evolved.
