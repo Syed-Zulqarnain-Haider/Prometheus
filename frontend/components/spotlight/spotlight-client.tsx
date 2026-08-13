@@ -33,7 +33,7 @@ const REQUIRED_FIELDS = [
 
 /** Pull a generous page: the deck filters client-side for blanks across six columns,
  *  which the list endpoint cannot express as a single query parameter. */
-const PAGE = 500;
+const PAGE = 200;
 
 const EMPTY_FILTERS: AppMasterFilters = {
   search: "",

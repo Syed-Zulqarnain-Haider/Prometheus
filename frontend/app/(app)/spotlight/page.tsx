@@ -11,7 +11,7 @@ export default function SpotlightPage() {
     <div className="space-y-4">
       <PageHeader
         title="App Spotlight"
-        description="One app at a time: revenue, installs and UA cost. Swipe through the deck."
+        description="Apps in app_master_v2 missing publisher, HOU, pod, pod owner, partner name or net revenue share. Fill them in here."
       />
       <Suspense>
         <SpotlightClient />
