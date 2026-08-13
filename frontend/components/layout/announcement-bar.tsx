@@ -305,7 +305,7 @@ export function AnnouncementBar() {
           ref={barRef}
           role="status"
           className={cn(
-            "fixed inset-x-0 top-0 z-[60] flex items-center gap-3 border-b px-4 py-2 text-sm shadow-lg backdrop-blur",
+            "fixed inset-x-0 top-0 z-[60] flex h-9 items-center gap-3 overflow-hidden border-b px-4 text-sm shadow-lg backdrop-blur",
             LEVEL_STYLES[bar.level],
           )}
           style={{ animation: "announce-in var(--dur, 200ms) var(--ease, ease-out)" }}

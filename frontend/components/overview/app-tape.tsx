@@ -154,7 +154,9 @@ export function AppTape() {
           className="app-tape-track"
           style={{
             animationDuration: `${duration}s`,
-            animationPlayState: paused ? "paused" : "running",
+            // Set ONLY when paused: an inline "running" outranks the :hover rule below,
+            // which is why hovering did nothing.
+            ...(paused ? { animationPlayState: "paused" as const } : {}),
           }}
         >
           {[0, 1].map((copy) => (
@@ -168,9 +170,12 @@ export function AppTape() {
                     ? "text-[color:var(--color-negative)]"
                     : "text-muted-foreground";
                 return (
-                  <div
+                  <a
                     key={`${copy}-${item.key}`}
-                    className="flex shrink-0 items-center gap-2.5 whitespace-nowrap border-r border-[color:var(--color-border)] px-4 py-2.5 font-mono text-[13px] tabular-nums"
+                    href={`/apps/${encodeURIComponent(item.key)}`}
+                    title={`Open ${item.symbol}`}
+                    tabIndex={copy === 1 ? -1 : 0}
+                    className="flex shrink-0 items-center gap-2.5 whitespace-nowrap border-r border-[color:var(--color-border)] px-4 py-2.5 font-mono text-[13px] tabular-nums transition-colors hover:bg-[#17171c]"
                   >
                     <span className="font-bold tracking-wide text-[color:var(--color-amber)]">
                       {item.symbol}
@@ -193,7 +198,7 @@ export function AppTape() {
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground opacity-70">
                       {item.delta === null ? "NEW" : up ? "UP" : down ? "DOWN" : "FLAT"}
                     </span>
-                  </div>
+                  </a>
                 );
               })}
             </div>
