@@ -6,6 +6,7 @@ import type { Layouts } from "react-grid-layout";
 
 import { DashboardGrid } from "@/components/overview/dashboard-grid";
 import { DemoSection } from "@/components/overview/demo-section";
+import { AppTape } from "@/components/overview/app-tape";
 import { KpiRow } from "@/components/overview/kpi-row";
 import { MonthlyTrend } from "@/components/overview/monthly-trend";
 import { PublisherTable } from "@/components/overview/publisher-table";
@@ -87,6 +88,7 @@ export function OverviewClient() {
 
   return (
     <div className="space-y-6">
+      <AppTape />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader title="Executive Overview" />
         <div className="flex items-center gap-2">
