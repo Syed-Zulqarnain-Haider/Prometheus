@@ -351,7 +351,7 @@ export function AnnouncementBar() {
         </div>
       )}
       {isAdmin && (
-        <div className="fixed bottom-4 right-4 z-[60]">
+        <div className="fixed bottom-4 right-4 z-[60] opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100">
           <Popover>
             <PopoverTrigger asChild>
               <span className="relative inline-flex">

@@ -115,9 +115,14 @@ export function PrivacyShield() {
         title={on ? "Privacy shield ON - hover to reveal. Click to show everything." : "Privacy shield: blur the screen, reveal only around your pointer"}
         onClick={toggle}
         className={cn(
-          "fixed bottom-20 right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-all duration-[var(--dur-fast)] hover:scale-105 active:scale-95",
+          "fixed bottom-20 right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-lg",
+          // Dimmed at rest: these float over page content (table pagination sits
+          // right underneath) and a solid button there hides data. Full opacity
+          // returns on hover/focus, and while the shield is ON it stays visible so
+          // its state is never in doubt.
+          "opacity-40 transition-all duration-[var(--dur-fast)] hover:scale-105 hover:opacity-100 focus-visible:opacity-100 active:scale-95",
           on
-            ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-foreground)]"
+            ? "opacity-100 bg-[color:var(--color-accent)] text-[color:var(--color-accent-foreground)]"
             : "bg-[color:var(--color-bg-elevated)] text-muted-foreground hover:text-foreground",
         )}
       >
