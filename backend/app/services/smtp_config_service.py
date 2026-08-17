@@ -120,7 +120,9 @@ async def save_config(
                 )
             row.password_encrypted = cipher.encrypt(password.encode()).decode()
 
-    await db.flush()
+    # get_db yields a plain session with no commit-on-success; persistence is the
+    # service's job here, same as settings_service.set_value.
+    await db.commit()
 
 
 def _decrypt(settings: Settings, ciphertext: str | None) -> str | None:
