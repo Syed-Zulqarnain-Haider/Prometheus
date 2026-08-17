@@ -11,7 +11,7 @@ export default function SpotlightPage() {
     <div className="space-y-4">
       <PageHeader
         title="App Spotlight"
-        description="Apps in app_master_v2 missing publisher, HOU, pod, pod owner, partner name or net revenue share. Fill them in here."
+        description="Every app in app_master_v2, shaded by completeness - red where publisher, HOU, pod, pod owner, partner name or net revenue share is missing, green where the record is filled. Click a tile to edit it."
       />
       <Suspense>
         <SpotlightClient />

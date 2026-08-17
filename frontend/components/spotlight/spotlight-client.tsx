@@ -1,9 +1,8 @@
 "use client";
 
-import { AlertCircle, Check, ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
-import { TextScramble } from "@/components/effects/text-scramble";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,14 +12,17 @@ import {
 } from "@/lib/api-hooks";
 import { cn } from "@/lib/utils";
 
-/* App Spotlight: the incomplete-records worklist, as a card deck.
+/* App Spotlight: the completeness board for app_master_v2.
  *
- * Source is the BigQuery app_master_v2 table through the existing admin App Master API -
- * the same endpoint the App Master page uses, so reads, RBAC and writes all go through
- * one already-audited path. A card appears ONLY when at least one of the six fields the
- * owner named is blank; the missing ones are flagged, each is editable in place, and
- * saving PATCHes just those fields back to app_master_v2. Fill them all and the app
- * leaves the deck. */
+ * EVERY app is on the board, shaded by state - red where one of the six required fields
+ * is blank, green where the record is complete - so the work left is readable at a glance
+ * instead of one card at a time. Red tiles sort to the front and carry the count of what
+ * is missing; each field is a chip that says either its value or "Missing".
+ *
+ * Click a tile to edit it in place. Saving PATCHes only the fields you actually changed
+ * back to app_master_v2 through the existing admin App Master API - the same endpoint the
+ * App Master page uses, so reads, RBAC and writes all go through one already-audited path.
+ * Fill the blanks and the tile turns green on the next refetch. */
 
 const REQUIRED_FIELDS = [
   { key: "publisher", label: "Publisher" },
@@ -31,9 +33,34 @@ const REQUIRED_FIELDS = [
   { key: "net_revenue_share", label: "Net revenue share" },
 ] as const;
 
-/** Pull a generous page: the deck filters client-side for blanks across six columns,
- *  which the list endpoint cannot express as a single query parameter. */
+/** The API caps a page at 200. Completeness spans six columns and cannot be expressed as
+ *  a list filter, so the split is computed here over whatever page is loaded. */
 const PAGE = 200;
+
+/* Tints as inline styles rather than Tailwind classes: color-mix against the theme's own
+ * positive/negative tokens means the shading follows whatever background is in force
+ * instead of being a hardcoded light- or dark-mode colour. */
+const SHADE = {
+  incomplete: {
+    backgroundColor: "color-mix(in srgb, var(--color-negative) 7%, transparent)",
+    borderColor: "color-mix(in srgb, var(--color-negative) 38%, transparent)",
+  },
+  complete: {
+    backgroundColor: "color-mix(in srgb, var(--color-positive) 7%, transparent)",
+    borderColor: "color-mix(in srgb, var(--color-positive) 32%, transparent)",
+  },
+} as const;
+
+const CHIP = {
+  missing: {
+    backgroundColor: "color-mix(in srgb, var(--color-negative) 14%, transparent)",
+    color: "var(--color-negative)",
+  },
+  filled: {
+    backgroundColor: "color-mix(in srgb, var(--color-positive) 12%, transparent)",
+    color: "var(--color-positive)",
+  },
+} as const;
 
 const EMPTY_FILTERS: AppMasterFilters = {
   search: "",
@@ -51,6 +78,8 @@ const EMPTY_FILTERS: AppMasterFilters = {
   syncedTo: "",
 };
 
+type Mode = "all" | "incomplete" | "complete";
+
 /** Blank means blank: null, undefined, empty string, or whitespace. A numeric 0 is a
  *  real value (a 0% revenue share is a decision), so it must NOT count as missing. */
 function isBlank(value: unknown): boolean {
@@ -64,18 +93,40 @@ function display(value: unknown): string {
   return String(value);
 }
 
+interface Card {
+  key: string;
+  name: string;
+  row: Record<string, unknown>;
+  missing: readonly { key: string; label: string }[];
+}
+
 export function SpotlightClient() {
-  const list = useAppMaster(EMPTY_FILTERS, PAGE, 0);
+  const [offset, setOffset] = useState(0);
+  const list = useAppMaster(EMPTY_FILTERS, PAGE, offset);
   const update = useUpdateAppMaster();
+
+  const [mode, setMode] = useState<Mode>("all");
+  const [search, setSearch] = useState("");
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
 
   const rows = useMemo(() => list.data?.rows ?? [], [list.data]);
   const primaryKey = list.data?.primary_key ?? "canonical_key";
+  const total = list.data?.total ?? rows.length;
 
-  // Only apps missing at least one of the six fields reach the deck.
-  const incomplete = useMemo(
-    () => rows.filter((row) => REQUIRED_FIELDS.some((field) => isBlank(row[field.key]))),
-    [rows],
+  const cards: Card[] = useMemo(
+    () =>
+      rows.map((row) => ({
+        key: String(row[primaryKey] ?? ""),
+        name: String(row.app_name ?? row[primaryKey] ?? "-"),
+        row,
+        missing: REQUIRED_FIELDS.filter((field) => isBlank(row[field.key])),
+      })),
+    [rows, primaryKey],
   );
+
+  const incompleteCount = cards.filter((card) => card.missing.length > 0).length;
+  const completeCount = cards.length - incompleteCount;
 
   // Dropdown options per field, built from the values already present across the whole
   // page - these repeat heavily (the same pods, publishers, owners), so picking beats
@@ -93,57 +144,58 @@ export function SpotlightClient() {
     return map;
   }, [rows]);
 
-  const [index, setIndex] = useState(0);
-  const clamped = incomplete.length ? Math.min(index, incomplete.length - 1) : 0;
-  const current = incomplete[clamped];
+  const visible = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return cards
+      .filter((card) =>
+        mode === "all"
+          ? true
+          : mode === "incomplete"
+            ? card.missing.length > 0
+            : card.missing.length === 0,
+      )
+      .filter(
+        (card) =>
+          !query ||
+          card.name.toLowerCase().includes(query) ||
+          card.key.toLowerCase().includes(query),
+      )
+      .sort(
+        (a, b) =>
+          // Work first: anything red outranks anything green, then most-missing, then name.
+          Number(b.missing.length > 0) - Number(a.missing.length > 0) ||
+          b.missing.length - a.missing.length ||
+          a.name.localeCompare(b.name),
+      );
+  }, [cards, mode, search]);
 
-  // Draft edits for the visible card, seeded blank and reset whenever the card changes.
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const seededFor = useRef<string | null>(null);
-  const currentKey = current ? String(current[primaryKey] ?? "") : null;
-  useEffect(() => {
-    if (seededFor.current === currentKey) return;
-    seededFor.current = currentKey;
-    setDraft({});
-  }, [currentKey]);
+  /** Open a tile, seeding the draft from what is already stored so an existing value can
+   *  be corrected as easily as a blank one can be filled. */
+  const openCard = useCallback((card: Card) => {
+    setOpenKey((current) => {
+      if (current === card.key) return null; // clicking the open tile closes it
+      const seed: Record<string, string> = {};
+      for (const field of REQUIRED_FIELDS) seed[field.key] = display(card.row[field.key]);
+      setDraft(seed);
+      return card.key;
+    });
+  }, []);
 
-  const go = useCallback(
-    (dir: -1 | 1) => {
-      setIndex((value) => {
-        const base = incomplete.length ? Math.min(value, incomplete.length - 1) : 0;
-        return Math.min(Math.max(base + dir, 0), Math.max(incomplete.length - 1, 0));
-      });
-    },
-    [incomplete.length],
-  );
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement) {
-        const tag = event.target.tagName;
-        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return; // typing, not paging
-      }
-      if (event.key === "ArrowRight") go(1);
-      if (event.key === "ArrowLeft") go(-1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [go]);
-
-  function save(): void {
-    if (!current || !currentKey) return;
-    // Send ONLY the fields actually filled in, so a PATCH never blanks something else.
+  function save(card: Card): void {
+    if (!card.key) return;
+    // Only fields that actually CHANGED, and never a change to blank: clearing a box here
+    // is far more likely to be a slip than an intent to erase a value in BigQuery.
     const body: Record<string, unknown> = {};
     for (const field of REQUIRED_FIELDS) {
-      const value = (draft[field.key] ?? "").trim();
-      if (!value) continue;
+      const next = (draft[field.key] ?? "").trim();
+      if (!next || next === display(card.row[field.key])) continue;
       body[field.key] =
-        field.key === "net_revenue_share" && Number.isFinite(Number(value))
-          ? Number(value)
-          : value;
+        field.key === "net_revenue_share" && Number.isFinite(Number(next))
+          ? Number(next)
+          : next;
     }
     if (Object.keys(body).length === 0) return;
-    update.mutate({ key: currentKey, body });
+    update.mutate({ key: card.key, body });
   }
 
   if (list.isLoading) {
@@ -156,141 +208,289 @@ export function SpotlightClient() {
       </p>
     );
   }
-  if (!current) {
-    return (
-      <div className="mx-auto max-w-xl rounded-[var(--radius-card)] border bg-card p-10 text-center">
-        <Check className="mx-auto h-10 w-10 text-[color:var(--color-positive)]" />
-        <p className="mt-3 font-display text-xl">Everything is filled in</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          No app is missing publisher, HOU, pod, pod owner, partner name or net revenue share.
-        </p>
-      </div>
-    );
-  }
 
-  const missing = REQUIRED_FIELDS.filter((field) => isBlank(current[field.key]));
-  const name = String(current.app_name ?? current[primaryKey] ?? "-");
+  const pageStart = rows.length ? offset + 1 : 0;
+  const pageEnd = offset + rows.length;
+  const paged = total > rows.length;
 
   return (
-    <div className="mx-auto max-w-xl">
-      <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <AlertCircle className="h-3.5 w-3.5 text-[color:var(--color-amber)]" />
-          <span className="font-semibold text-foreground">{incomplete.length}</span> apps need
-          attention
-        </span>
-        <span className="tabular-nums">
-          {clamped + 1} / {incomplete.length}
-        </span>
+    <div className="space-y-4">
+      {/* Tally + controls. The counts describe the loaded page, which is said plainly
+          when there is more than one - a total that silently covered a fraction of the
+          table would be worse than no total. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Legend
+          tone="incomplete"
+          count={incompleteCount}
+          label={paged ? "need updating on this page" : "need updating"}
+        />
+        <Legend
+          tone="complete"
+          count={completeCount}
+          label={paged ? "complete on this page" : "complete"}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Find an app"
+              aria-label="Find an app"
+              className="h-9 w-52 pl-8"
+            />
+          </div>
+          <div className="flex rounded-[var(--radius-inner)] border p-0.5">
+            {(
+              [
+                ["all", "All"],
+                ["incomplete", "Needs update"],
+                ["complete", "Complete"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+                className={cn(
+                  "rounded-[calc(var(--radius-inner)-2px)] px-2.5 py-1 text-xs font-medium transition-colors",
+                  mode === value
+                    ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-foreground)]"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="rounded-[var(--radius-card)] border bg-card p-6 shadow-lg">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Incomplete record
-        </p>
-        <h3 className="mt-1 truncate font-display text-2xl" title={name}>
-          <TextScramble text={name} />
-        </h3>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{String(current[primaryKey] ?? "")}</p>
-
-        <div className="mt-5 space-y-3">
-          {REQUIRED_FIELDS.map((field) => {
-            const existing = display(current[field.key]);
-            const isMissing = isBlank(current[field.key]);
-            const choices = options[field.key] ?? [];
+      {visible.length === 0 ? (
+        <div className="rounded-[var(--radius-card)] border bg-card p-10 text-center">
+          <Check className="mx-auto h-10 w-10 text-[color:var(--color-positive)]" />
+          <p className="mt-3 font-display text-xl">Nothing to show</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {mode === "incomplete"
+              ? "No app on this page is missing publisher, HOU, pod, pod owner, partner name or net revenue share."
+              : "No app matches the current filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map((card) => {
+            const needsWork = card.missing.length > 0;
+            const isOpen = openKey === card.key;
             return (
-              <div key={field.key} className="grid grid-cols-[9rem_1fr] items-center gap-3">
-                <span
-                  className={cn(
-                    "text-xs font-medium",
-                    isMissing ? "text-[color:var(--color-negative)]" : "text-muted-foreground",
-                  )}
+              <div
+                key={card.key}
+                style={needsWork ? SHADE.incomplete : SHADE.complete}
+                className={cn(
+                  "rounded-[var(--radius-card)] border transition-shadow",
+                  isOpen && "shadow-lg sm:col-span-2 xl:col-span-3",
+                )}
+              >
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  onClick={() => openCard(card)}
+                  className="w-full rounded-[var(--radius-card)] p-4 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  {field.label}
-                  {isMissing && " *"}
-                </span>
-                {isMissing ? (
-                  <div className="flex gap-1">
-                    {choices.length > 0 && field.key !== "net_revenue_share" && (
-                      <select
-                        aria-label={`${field.label} (existing values)`}
-                        value={draft[field.key] ?? ""}
-                        onChange={(event) =>
-                          setDraft((value) => ({ ...value, [field.key]: event.target.value }))
-                        }
-                        className="min-w-0 flex-1 rounded-[var(--radius-inner)] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        <option value="">Select...</option>
-                        {choices.map((choice) => (
-                          <option key={choice} value={choice}>
-                            {choice}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <Input
-                      value={draft[field.key] ?? ""}
-                      onChange={(event) =>
-                        setDraft((value) => ({ ...value, [field.key]: event.target.value }))
-                      }
-                      placeholder={
-                        field.key === "net_revenue_share" ? "e.g. 0.7" : "or type a new value"
-                      }
-                      inputMode={field.key === "net_revenue_share" ? "decimal" : undefined}
-                      className="h-9 min-w-0 flex-1"
-                    />
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate font-display text-base" title={card.name}>
+                        {card.name}
+                      </h3>
+                      <p className="truncate text-xs text-muted-foreground">{card.key}</p>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                      style={needsWork ? CHIP.missing : CHIP.filled}
+                    >
+                      {needsWork ? `${card.missing.length} missing` : "Complete"}
+                    </span>
                   </div>
-                ) : (
-                  <span className="truncate text-sm">{existing}</span>
+
+                  {/* One chip per required field: the value when it is there, "Missing"
+                      when it is not, so the tile says WHAT to fix, not just that it needs
+                      fixing. */}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {REQUIRED_FIELDS.map((field) => {
+                      const blank = isBlank(card.row[field.key]);
+                      return (
+                        <span
+                          key={field.key}
+                          style={blank ? CHIP.missing : CHIP.filled}
+                          className="max-w-full truncate rounded-[var(--radius-inner)] px-1.5 py-0.5 text-[11px]"
+                          title={`${field.label}: ${blank ? "missing" : display(card.row[field.key])}`}
+                        >
+                          {field.label}: {blank ? "Missing" : display(card.row[field.key])}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t px-4 pb-4 pt-3">
+                    <div className="space-y-3">
+                      {REQUIRED_FIELDS.map((field) => {
+                        const blank = isBlank(card.row[field.key]);
+                        const choices = options[field.key] ?? [];
+                        return (
+                          <div
+                            key={field.key}
+                            className="grid grid-cols-[9rem_1fr] items-center gap-3"
+                          >
+                            <span
+                              className={cn(
+                                "text-xs font-medium",
+                                blank
+                                  ? "text-[color:var(--color-negative)]"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {field.label}
+                              {blank && " *"}
+                            </span>
+                            <div className="flex gap-1">
+                              {choices.length > 0 && field.key !== "net_revenue_share" && (
+                                <select
+                                  aria-label={`${field.label} (existing values)`}
+                                  value={choices.includes(draft[field.key] ?? "") ? draft[field.key] : ""}
+                                  onChange={(event) =>
+                                    setDraft((value) => ({
+                                      ...value,
+                                      [field.key]: event.target.value,
+                                    }))
+                                  }
+                                  className="min-w-0 flex-1 rounded-[var(--radius-inner)] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+                                >
+                                  <option value="">Select...</option>
+                                  {choices.map((choice) => (
+                                    <option key={choice} value={choice}>
+                                      {choice}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              <Input
+                                value={draft[field.key] ?? ""}
+                                onChange={(event) =>
+                                  setDraft((value) => ({
+                                    ...value,
+                                    [field.key]: event.target.value,
+                                  }))
+                                }
+                                placeholder={
+                                  field.key === "net_revenue_share"
+                                    ? "e.g. 0.7"
+                                    : "or type a new value"
+                                }
+                                inputMode={
+                                  field.key === "net_revenue_share" ? "decimal" : undefined
+                                }
+                                className="h-9 min-w-0 flex-1"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={update.isPending}
+                        onClick={() => save(card)}
+                      >
+                        {update.isPending && update.variables?.key === card.key
+                          ? "Saving..."
+                          : "Save changes"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setOpenKey(null)}>
+                        Close
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Only changed fields are written back.
+                      </span>
+                    </div>
+                    {update.isError && update.variables?.key === card.key && (
+                      <p className="mt-2 text-xs text-destructive">
+                        Could not save: {(update.error as Error).message}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
+      )}
 
-        <div className="mt-5 flex items-center gap-2">
-          <Button
-            size="sm"
-            className="flex-1"
-            disabled={update.isPending || Object.values(draft).every((value) => !value.trim())}
-            onClick={save}
-          >
-            {update.isPending ? "Saving..." : `Save ${missing.length} missing field(s)`}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => go(1)}>
-            Skip
-          </Button>
+      {paged && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {pageStart}-{pageEnd} of {total}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={offset === 0}
+              onClick={() => {
+                setOpenKey(null);
+                setOffset((value) => Math.max(value - PAGE, 0));
+              }}
+            >
+              <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+              Previous
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pageEnd >= total}
+              onClick={() => {
+                setOpenKey(null);
+                setOffset((value) => value + PAGE);
+              }}
+            >
+              Next
+              <ChevronRight className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
-        {update.isError && (
-          <p className="mt-2 text-xs text-destructive">
-            Could not save: {(update.error as Error).message}
-          </p>
-        )}
-      </div>
-
-      <div className="mt-4 flex items-center justify-between">
-        <button
-          type="button"
-          aria-label="Previous app"
-          disabled={clamped === 0}
-          onClick={() => go(-1)}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--color-bg-elevated)] text-muted-foreground transition-all duration-[var(--dur-fast)] hover:scale-110 hover:text-foreground disabled:opacity-30"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <span className="hidden text-xs text-muted-foreground sm:inline">
-          arrow keys to move between apps
-        </span>
-        <button
-          type="button"
-          aria-label="Next app"
-          disabled={clamped >= incomplete.length - 1}
-          onClick={() => go(1)}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-foreground)] transition-all duration-[var(--dur-fast)] hover:scale-110 disabled:opacity-30"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </div>
+      )}
     </div>
+  );
+}
+
+function Legend({
+  tone,
+  count,
+  label,
+}: {
+  tone: "incomplete" | "complete";
+  count: number;
+  label: string;
+}) {
+  return (
+    <span
+      className="flex items-center gap-1.5 rounded-[var(--radius-inner)] border px-2.5 py-1 text-xs"
+      style={tone === "incomplete" ? SHADE.incomplete : SHADE.complete}
+    >
+      {tone === "incomplete" ? (
+        <AlertCircle
+          className="h-3.5 w-3.5"
+          style={{ color: "var(--color-negative)" }}
+          aria-hidden
+        />
+      ) : (
+        <Check className="h-3.5 w-3.5" style={{ color: "var(--color-positive)" }} aria-hidden />
+      )}
+      <span className="font-semibold tabular-nums text-foreground">{count}</span>
+      <span className="text-muted-foreground">{label}</span>
+    </span>
   );
 }
