@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from starlette.requests import Request
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 
 def client_ip(request: Request) -> str | None:
@@ -37,7 +37,7 @@ def client_ip(request: Request) -> str | None:
     trusted-proxy count instead of this rule.
     """
     peer = request.client.host if request.client else None
-    if not settings.trusted_proxy:
+    if not get_settings().trusted_proxy:
         return peer
 
     real = request.headers.get("x-real-ip", "").strip()
