@@ -128,7 +128,11 @@ async def update_smtp_config(
     return SmtpConfigOut(**await smtp_config_service.get_config(db, settings))
 
 
-@router.post("/smtp/test", response_model=SmtpTestResult)
+@router.post(
+    "/smtp/test",
+    response_model=SmtpTestResult,
+    dependencies=[Depends(enforce_diagnostics_rate_limit)],
+)
 async def test_smtp_config(
     request: Request,
     context: CurrentUser,
@@ -304,6 +308,10 @@ def main() -> None:
         todo[EMAIL] = email
 
     migration_needed = not list(VERSIONS.glob(f"*{MIGRATION_ID}*"))
+    # Head detection is part of VALIDATION: divergent heads must abort before any file
+    # is written, or "Nothing was written" becomes a lie told over four patched files
+    # and a missing table.
+    head = detect_head() if migration_needed else None
 
     if not todo and not migration_needed:
         print("already wired - nothing to do")
@@ -345,8 +353,7 @@ def main() -> None:
         EMAIL.write_text(text)
         print(f"patched {EMAIL}: sends read the stored config")
 
-    if migration_needed:
-        head = detect_head()
+    if migration_needed and head is not None:
         stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M")
         path = VERSIONS / f"{stamp}_{MIGRATION_ID}_smtp_config.py"
         path.write_text(

@@ -18,10 +18,15 @@ import { createPortal } from "react-dom";
 const WIDTH = 240; // px - matches the bubble's max-width below
 const GAP = 8; // px between the icon and the bubble
 const EDGE = 8; // px minimum breathing room from the viewport edge
+// If the icon is closer to the viewport top than this, the bubble opens BELOW it -
+// clamping horizontally but not vertically left it renderable off the top of the screen.
+const FLIP_THRESHOLD = 120;
 
 export function InfoTooltip({ text }: { text: string }) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
-  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+  const [box, setBox] = useState<{ top: number; left: number; below: boolean } | null>(
+    null,
+  );
 
   const open = useCallback(() => {
     const el = anchorRef.current;
@@ -31,7 +36,8 @@ export function InfoTooltip({ text }: { text: string }) {
     // leftmost and rightmost KPI cards would otherwise push it off-screen.
     const centred = rect.left + rect.width / 2 - WIDTH / 2;
     const left = Math.min(Math.max(centred, EDGE), window.innerWidth - WIDTH - EDGE);
-    setBox({ top: rect.top - GAP, left });
+    const below = rect.top < FLIP_THRESHOLD;
+    setBox({ top: below ? rect.bottom + GAP : rect.top - GAP, left, below });
   }, []);
 
   const close = useCallback(() => setBox(null), []);
@@ -76,7 +82,8 @@ export function InfoTooltip({ text }: { text: string }) {
               top: box.top,
               left: box.left,
               width: WIDTH,
-              transform: "translateY(-100%)",
+              // Above the icon the bubble's BOTTOM sits at `top`; below, its top does.
+              transform: box.below ? undefined : "translateY(-100%)",
             }}
             className="pointer-events-none z-[80] rounded-[var(--radius-inner)] border border-[color:var(--color-border)] bg-card px-3 py-2 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-foreground shadow-lg"
           >

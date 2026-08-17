@@ -22,9 +22,10 @@ out alongside this script.
       inset so the last row of a table is not sitting under the iPhone home indicator.
 
   frontend/components/layout/sidebar.tsx
-      Mounts <MobileNav />. The sidebar is `hidden md:block`, so below 768px the app had
-      NO navigation - every page was reachable only by typing its URL. MobileNav is
-      `md:hidden`, so exactly one of the two is on screen at any width.
+      NOT touched (an earlier revision mounted <MobileNav /> here; the deployed header
+      already mounts it in its own flex row, where it takes real space beside the brand
+      instead of floating over it). If an earlier run of this script added the sidebar
+      mount, it is REMOVED so the drawer never renders twice.
 
 Anchored: every anchor must appear EXACTLY once in each file or NOTHING is written -
 all three files are validated before any is touched, because a viewport tag without the
@@ -42,6 +43,17 @@ APP_LAYOUT = Path("frontend/app/(app)/layout.tsx")
 SIDEBAR = Path("frontend/components/layout/sidebar.tsx")
 MOBILE_NAV = Path("frontend/components/layout/mobile-nav.tsx")
 SW_REGISTER = Path("frontend/components/pwa/service-worker-register.tsx")
+# The register component 404s silently if these are missing, and "Install app" never
+# appears with no error anywhere - so their absence must abort the run instead.
+PWA_ASSETS = (
+    Path("frontend/app/manifest.ts"),
+    Path("frontend/public/sw.js"),
+    Path("frontend/public/offline.html"),
+    Path("frontend/public/icon-192.png"),
+    Path("frontend/public/icon-512.png"),
+    Path("frontend/public/icon-maskable-512.png"),
+    Path("frontend/public/apple-touch-icon.png"),
+)
 
 # ── frontend/app/layout.tsx ────────────────────────────────────────────────────
 ROOT_TYPE_ANCHOR = 'import type { Metadata } from "next";\n'
@@ -93,12 +105,11 @@ MAIN_NEW = """        {/* Tighter padding on phones - 24px of chrome on a 360px 
 """
 
 # ── frontend/components/layout/sidebar.tsx ─────────────────────────────────────
-SIDEBAR_IMPORT_ANCHOR = 'import { AnnouncementBar } from "@/components/layout/announcement-bar";\n'
-SIDEBAR_IMPORT_ADD = 'import { MobileNav } from "@/components/layout/mobile-nav";\n'
-
-SIDEBAR_MOUNT_ANCHOR = "    <CursorFx />\n"
-SIDEBAR_MOUNT_NEW = """    <CursorFx />
-    {/* The sidebar below is `hidden md:block`; this is its counterpart under that
+# The header mounts <MobileNav /> already; an earlier revision of this script also
+# mounted it in the sidebar, which would render two hamburgers. These are the exact
+# lines that revision added - if present, they are stripped.
+SIDEBAR_STALE_IMPORT = 'import { MobileNav } from "@/components/layout/mobile-nav";\n'
+SIDEBAR_STALE_MOUNT = """    {/* The sidebar below is `hidden md:block`; this is its counterpart under that
         breakpoint, so navigation exists at every width. */}
     <MobileNav />
 """
@@ -119,9 +130,9 @@ def main() -> None:
     for path in (ROOT_LAYOUT, APP_LAYOUT, SIDEBAR):
         if not path.exists():
             die(f"{path} not found - run from the repository root")
-    for path in (MOBILE_NAV, SW_REGISTER):
+    for path in (MOBILE_NAV, SW_REGISTER, *PWA_ASSETS):
         if not path.exists():
-            die(f"{path} not found - check the new components out before running this")
+            die(f"{path} not found - check the new files out before running this")
 
     root = ROOT_LAYOUT.read_text()
     app = APP_LAYOUT.read_text()
@@ -152,12 +163,11 @@ def main() -> None:
         main_anchor = found[0]
         todo[APP_LAYOUT] = app
 
-    if "MobileNav" in sidebar:
-        print(f"{SIDEBAR}: already mounts the drawer")
-    else:
-        for anchor in (SIDEBAR_IMPORT_ANCHOR, SIDEBAR_MOUNT_ANCHOR):
-            require_once(SIDEBAR, sidebar, anchor)
+    # The header owns the mount; strip the sidebar mount if an earlier run added it.
+    if SIDEBAR_STALE_IMPORT in sidebar or SIDEBAR_STALE_MOUNT in sidebar:
         todo[SIDEBAR] = sidebar
+    else:
+        print(f"{SIDEBAR}: clean (header owns the drawer mount)")
 
     if not todo:
         print("already wired - nothing to do")
@@ -179,10 +189,10 @@ def main() -> None:
 
     if SIDEBAR in todo:
         text = todo[SIDEBAR]
-        text = text.replace(SIDEBAR_IMPORT_ANCHOR, SIDEBAR_IMPORT_ANCHOR + SIDEBAR_IMPORT_ADD, 1)
-        text = text.replace(SIDEBAR_MOUNT_ANCHOR, SIDEBAR_MOUNT_NEW, 1)
+        text = text.replace(SIDEBAR_STALE_IMPORT, "", 1)
+        text = text.replace(SIDEBAR_STALE_MOUNT, "", 1)
         SIDEBAR.write_text(text)
-        print(f"patched {SIDEBAR}: mounts the mobile drawer")
+        print(f"patched {SIDEBAR}: removed the duplicate drawer mount")
 
     print("\nThe app is now installable: open it on the phone and use 'Add to Home Screen'.")
     print("Rebuild: docker compose -f docker-compose.prod.yml up -d --build frontend")

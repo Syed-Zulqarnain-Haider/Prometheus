@@ -17,7 +17,7 @@
  * data behind here to clear.
  */
 
-const VERSION = "prometheus-v1";
+const VERSION = "prometheus-v2";
 const STATIC_CACHE = `static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
@@ -25,10 +25,11 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => cache.addAll([OFFLINE_URL, "/icon-192.png"]))
-      // Take over immediately: waiting for every tab to close would leave a fixed
-      // worker running for days on a dashboard people keep open.
-      .then(() => self.skipWaiting()),
+      .then((cache) => cache.addAll([OFFLINE_URL, "/icon-192.png"])),
+    // NO skipWaiting: the new worker waits until every old tab closes. Taking over
+    // immediately and deleting the old cache would strand still-open tabs - their next
+    // lazy-loaded chunk is from a build the server no longer has (ChunkLoadError).
+    // Waiting means the old cache is only cleaned once nothing can still want it.
   );
 });
 
@@ -38,17 +39,18 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) =>
         Promise.all(keys.filter((key) => key !== STATIC_CACHE).map((key) => caches.delete(key))),
-      )
-      .then(() => self.clients.claim()),
+      ),
+    // No clients.claim() either - pages keep their current worker until reload,
+    // consistent with the no-skipWaiting stance above.
   );
 });
 
-/** Content-hashed or version-stable assets - safe to serve from cache indefinitely. */
+/** ONLY content-hashed assets - a cached entry is stale-proof by construction.
+ * Icons/fonts are deliberately NOT runtime-cached: their URLs never change, so a cached
+ * copy would outlive every future redesign with no way to refresh it short of a new
+ * worker version. The offline page's needs are covered at install time. */
 function isImmutable(url) {
-  return (
-    url.pathname.startsWith("/_next/static/") ||
-    /\.(?:png|svg|ico|webp|woff2?)$/.test(url.pathname)
-  );
+  return url.pathname.startsWith("/_next/static/");
 }
 
 self.addEventListener("fetch", (event) => {

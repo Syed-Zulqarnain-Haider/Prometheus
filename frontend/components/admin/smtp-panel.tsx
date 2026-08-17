@@ -87,9 +87,17 @@ export function SmtpPanel() {
           ...(clearPassword ? { password: "" } : password ? { password } : {}),
         }),
       }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       setPassword("");
       setClearPassword(false);
+      // Re-seed from the response: the server may normalise what was typed (EmailStr,
+      // trimming, env fallbacks for cleared fields), and a form showing the pre-save
+      // text beside post-save badges would be telling two different stories.
+      setHost(saved.host ?? "");
+      setPort(String(saved.port));
+      setUsername(saved.username ?? "");
+      setFromAddress(saved.from_address ?? "");
+      setUseTls(saved.use_tls);
       void queryClient.invalidateQueries({ queryKey: ["smtp-config"] });
     },
   });

@@ -19,6 +19,7 @@ Everything else on the form stays editable in that state.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
@@ -58,18 +59,21 @@ async def _row(db: AsyncSession) -> SmtpConfig | None:
 
 
 async def get_config(db: AsyncSession, settings: Settings) -> dict[str, object]:
-    """The current settings for display. Never includes the password."""
+    """The EFFECTIVE settings for display. Never includes the password.
+
+    Effective, not raw-row: the row's port/TLS only apply when the row also sets a host
+    (see effective_settings), so showing raw row values would display a port that is not
+    the one sends actually use. The form must tell the truth about behaviour.
+    """
     row = await _row(db)
     effective = await effective_settings(db, settings)
     return {
-        "host": row.host if row else settings.smtp_host,
-        "port": row.port if row else settings.smtp_port,
-        "username": row.username if row else settings.smtp_username,
-        "from_address": row.from_address if row else settings.smtp_from,
-        "use_tls": row.use_tls if row else settings.smtp_use_tls,
-        "password_set": bool(
-            (row.password_encrypted if row else None) or settings.smtp_password
-        ),
+        "host": effective.smtp_host,
+        "port": effective.smtp_port,
+        "username": effective.smtp_username,
+        "from_address": effective.smtp_from,
+        "use_tls": effective.smtp_use_tls,
+        "password_set": bool(effective.smtp_password),
         "updated_at": row.updated_at if row else None,
         "encryption_available": encryption_available(settings),
         "configured": bool(effective.smtp_host and effective.smtp_from),
@@ -106,6 +110,9 @@ async def save_config(
     row.from_address = (from_address or "").strip() or None
     row.use_tls = use_tls
     row.updated_by = user_id  # type: ignore[assignment]
+    # server_default covers the INSERT only; without this, "last updated" froze at the
+    # first save forever.
+    row.updated_at = datetime.now(UTC)
 
     if password is not None:
         if password == "":
@@ -146,6 +153,12 @@ async def effective_settings(db: AsyncSession, settings: Settings) -> Settings:
 
     Returns a COPY - the process-wide Settings object is never mutated, so one request
     can never change how another one sends mail.
+
+    Username and password override AS A PAIR, keyed on the row's username. Layering
+    them independently produced mismatched credentials: a new username saved without a
+    password logged in as new_user with the ENV password and every send failed with an
+    auth error. With the pair rule, a row username means the row's password (or none -
+    an unauthenticated relay) and never the environment's.
     """
     row = await _row(db)
     if row is None:
@@ -159,9 +172,7 @@ async def effective_settings(db: AsyncSession, settings: Settings) -> Settings:
         override["smtp_from"] = row.from_address
     if row.username:
         override["smtp_username"] = row.username
-    password = _decrypt(settings, row.password_encrypted)
-    if password:
-        override["smtp_password"] = password
+        override["smtp_password"] = _decrypt(settings, row.password_encrypted)
     if not override:
         return settings
     return settings.model_copy(update=override)

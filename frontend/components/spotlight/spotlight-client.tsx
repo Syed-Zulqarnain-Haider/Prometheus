@@ -109,6 +109,12 @@ export function SpotlightClient() {
   const [search, setSearch] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  // What the card looked like WHEN IT WAS OPENED. save() diffs the draft against this,
+  // not the live row: the query can refetch while a card sits open (another admin
+  // saving, a background refresh), and diffing against the refreshed row would treat
+  // the untouched seeded values as "changes" - silently reverting the other admin's
+  // edit. Against the snapshot, an untouched field is never sent.
+  const [seedRow, setSeedRow] = useState<Record<string, unknown>>({});
 
   const rows = useMemo(() => list.data?.rows ?? [], [list.data]);
   const primaryKey = list.data?.primary_key ?? "canonical_key";
@@ -177,18 +183,31 @@ export function SpotlightClient() {
       const seed: Record<string, string> = {};
       for (const field of REQUIRED_FIELDS) seed[field.key] = display(card.row[field.key]);
       setDraft(seed);
+      setSeedRow(card.row);
       return card.key;
     });
   }, []);
 
+  /** Inline validation for the one numeric field: the API takes 0-1, and "70%" or "70"
+   *  would bounce off it as a raw 422 - catch it before the request with a usable hint. */
+  const shareDraft = (draft.net_revenue_share ?? "").trim();
+  const shareSeed = display(seedRow.net_revenue_share);
+  const shareInvalid =
+    shareDraft !== "" &&
+    shareDraft !== shareSeed &&
+    (!Number.isFinite(Number(shareDraft)) || Number(shareDraft) < 0 || Number(shareDraft) > 1);
+
   function save(card: Card): void {
-    if (!card.key) return;
-    // Only fields that actually CHANGED, and never a change to blank: clearing a box here
-    // is far more likely to be a slip than an intent to erase a value in BigQuery.
+    if (!card.key || shareInvalid) return;
+    // Only fields that actually CHANGED vs the SNAPSHOT taken at open - never the live
+    // row, which may have been refetched with another admin's newer values (diffing
+    // against those would re-send the stale seed and revert their edit). And never a
+    // change to blank: clearing a box here is far more likely to be a slip than an
+    // intent to erase a value in BigQuery.
     const body: Record<string, unknown> = {};
     for (const field of REQUIRED_FIELDS) {
       const next = (draft[field.key] ?? "").trim();
-      if (!next || next === display(card.row[field.key])) continue;
+      if (!next || next === display(seedRow[field.key])) continue;
       body[field.key] =
         field.key === "net_revenue_share" && Number.isFinite(Number(next))
           ? Number(next)
@@ -399,10 +418,16 @@ export function SpotlightClient() {
                       })}
                     </div>
 
+                    {shareInvalid && (
+                      <p className="mt-2 text-xs text-destructive">
+                        Net revenue share must be a number between 0 and 1 (e.g. 0.7 for
+                        70%).
+                      </p>
+                    )}
                     <div className="mt-4 flex items-center gap-2">
                       <Button
                         size="sm"
-                        disabled={update.isPending}
+                        disabled={update.isPending || shareInvalid}
                         onClick={() => save(card)}
                       >
                         {update.isPending && update.variables?.key === card.key

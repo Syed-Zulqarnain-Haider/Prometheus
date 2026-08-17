@@ -3,30 +3,30 @@
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useConversations } from "@/lib/chat-hooks";
 import { useMe } from "@/lib/api-hooks";
 import { NAV_ITEMS } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
-/* Navigation for phones and narrow windows.
+/* Navigation for phones and narrow windows: a hamburger that opens a slide-in drawer.
  *
- * The sidebar is `hidden md:block`, which below 768px left the app with no navigation at
- * all - every page was reachable only by typing its URL. This is that missing half: a
- * button in the header row and a slide-in drawer, shown ONLY where the sidebar is not.
+ * The button renders IN FLOW - the header mounts it first in its flex row, so it takes
+ * real space beside the brand instead of floating over it, and it rides down with an
+ * announcement banner for free (body padding moves the whole header). Only the drawer
+ * overlay is fixed.
  *
- * The item list is read from NAV_ITEMS and filtered by the same admin_panel capability
- * the sidebar uses, so a page added or restricted there appears or disappears here with
- * no second edit. Filtering is cosmetic either way - the API enforces access server-side. */
-
-const PANEL_WIDTH = "w-72 max-w-[85vw]";
+ * Items come from NAV_ITEMS filtered by the same admin_panel capability the desktop
+ * sidebar uses, so a page added or restricted there appears or disappears here with no
+ * second edit. Filtering is cosmetic either way - the API enforces access server-side. */
 
 export function MobileNav() {
   const pathname = usePathname();
   const { data: me } = useMe();
   const isAdmin = me?.capabilities.includes("admin_panel") ?? false;
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const items = useMemo(
     () => NAV_ITEMS.filter((item) => !item.requiresAdmin || isAdmin),
@@ -46,14 +46,37 @@ export function MobileNav() {
 
   useEffect(() => {
     if (!open) return;
+    const panel = panelRef.current;
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
+      // Minimal focus trap: an aria-modal dialog must not let Tab walk the page
+      // behind the overlay. Cycle within the panel's focusable elements.
+      if (event.key === "Tab" && panel) {
+        const focusable = panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || !panel.contains(active))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
     };
+
     // Freeze the page behind the drawer - on iOS a scrollable body under a fixed overlay
     // scrolls instead of the overlay, which feels broken.
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
+    // Move focus into the dialog so keyboard and screen-reader users land inside it.
+    panel?.querySelector<HTMLElement>("button")?.focus();
     return () => {
       document.body.style.overflow = previous;
       window.removeEventListener("keydown", onKey);
@@ -67,25 +90,13 @@ export function MobileNav() {
         aria-label="Open navigation"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        // Pinned to the header row rather than placed inside <header>: the header is
-        // shared with the desktop layout, and this keeps the two from having to know
-        // about each other.
-        //
-        // The offset is not just the notch inset. An announcement banner shifts the app
-        // down by padding <body>, which moves everything in normal flow but NOT a fixed
-        // element like this one - so it publishes its height as --announce-height and
-        // this rides down with it instead of hiding underneath.
-        className="fixed left-0 z-40 flex h-14 w-14 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-        style={{
-          top: "calc(env(safe-area-inset-top, 0px) + var(--announce-height, 0px))",
-          paddingLeft: "env(safe-area-inset-left, 0px)",
-        }}
+        className="relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
         <Menu className="h-5 w-5" />
         {unread > 0 && (
           <span
             aria-hidden
-            className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[color:var(--color-accent)]"
+            className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[color:var(--color-accent)]"
           />
         )}
       </button>
@@ -100,10 +111,8 @@ export function MobileNav() {
             className="absolute inset-0 h-full w-full cursor-default bg-black/50"
           />
           <div
-            className={cn(
-              "relative flex h-full flex-col border-r bg-card shadow-xl",
-              PANEL_WIDTH,
-            )}
+            ref={panelRef}
+            className="relative flex h-full w-72 max-w-[85vw] flex-col border-r bg-card shadow-xl"
             style={{
               paddingTop: "env(safe-area-inset-top, 0px)",
               paddingBottom: "env(safe-area-inset-bottom, 0px)",

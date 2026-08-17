@@ -33,6 +33,14 @@ partial day again. The second half (raising an explicit "sync incomplete" alert 
 than silently skipping) is a change to the alert-emitting logic and is deliberately
 NOT bundled here - it needs its own review.
 
+THE STALENESS CHECK IS EXEMPTED. alerts_service's "Data is stale" rule reads rows[0]
+of this same query, and with the HAVING in place rows[0] is the newest COMPLETE day -
+routinely 2-3 days old because Apple lags by design. Against the default 48h threshold
+that fires a false daily critical "the sync may be failing" while the sync is healthy:
+the fix for one fabricated alert would have installed a different fabricated alert.
+Staleness is about whether the sync is LANDING ROWS at all, so it now reads the true
+newest fact date (MAX(date), no completeness filter) through its own one-line query.
+
 Anchored: the target line must appear EXACTLY once per file or nothing is written.
 Idempotent. Restart the backend afterwards; no migration.
 """
@@ -70,6 +78,33 @@ REPLACEMENT = '''    f"FROM {_FACT} GROUP BY date "
     f"ORDER BY date DESC LIMIT 2"
 '''
 
+# ── alerts_service only: staleness reads the TRUE newest date, not the newest complete
+# one. The newest complete day is 2-3 days old in normal operation (Apple lag), which
+# against a 48h threshold would fire a false "sync may be failing" critical every day.
+ALERTS_NEWEST_IMPORT_ANCHOR = "    rows = (await db.execute(_LATEST_TWO_DAYS_SQL)).all()\n"
+ALERTS_NEWEST_IMPORT_ADD = (
+    "    # Staleness is about whether the sync is landing rows AT ALL, so it looks at the\n"
+    "    # newest raw date - the completeness filter above would call healthy source lag\n"
+    '    # "stale" every day.\n'
+    "    newest_raw = (await db.execute(text(f\"SELECT MAX(date) FROM {_FACT}\"))).scalar()\n"
+)
+
+ALERTS_STALE_ANCHOR = """    # 1) Stale data — the newest fact date is older than the freshness threshold.
+    age_hours = (datetime.now(UTC).date() - latest_date).days * 24
+    if age_hours > freshness_hours:
+"""
+ALERTS_STALE_NEW = """    # 1) Stale data — the newest RAW fact date (not the newest complete one; that is
+    # routinely days old because Apple lags) is older than the freshness threshold.
+    stale_ref = newest_raw or latest_date
+    age_hours = (datetime.now(UTC).date() - stale_ref).days * 24
+    if age_hours > freshness_hours:
+"""
+
+ALERTS_STALE_BODY_ANCHOR = '''                "body": f"Latest data is {latest_date} (~{age_hours}h old, "
+'''
+ALERTS_STALE_BODY_NEW = '''                "body": f"Latest data is {stale_ref} (~{age_hours}h old, "
+'''
+
 
 def die(message: str) -> None:
     print(f"ABORTED: {message}", file=sys.stderr)
@@ -92,6 +127,17 @@ def main() -> None:
             die(f"{path}: expected exactly one {ANCHOR.strip()!r}, found {text.count(ANCHOR)}")
         if text.count(CONST_ANCHOR) != 1:
             die(f"{path}: expected exactly one {CONST_ANCHOR.strip()!r}")
+        if path is ALERTS:
+            for anchor in (
+                ALERTS_NEWEST_IMPORT_ANCHOR,
+                ALERTS_STALE_ANCHOR,
+                ALERTS_STALE_BODY_ANCHOR,
+            ):
+                if text.count(anchor) != 1:
+                    die(
+                        f"{path}: expected exactly one "
+                        f"{anchor.splitlines()[0].strip()!r}, found {text.count(anchor)}"
+                    )
         texts[path] = text
 
     if not texts:
@@ -103,6 +149,14 @@ def main() -> None:
     for path, text in texts.items():
         text = text.replace(CONST_ANCHOR, CONST_ANCHOR + CONST_ADD, 1)
         text = text.replace(ANCHOR, REPLACEMENT, 1)
+        if path is ALERTS:
+            text = text.replace(
+                ALERTS_NEWEST_IMPORT_ANCHOR,
+                ALERTS_NEWEST_IMPORT_ANCHOR + ALERTS_NEWEST_IMPORT_ADD,
+                1,
+            )
+            text = text.replace(ALERTS_STALE_ANCHOR, ALERTS_STALE_NEW, 1)
+            text = text.replace(ALERTS_STALE_BODY_ANCHOR, ALERTS_STALE_BODY_NEW, 1)
         path.write_text(text)
         print(f"patched {path}")
 
