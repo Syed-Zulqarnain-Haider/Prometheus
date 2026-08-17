@@ -75,7 +75,13 @@ ROOT_MOUNT_NEW = """        <Providers>{children}</Providers>
 """
 
 # ── frontend/app/(app)/layout.tsx ──────────────────────────────────────────────
-MAIN_ANCHOR = '        <main className="flex-1 overflow-auto p-6">{children}</main>\n'
+# Two forms are in the wild: the original flat p-6, and a p-4 sm:p-6 that a previous pass
+# already applied. Either is a valid starting point and both end at the same place, so the
+# patch accepts whichever it finds rather than aborting the whole run on the tidier one.
+MAIN_ANCHORS = (
+    '        <main className="flex-1 overflow-auto p-6">{children}</main>\n',
+    '        <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>\n',
+)
 MAIN_NEW = """        {/* Tighter padding on phones - 24px of chrome on a 360px screen is 13% of the
             width. The bottom inset keeps the last row clear of the iPhone home indicator. */}
         <main
@@ -133,10 +139,17 @@ def main() -> None:
             die(f"{ROOT_LAYOUT}: a viewport export already exists - merge by hand")
         todo[ROOT_LAYOUT] = root
 
+    main_anchor: str | None = None
     if "safe-area-inset-bottom" in app:
         print(f"{APP_LAYOUT}: already responsive")
     else:
-        require_once(APP_LAYOUT, app, MAIN_ANCHOR)
+        found = [anchor for anchor in MAIN_ANCHORS if app.count(anchor) == 1]
+        if len(found) != 1:
+            die(
+                f"{APP_LAYOUT}: expected exactly one known <main> line, matched {len(found)} - "
+                "the layout has changed shape, patch it by hand"
+            )
+        main_anchor = found[0]
         todo[APP_LAYOUT] = app
 
     if "MobileNav" in sidebar:
@@ -160,8 +173,8 @@ def main() -> None:
         ROOT_LAYOUT.write_text(text)
         print(f"patched {ROOT_LAYOUT}: viewport + theme colour + service worker")
 
-    if APP_LAYOUT in todo:
-        APP_LAYOUT.write_text(todo[APP_LAYOUT].replace(MAIN_ANCHOR, MAIN_NEW, 1))
+    if APP_LAYOUT in todo and main_anchor is not None:
+        APP_LAYOUT.write_text(todo[APP_LAYOUT].replace(main_anchor, MAIN_NEW, 1))
         print(f"patched {APP_LAYOUT}: responsive page padding + safe area")
 
     if SIDEBAR in todo:
