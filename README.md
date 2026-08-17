@@ -828,3 +828,110 @@ The deployed tree and the working mirror drift. Before any backend deploy, diff 
 files against the branch being deployed and use anchored patch scripts (verify every anchor
 exactly once or abort) for anything that differs - never a directory-wide checkout, and never
 overwrite a file the server has evolved.
+
+## Executive Overview widgets (2026-08-17)
+
+### App performance tape
+`components/overview/app-tape.tsx` — a trading-desk ribbon across the top of Overview: one
+item per app with its name, revenue for the window, absolute change against the **previous
+window of equal length** (the same rule the backend uses for period comparison), percent
+change, and an UP/DOWN/NEW chip. An app with no prior-period row reads `NEW` rather than a
+fabricated 0%. Items link to `/apps/{canonical_key}`.
+
+Two details that were bugs first: the scroll is a CSS animation on a duplicated track, and
+`animationPlayState` is set inline **only when paused** — an inline `running` outranks the
+`:hover` rule, which is why hover-to-pause silently did nothing. Symbols show the app's own
+name; stock-style initials were unreadable for real app names.
+
+Access is inherited, not reimplemented: both reads go through `/metrics/table`, so the
+server injects the caller's row scopes. An admin's tape carries every app, a pod owner's
+only their pod's.
+
+### HOU Performance replaces Publisher Performance
+`hou-table.tsx` already existed, fully written, but was never added to the widget registry
+or the default layout — so it never rendered. `scripts/register-hou-widget.py` wires it in;
+`scripts/remove-publisher-widget.py` unregisters the publisher-led duplicate. The publisher
+component stays on disk unrendered rather than deleted, so re-enabling it is one line.
+
+**Check whether a component already exists before writing one.** The HOU table was built and
+forgotten; it cost a wasted build and a broken one to discover that.
+
+### Security page is administrator-only
+`scripts/restrict-security-page.py` adds `requiresAdmin` to the nav entry;
+`scripts/guard-security-page.py` adds the guard to `security-client.tsx` itself. Both are
+needed — hiding a nav link restricts nothing, because a typed `/security` URL still renders
+the page. The command palette already filters by role, so the missing `requiresAdmin` flag
+was also why the page appeared in search for non-admins.
+
+Note the trade-off: users can no longer see their own active sessions or use "sign out
+everywhere". The backend endpoints still answer any authenticated caller with **their own**
+session data only — no cross-user leak — so gate them server-side too if the API surface
+itself must be admin-only.
+
+## Deployment discipline (learned the hard way)
+
+The deployed tree and any working mirror **diverge**. Three broken builds in one session all
+had the same cause: overwriting a whole file the server had evolved past.
+
+- Before touching a shared file, **list the directory and read the file**. `hou-table.tsx`
+  imports `ColumnDef`, `METRIC_COLUMNS`, `MetricTable` and `permittedMeasures` from
+  `revenue-table.tsx`; a copy lacking those exports breaks the build immediately.
+- Use **anchored patch scripts** (`scripts/*.py`) for anything the server owns: each anchor
+  must match exactly once or the script aborts having written nothing, and re-running is a
+  no-op. Every change that went in cleanly used this; every failure was a file overwrite.
+- **Never check out a directory** — explicit file paths only.
+- Run the **import smoke test** before restarting anything:
+  `docker compose -f docker-compose.prod.yml run --rm backend python -c 'import app.main'`.
+- Alembic ids must be **globally new**; a reused id silently no-ops the idempotency check and
+  the migration never runs. Two divergent heads are joined with a merge revision whose
+  `down_revision` is a tuple of both.
+- Recovering a clobbered file: search history for the last good version, e.g.
+  `for c in $(git rev-list HEAD -- $F); do git show $c:$F | grep -q "export const X" && echo $c && break; done`.
+
+## Security posture
+
+Verified clean (three parallel audits — API, frontend, infrastructure):
+no secrets in the repository or its git history; no SQL injection (every query is
+SQLAlchemy Core/ORM with bound parameters); RBAC fails closed on empty scopes; the
+404-not-403 convention holds throughout; exports and admin actions are capability-gated and
+audit-logged; invite codes resist replay and brute force; the command palette filters by
+role and route-owning admin pages carry their own guards.
+
+The Firebase web config in the browser bundle is **public by design** — an identifier, not a
+credential. Protection comes from server-side JWT verification plus RBAC on every route, not
+from concealing it. The Admin SDK service-account key is the real secret; it is a mounted
+file and has never been in git.
+
+Open hardening items, highest impact first:
+
+1. Firebase token verification runs on the event loop, and every rate limiter engages only
+   after authentication — junk bearer tokens each cost a full RSA verification and can stall
+   the process. Move verification to a worker thread and add an IP-keyed pre-auth ceiling.
+2. `client_ip()` trusts `X-Real-IP`/`X-Forwarded-For` unconditionally; reached without the
+   nginx in front, the audit log's actor IP is forgeable. Gate on an explicit
+   `TRUSTED_PROXY` setting.
+3. `/docs`, `/redoc` and `/openapi.json` are enabled in production.
+4. Group creation bypasses the chat contact-request consent gate — anyone can add a user to
+   a group and message them immediately.
+5. No block list: a declined contact request can be re-sent indefinitely.
+6. The aggregate cache accepts unbounded distinct parameter combinations with ~24h TTLs.
+7. Two database dumps remain in git history (untracked now; purging needs a history rewrite).
+8. Dockerfiles use floating base-image tags, so a registry outage blocks every deploy.
+
+## Planned: super-administrator role
+
+A `super_admin` capability above `admin`, able to create, demote and remove administrators.
+Design decisions taken before implementation:
+
+- **Second factor**: TOTP is the correct reading of "a key regenerated every login" — a code
+  that rotates every 30 seconds, with nothing to intercept and no delivery channel to
+  compromise. An emailed one-time code is only as strong as the mailbox; a passkey is
+  stronger still. Recovery codes stored hashed and single-use.
+- **Step-up re-auth**: the factor is demanded again for destructive actions, not only at
+  login, so a stolen session grants nothing.
+- **Self-lockout guard**: the last remaining super administrator cannot be removed or
+  demoted by anyone, including themselves.
+- **Bootstrap by migration**, never through the UI — there must be no self-promotion path.
+- Every action audit-logged with actor, target, IP and user agent, into the append-only log
+  the `api_service` role cannot UPDATE or DELETE.
+- Enforcement server-side only; UI hiding stays cosmetic, as everywhere else.
