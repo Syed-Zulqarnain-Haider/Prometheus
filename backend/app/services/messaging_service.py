@@ -203,7 +203,9 @@ async def list_conversations(db: AsyncSession, redis: Redis, me: uuid.UUID) -> C
         )
         .group_by(Message.conversation_id)
     )
-    unread_by_conversation = dict((await db.execute(unread_stmt)).all())
+    unread_by_conversation: dict[uuid.UUID, int] = dict(
+        (await db.execute(unread_stmt)).tuples().all()
+    )
 
     out: list[ConversationOut] = []
     unread_total = 0
@@ -571,14 +573,16 @@ async def admin_list_conversations(db: AsyncSession, redis: Redis) -> list[dict[
         if person is not None:
             by_conversation.setdefault(row.conversation_id, []).append(person)
 
-    counts = dict(
+    counts: dict[uuid.UUID, int] = dict(
         (
             await db.execute(
                 select(Message.conversation_id, func.count())
                 .where(Message.conversation_id.in_(ids), Message.deleted_at.is_(None))
                 .group_by(Message.conversation_id)
             )
-        ).all()
+        )
+        .tuples()
+        .all()
     )
 
     out: list[dict[str, object]] = []
