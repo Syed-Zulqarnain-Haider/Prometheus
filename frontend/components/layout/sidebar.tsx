@@ -11,6 +11,7 @@ import { ClickSpark } from "@/components/effects/click-spark";
 import { CursorFx } from "@/components/effects/custom-cursor";
 import { PrivacyShield } from "@/components/effects/privacy-shield";
 import { AnnouncementBar } from "@/components/layout/announcement-bar";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import { useConversations } from "@/lib/chat-hooks";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
@@ -247,6 +248,9 @@ export function Sidebar() {
     <BackgroundFx />
     <PrivacyShield />
     <CursorFx />
+    {/* The sidebar below is `hidden md:block`; this is its counterpart under that
+        breakpoint, so navigation exists at every width. */}
+    <MobileNav />
     <aside
       className={cn(
         // Only width animates; the easing and duration come from the theme tokens, so the

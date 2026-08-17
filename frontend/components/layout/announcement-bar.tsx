@@ -269,6 +269,10 @@ export function AnnouncementBar() {
     if (!el) return;
     const sync = () => {
       document.body.style.paddingTop = `${el.offsetHeight}px`;
+      // Body padding moves everything in normal flow, but NOT position: fixed elements -
+      // they are laid out against the viewport and would sit under the banner. The mobile
+      // nav button is one of those, so publish the height for anything fixed to offset by.
+      document.documentElement.style.setProperty("--announce-height", `${el.offsetHeight}px`);
     };
     sync();
     const observer = new ResizeObserver(sync); // tracks the flap-board swap and text wrap
@@ -276,6 +280,7 @@ export function AnnouncementBar() {
     return () => {
       observer.disconnect();
       document.body.style.paddingTop = "";
+      document.documentElement.style.removeProperty("--announce-height");
     };
   }, [barId]);
 
@@ -351,7 +356,11 @@ export function AnnouncementBar() {
         </div>
       )}
       {isAdmin && (
-        <div className="fixed bottom-4 right-4 z-[60] opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100">
+        <div
+          // Clear of the iPhone home indicator, which otherwise sits over the button.
+          style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+          className="fixed right-4 z-[60] opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100"
+        >
           <Popover>
             <PopoverTrigger asChild>
               <span className="relative inline-flex">

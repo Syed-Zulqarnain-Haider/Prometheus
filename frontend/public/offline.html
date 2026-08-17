@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Offline - Prometheus</title>
+    <!-- Standalone file: the service worker serves this when the network is gone, so it
+         cannot depend on the app's stylesheets or fonts being reachable. -->
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: max(2rem, env(safe-area-inset-top)) 1.5rem;
+        background: #0b0b0d;
+        color: #e8e8ea;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      .card { max-width: 22rem; }
+      img { width: 64px; height: 64px; border-radius: 16px; }
+      h1 { margin: 1.25rem 0 0.5rem; font-size: 1.25rem; font-weight: 600; }
+      p { margin: 0; color: #9a9aa2; font-size: 0.875rem; line-height: 1.6; }
+      button {
+        margin-top: 1.5rem;
+        padding: 0.6rem 1.25rem;
+        border: 0;
+        border-radius: 0.5rem;
+        background: #ff6a00;
+        color: #111;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img src="/icon-192.png" alt="" />
+      <h1>You're offline</h1>
+      <p>
+        Prometheus reads live figures from the server, so there is nothing to show until
+        the connection is back. Nothing has been lost.
+      </p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </div>
+  </body>
+</html>

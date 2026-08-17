@@ -114,8 +114,10 @@ export function PrivacyShield() {
         aria-label={on ? "Turn privacy shield off" : "Turn privacy shield on"}
         title={on ? "Privacy shield ON - hover to reveal. Click to show everything." : "Privacy shield: blur the screen, reveal only around your pointer"}
         onClick={toggle}
+        // Stacked above the announcement toggle, both clear of the iPhone home indicator.
+        style={{ bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}
         className={cn(
-          "fixed bottom-20 right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-lg",
+          "fixed right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-lg",
           // Dimmed at rest: these float over page content (table pagination sits
           // right underneath) and a solid button there hides data. Full opacity
           // returns on hover/focus, and while the shield is ON it stays visible so

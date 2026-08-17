@@ -79,7 +79,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         >
           <FilterBar />
         </Suspense>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        {/* Tighter padding on phones - 24px of chrome on a 360px screen is 13% of the
+            width. The bottom inset keeps the last row clear of the iPhone home indicator. */}
+        <main
+          className="flex-1 overflow-auto p-4 sm:p-6"
+          style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );
