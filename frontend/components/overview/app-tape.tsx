@@ -114,7 +114,7 @@ export function AppTape() {
     <div
       role="marquee"
       aria-label="app performance tape"
-      className="mb-4 flex items-stretch overflow-hidden rounded-[var(--radius-inner)] border border-[color:var(--color-border)] bg-[#0b0b0d]"
+      className="mb-4 flex items-stretch overflow-hidden rounded-[var(--radius-inner)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-card-sunken,var(--color-bg-card))]"
     >
       <style>{`
         @keyframes app-tape-scroll {
@@ -133,7 +133,7 @@ export function AppTape() {
       `}</style>
 
       {/* Control cell - fixed, the tape slides past it. */}
-      <div className="flex shrink-0 items-center gap-2 border-r border-[color:var(--color-border)] bg-[#131317] px-3.5 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-r border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated,var(--color-bg-card))] px-3.5 py-2.5">
         <span className="font-mono text-[11px] font-bold tracking-[0.18em] text-[color:var(--color-amber)]">
           TAPE
         </span>
@@ -175,7 +175,7 @@ export function AppTape() {
                     href={`/apps/${encodeURIComponent(item.key)}`}
                     title={`Open ${item.symbol}`}
                     tabIndex={copy === 1 ? -1 : 0}
-                    className="flex shrink-0 items-center gap-2.5 whitespace-nowrap border-r border-[color:var(--color-border)] px-4 py-2.5 font-mono text-[13px] tabular-nums transition-colors hover:bg-[#17171c]"
+                    className="flex shrink-0 items-center gap-2.5 whitespace-nowrap border-r border-[color:var(--color-border)] px-4 py-2.5 font-mono text-[13px] tabular-nums transition-colors hover:bg-accent"
                   >
                     <span className="font-bold tracking-wide text-[color:var(--color-amber)]">
                       {item.symbol}
