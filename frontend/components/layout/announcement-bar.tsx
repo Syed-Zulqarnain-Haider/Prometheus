@@ -295,8 +295,10 @@ export function AnnouncementBar() {
           to { transform: translateY(0); opacity: 1; }
         }
         @keyframes announce-marquee {
-          from { transform: translateX(-50%); }
-          to { transform: translateX(0); }
+          /* 0 -> -50%: the track slides LEFT, so text enters from the right and exits
+             left - ticker direction. (The reverse read as drifting backwards.) */
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
         }
         .announce-marquee { animation: announce-marquee linear infinite; }
         /* Hovering pauses the scroll so a CTA can actually be clicked. */
@@ -318,14 +320,21 @@ export function AnnouncementBar() {
           <Megaphone className="h-4 w-4 shrink-0" />
           <div className="announce-track min-w-0 flex-1 overflow-hidden">
             {(
-              // Two identical copies make the -50% -> 0 slide seamless: as the first
-              // finishes leaving, the second is exactly where it started.
+              // Two identical copies make the 0 -> -50% slide seamless: as the first
+              // finishes leaving, the second is exactly where it started. Each copy is
+              // min-w-full so a SHORT message still travels the whole bar before its
+              // twin enters - without it the -50% shift was less than the bar's width
+              // and the text visibly never made it across.
               <div
                 className="announce-marquee flex w-max items-center"
                 style={{ animationDuration: `${Math.max(20, trackLength * 0.42)}s` }}
               >
                 {[0, 1].map((copy) => (
-                  <div key={copy} aria-hidden={copy === 1} className="flex items-center">
+                  <div
+                    key={copy}
+                    aria-hidden={copy === 1}
+                    className="flex min-w-full shrink-0 items-center pr-10"
+                  >
                     {visible.map((entry) => (
                       <TickerItem key={`${copy}-${entry.id}`} announcement={entry} />
                     ))}
