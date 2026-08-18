@@ -43,10 +43,10 @@ ROW_DATES_ADD = """  // One daily axis serves every card: each sparkline is a co
   );
 """
 
-# Written by beautify-overview-motion.py's cascade wrappers - appears once per row.
+# Written by beautify-overview-motion.py's cascade wrappers - once per surviving row
+# (the ladder row was removed from the deployed Overview, so 1 there, 2 elsewhere).
 ROW_SPARK_ANCHOR = "              spark={kpi.spark}\n"
 ROW_SPARK_NEW = "              spark={kpi.spark}\n              sparkDates={sparkDates}\n"
-ROW_SPARK_EXPECTED = 2  # the kpis row and the ladder row
 
 # ── kpi-card.tsx ──────────────────────────────────────────────────────────────
 CARD_IMPORT_ANCHOR = 'import { formatPercent } from "@/lib/format";\n'
@@ -145,7 +145,12 @@ def main() -> None:
         print(f"{KPI_ROW}: already dated")
     else:
         require(KPI_ROW, row, ROW_DATES_ANCHOR)
-        require(KPI_ROW, row, ROW_SPARK_ANCHOR, ROW_SPARK_EXPECTED)
+        spark_count = row.count(ROW_SPARK_ANCHOR)
+        if spark_count not in (1, 2):
+            die(
+                f"{KPI_ROW}: expected 1 or 2 cascade spark props, found {spark_count} - "
+                "run beautify-overview-motion.py first"
+            )
         text = row.replace(ROW_DATES_ANCHOR, ROW_DATES_ANCHOR + ROW_DATES_ADD, 1)
         text = text.replace(ROW_SPARK_ANCHOR, ROW_SPARK_NEW)
         todo[KPI_ROW] = text

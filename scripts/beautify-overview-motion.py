@@ -195,12 +195,16 @@ def main() -> None:
     if "anim-rise" in files[KPI_ROW]:
         print(f"{KPI_ROW}: already cascades")
     else:
-        for name in ("kpis", "ladder"):
-            require_once(KPI_ROW, files[KPI_ROW], kpi_block(name))
-        text = files[KPI_ROW]
-        text = text.replace(kpi_block("kpis"), kpi_block_new("kpis", 0), 1)
-        # The ladder row continues the cascade after the first five cards.
-        text = text.replace(kpi_block("ladder"), kpi_block_new("ladder", 300), 1)
+        require_once(KPI_ROW, files[KPI_ROW], kpi_block("kpis"))
+        text = files[KPI_ROW].replace(kpi_block("kpis"), kpi_block_new("kpis", 0), 1)
+        # The deeper reported ladder row was REMOVED from the Overview on the deployed
+        # tree (owner decision, 2026-08-11) but still exists on others - cascade it
+        # only where it is actually present.
+        ladder_count = files[KPI_ROW].count(kpi_block("ladder"))
+        if ladder_count == 1:
+            text = text.replace(kpi_block("ladder"), kpi_block_new("ladder", 300), 1)
+        elif ladder_count > 1:
+            die(f"{KPI_ROW}: expected at most one ladder block, found {ladder_count}")
         todo[KPI_ROW] = text
 
     if "anim-rise" in files[GRID]:
