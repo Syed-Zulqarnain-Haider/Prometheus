@@ -319,6 +319,14 @@ async def detect(
     min_change_pct: float,
 ) -> dict[str, Any]:
     """Score every entity in the window and return the anomalous ones, worst first."""
+    # RBAC FIRST, before any data lookup. The query builder would refuse this metric
+    # anyway, but only once a query is actually built - so on an empty or freshly-synced
+    # table the early return below would hand a forbidden metric a cheerful 200 with an
+    # empty list instead of a 400. The same request must not change its answer depending
+    # on how much data happens to exist.
+    if metric not in qb.permitted_measures:
+        raise ValueError(f"metrics not permitted or not additive: [{metric!r}]")
+
     on_date = await day_completeness.latest_complete_date(db)
     if on_date is None:
         return {
