@@ -478,6 +478,15 @@ async def notify_watchlists(db: AsyncSession, settings: Settings) -> int:
                 sent += 1
         except Exception:  # noqa: BLE001 - one bad account must not stop the pass
             log.exception("watchlist alert failed for user %s", user_id)
+            # ROLL BACK, or the promise above is false. SQLAlchemy leaves the session in
+            # a failed transaction after a failed statement, so without this the first
+            # bad account poisons every user after it - the exact opposite of "one bad
+            # account never stops the rest". Wrapped, because rolling back a dropped
+            # connection raises too and the recovery must not become the new failure.
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001 - nothing useful is left to do
+                log.exception("could not roll back after user %s", user_id)
     return sent
 '''
 

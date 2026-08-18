@@ -778,8 +778,16 @@ export function AnnotationsPanel({ filters }: { filters: Filters }) {
     : SCOPE_TYPES.filter(
         (t) => t.id !== "all" && scopes.some((s) => s.scope_type === t.id),
       );
+  // DERIVED, not trusted from state. scopeType starts as "all", which a scoped user
+  // cannot write - so the select would show "Pod" while the state still said "all", the
+  // value field (gated on !== "all") would stay hidden, and every save would 403. It
+  // could never recover either, because the state is only corrected after a successful
+  // save. Deriving it is correct on the first render and self-heals if scopes change.
+  const scopeTypeIsWritable = writableTypes.some((t) => t.id === scopeType);
+  const effectiveScopeType = scopeTypeIsWritable ? scopeType : (writableTypes[0]?.id ?? "all");
+
   const suggestions = scopes
-    .filter((s) => s.scope_type === scopeType && s.scope_value)
+    .filter((s) => s.scope_type === effectiveScopeType && s.scope_value)
     .map((s) => s.scope_value as string);
 
   function reset() {
@@ -797,8 +805,8 @@ export function AnnotationsPanel({ filters }: { filters: Filters }) {
       {
         annotation_date: date,
         note: note.trim(),
-        scope_type: scopeType,
-        scope_value: scopeType === "all" ? null : scopeValue.trim() || null,
+        scope_type: effectiveScopeType,
+        scope_value: effectiveScopeType === "all" ? null : scopeValue.trim() || null,
       },
       {
         onSuccess: reset,
@@ -831,7 +839,7 @@ export function AnnotationsPanel({ filters }: { filters: Filters }) {
               />
               <select
                 aria-label="Applies to"
-                value={scopeType}
+                value={effectiveScopeType}
                 onChange={(e) => {
                   setScopeType(e.target.value);
                   setScopeValue("");
@@ -845,7 +853,7 @@ export function AnnotationsPanel({ filters }: { filters: Filters }) {
                 ))}
               </select>
             </div>
-            {scopeType !== "all" && (
+            {effectiveScopeType !== "all" && (
               <>
                 <input
                   aria-label="Scope value"
