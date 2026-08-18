@@ -41,6 +41,7 @@ validate before any is touched. Idempotent. Requires `alembic upgrade head`.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -1249,9 +1250,6 @@ CLIENT_ITEM_ANCHOR = '    annotations: <AnnotationsPanel filters={filters} />,\n
 CLIENT_ITEM_ADD = '    watchlist: <WatchlistPanel filters={filters} />,\n'
 
 TEST_META_EDITS = [('    "chart_annotations",\n', '    "watchlist_items",\n', False)]
-TEST_MIGRATIONS_EDITS = [
-    ('_HEAD = "a1b2c3d4e5f6"', '_HEAD = "b2c3d4e5f6a7"', None),
-]
 
 
 def die(message: str) -> None:
@@ -1271,6 +1269,27 @@ def plan_edits(
             first = anchor.splitlines()[0].strip()
             die(f"{path}: expected exactly one {first!r}, found {text.count(anchor)}")
     return edits
+
+
+def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, str, None]] | None:
+    """Move test_migrations.py's pinned head revision - tolerantly.
+
+    Every migration-bearing patch moves this ONE line, so re-running an earlier script
+    after a later one would otherwise find its anchor gone and abort. The chain is
+    forward-only: a head further along is correct, not broken. So the pin is only
+    rewritten when it is still sitting on exactly the revision this patch supersedes.
+    """
+    match = re.search(r'_HEAD = "([0-9a-f]+)"', text)
+    if match is None:
+        die(f"{path}: no _HEAD pin found - the file has changed shape")
+    current = match.group(1)
+    if current == new:
+        print(f"{path}: already pinned to {new}")
+        return None
+    if current != old:
+        print(f"{path}: head is already at {current} (past {new}) - leaving it")
+        return None
+    return [(f'_HEAD = "{old}"', f'_HEAD = "{new}"', None)]
 
 
 def main() -> None:
@@ -1343,11 +1362,14 @@ def main() -> None:
             ],
         ),
         (TEST_META, "watchlist_items", TEST_META_EDITS),
-        (TEST_MIGRATIONS, "b2c3d4e5f6a7", TEST_MIGRATIONS_EDITS),
     ):
         edits_or_none = plan_edits(path, texts[path], marker, edits)
         if edits_or_none is not None:
             plan[path] = edits_or_none
+
+    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "a1b2c3d4e5f6", "b2c3d4e5f6a7")
+    if head_edits is not None:
+        plan[TEST_MIGRATIONS] = head_edits
 
     # The route additions need names the file may not import yet. Check before writing
     # anything - a route referencing an unimported service is a 500 on the first call.

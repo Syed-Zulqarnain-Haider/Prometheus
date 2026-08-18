@@ -32,6 +32,7 @@ validate before any is touched. Idempotent. Requires `alembic upgrade head`.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -953,6 +954,27 @@ def plan_edits(
     return edits
 
 
+def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, str, None]] | None:
+    """Move test_migrations.py's pinned head revision - tolerantly.
+
+    Every migration-bearing patch moves this ONE line, so re-running an earlier script
+    after a later one would otherwise find its anchor gone and abort. The chain is
+    forward-only: a head further along is correct, not broken. So the pin is only
+    rewritten when it is still sitting on exactly the revision this patch supersedes.
+    """
+    match = re.search(r'_HEAD = "([0-9a-f]+)"', text)
+    if match is None:
+        die(f"{path}: no _HEAD pin found - the file has changed shape")
+    current = match.group(1)
+    if current == new:
+        print(f"{path}: already pinned to {new}")
+        return None
+    if current != old:
+        print(f"{path}: head is already at {current} (past {new}) - leaving it")
+        return None
+    return [(f'_HEAD = "{old}"', f'_HEAD = "{new}"', None)]
+
+
 def main() -> None:
     patched = [
         MODELS_INIT, CONFIG, SCHEDULER, ADMIN, TYPES, HOOKS, SYSTEM_PANEL,
@@ -1006,11 +1028,14 @@ def main() -> None:
             ],
         ),
         (TEST_META, "discord_config", TEST_META_EDITS),
-        (TEST_MIGRATIONS, "d4e5f6a7b8c9", TEST_MIGRATIONS_EDITS),
     ):
         edits_or_none = plan_edits(path, texts[path], marker, edits)
         if edits_or_none is not None:
             plan[path] = edits_or_none
+
+    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c3d4e5f6a7b8", "d4e5f6a7b8c9")
+    if head_edits is not None:
+        plan[TEST_MIGRATIONS] = head_edits
 
     new_files = {
         MODEL: MODEL_SOURCE,
