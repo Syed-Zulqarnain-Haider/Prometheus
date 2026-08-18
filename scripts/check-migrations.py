@@ -23,7 +23,26 @@ from pathlib import Path
 VERSIONS = Path("backend/alembic/versions")
 
 REV_RE = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']([^\"']+)[\"']", re.M)
-DOWN_RE = re.compile(r"^down_revision(?::\s*[^=]+)?\s*=\s*(?:[\"']([^\"']+)[\"']|None)", re.M)
+# down_revision has FOUR legal shapes and a merge revision uses the tuple one:
+#     down_revision = None
+#     down_revision = "abc123"
+#     down_revision: str | None = "abc123"
+#     down_revision = ("abc123", "def456")     <-- a MERGE
+# Reading only the first two made every merge look like a second root, which is a fork
+# that does not exist - a false alarm that blocks a deploy is as bad as a missed one.
+DOWN_RE = re.compile(r"^down_revision(?::[^=\n]+)?\s*=\s*(.+)$", re.M)
+_QUOTED = re.compile(r"[\"']([^\"']+)[\"']")
+
+
+def parse_down(text: str) -> tuple[list[str], str | None]:
+    """Return (parents, raw) - raw is kept so an unparseable line can be shown verbatim."""
+    m = DOWN_RE.search(text)
+    if m is None:
+        return [], None
+    raw = m.group(1).strip()
+    if raw.startswith("None"):
+        return [], raw
+    return _QUOTED.findall(raw), raw
 
 
 def main() -> None:
@@ -31,15 +50,18 @@ def main() -> None:
         print(f"{VERSIONS} not found - run from the repository root", file=sys.stderr)
         raise SystemExit(1)
 
-    by_rev: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
+    by_rev: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
+    unparsed: list[tuple[str, str]] = []
     files = sorted(VERSIONS.glob("*.py"))
     for path in files:
         text = path.read_text()
         rev = REV_RE.search(text)
         if rev is None:
             continue
-        down = DOWN_RE.search(text)
-        by_rev[rev.group(1)].append((path.name, down.group(1) if down else None))
+        parents, raw = parse_down(text)
+        if raw is not None and not parents and not raw.startswith("None"):
+            unparsed.append((path.name, raw))
+        by_rev[rev.group(1)].append((path.name, parents))
 
     print(f"{len(files)} file(s) in {VERSIONS}, {len(by_rev)} distinct revision id(s)\n")
 
@@ -48,9 +70,9 @@ def main() -> None:
         print("DUPLICATE REVISION IDS - this is the cause of both the warning and the cycle:")
         for rev, entries in sorted(duplicates.items()):
             print(f"\n  {rev}")
-            for name, down in entries:
+            for name, parents in entries:
                 print(f"      {name}")
-                print(f"          down_revision = {down!r}")
+                print(f"          down_revision = {parents or None!r}")
         print()
     else:
         print("No duplicate revision ids.\n")
@@ -58,9 +80,10 @@ def main() -> None:
     # Roots and heads, computed only from ids that appear exactly once, so a duplicate
     # cannot make this lie.
     clean = {r: v[0][1] for r, v in by_rev.items() if len(v) == 1}
-    referenced = {down for down in clean.values() if down}
+    # A merge revision has SEVERAL parents; every one of them counts as referenced.
+    referenced = {parent for parents in clean.values() for parent in parents}
     heads = sorted(r for r in clean if r not in referenced)
-    roots = sorted(r for r, down in clean.items() if down is None)
+    roots = sorted(r for r, parents in clean.items() if not parents)
     print(f"root(s): {', '.join(roots) or 'none'}")
     print(f"head(s): {', '.join(heads) or 'none'}")
 
@@ -72,12 +95,17 @@ def main() -> None:
     if not heads:
         problems.append("no head at all (every revision is referenced - a cycle)")
 
-    dangling = sorted({d for d in clean.values() if d and d not in by_rev})
+    dangling = sorted({p for parents in clean.values() for p in parents if p not in by_rev})
     if dangling:
         print(f"\ndown_revision pointing at a revision that does not exist: {', '.join(dangling)}")
 
     if dangling:
         problems.append(f"{len(dangling)} dangling down_revision(s)")
+    if unparsed:
+        problems.append(f"{len(unparsed)} unreadable down_revision line(s)")
+        print("\nCould not read these down_revision lines - showing them verbatim:")
+        for name, raw in unparsed:
+            print(f"  {name}: down_revision = {raw}")
 
     print("\nFull list, oldest filename first:")
     for path in files:
@@ -86,9 +114,11 @@ def main() -> None:
         if rev is None:
             print(f"  {path.name}: NO revision id")
             continue
-        down = DOWN_RE.search(text)
+        parents, _ = parse_down(text)
         mark = "  <== DUPLICATE" if len(by_rev[rev.group(1)]) > 1 else ""
-        print(f"  {rev.group(1)}  <- {down.group(1) if down and down.group(1) else 'None':12}  {path.name}{mark}")
+        shown = " + ".join(parents) if parents else "None"
+        merge = "  (merge)" if len(parents) > 1 else ""
+        print(f"  {rev.group(1)}  <- {shown:12}  {path.name}{merge}{mark}")
 
     if problems:
         print(f"\nBROKEN: {'; '.join(problems)}.")
