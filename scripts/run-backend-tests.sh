@@ -8,9 +8,11 @@
 #
 # Why it is not simply `pytest`: pytest lives in the `dev` extra and is deliberately
 # absent from the production image, and conftest wants a real Postgres it is free to
-# create and drop tables in. So this brings up its OWN database on a private network,
-# runs the suite against that, and removes it afterwards. THE PRODUCTION DATABASE IS
-# NEVER TOUCHED - it is not on the network the tests can see.
+# create and drop tables in PLUS a real Redis (REDIS_TEST_URL - the rate limiter and
+# cache tests exercise actual Redis semantics, not the FakeRedis used for auth). So
+# this brings up its OWN Postgres and Redis on a private network, runs the suite
+# against those, and removes them afterwards. PRODUCTION IS NEVER TOUCHED - neither
+# the production database nor its Redis is on the network the tests can see.
 #
 # Usage (from the repository root, on any host with Docker):
 #   ./scripts/run-backend-tests.sh            # whole suite
@@ -25,19 +27,22 @@ cd "$(dirname "$0")/.."
 SUFFIX="$$"
 NET="prom-test-net-${SUFFIX}"
 PG="prom-test-pg-${SUFFIX}"
+RD="prom-test-redis-${SUFFIX}"
 IMAGE="prometheus-backend-test:local"
 
 cleanup() {
-  docker rm -f "$PG" >/dev/null 2>&1 || true
+  docker rm -f "$PG" "$RD" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-echo "==> throwaway Postgres on a private network (production DB is not reachable from it)"
+echo "==> throwaway Postgres + Redis on a private network (production is not reachable from it)"
 docker network create "$NET" >/dev/null
 docker run -d --rm --name "$PG" --network "$NET" \
   -e POSTGRES_USER=prometheus -e POSTGRES_PASSWORD=prometheus -e POSTGRES_DB=prometheus_test \
   postgres:16-alpine >/dev/null
+
+docker run -d --rm --name "$RD" --network "$NET" redis:7-alpine >/dev/null
 
 printf '    waiting for it'
 for _ in $(seq 1 40); do
@@ -48,6 +53,8 @@ for _ in $(seq 1 40); do
 done
 docker exec "$PG" pg_isready -U prometheus -d prometheus_test >/dev/null 2>&1 || {
   echo; echo "Postgres never became ready" >&2; exit 1; }
+docker exec "$RD" redis-cli ping >/dev/null 2>&1 || {
+  echo "Redis never became ready" >&2; exit 1; }
 
 # The test image is the PRODUCTION image plus the dev extras, so the suite runs against
 # the same dependency set that ships - not a separately resolved one that could pass
@@ -66,4 +73,6 @@ docker run --rm --network "$NET" \
   -v "$PWD/backend:/src" -w /src \
   -e TEST_DATABASE_URL="postgresql+asyncpg://prometheus:prometheus@${PG}:5432/prometheus_test" \
   -e DATABASE_URL="postgresql+asyncpg://prometheus:prometheus@${PG}:5432/prometheus_test" \
+  -e REDIS_TEST_URL="redis://${RD}:6379/0" \
+  -e REDIS_URL="redis://${RD}:6379/0" \
   "$IMAGE" pytest -q "$@"
