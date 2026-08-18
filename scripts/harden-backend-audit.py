@@ -144,8 +144,13 @@ def main() -> None:
             require_once(REPORTS, reports, anchor)
         todo[REPORTS] = reports
 
-    if 'split(",")[-1]' in http:
-        print(f"{HTTP}: already takes the trusted hop")
+    # The deployed tree carries a STRONGER implementation than this patch writes: it
+    # prefers X-Real-IP (nginx overwrites that one, so a caller cannot set it), falls
+    # back to the last forwarded hop, and makes header trust opt-in via trusted_proxy
+    # so a directly-reached backend uses the unforgeable socket peer. Any of these
+    # markers means the finding is already closed - do not downgrade it.
+    if any(marker in http for marker in ('split(",")[-1]', "hops[-1]", "x-real-ip")):
+        print(f"{HTTP}: already takes the trusted hop (no change needed)")
     else:
         require_once(HTTP, http, HTTP_ANCHOR)
         todo[HTTP] = http
