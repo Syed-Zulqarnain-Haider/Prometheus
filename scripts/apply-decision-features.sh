@@ -35,6 +35,7 @@ SCRIPTS=(
   add-scoped-targets-pacing    # 6+7  per-pod/app goals and UA budgets
   add-today-screen             # 8    the phone-first Today screen
   add-discord-delivery         # 9    digest + alerts into Discord
+  fix-daily-pass-isolation     #      daily pass: recover the session between handlers
   document-decision-features   #      README
 )
 
