@@ -39,25 +39,21 @@ REPORTS = Path("backend/app/services/reports_service.py")
 HTTP = Path("backend/app/core/http.py")
 
 # ── 1. meta.py ────────────────────────────────────────────────────────────────
-META_ANCHOR = '''    """Revenue targets for a year (read-only) — powers the Overview progress donut.
-
-    Visible to any authenticated user; only admins can set them (``/admin/targets``).
-    """
-    annual, monthly = await admin_service.targets_for_year(db, year)
+# Anchored on the CODE only, never the docstring: the deployed tree has had its em
+# dashes replaced with plain hyphens, and a prose difference must not be able to abort
+# a security fix.
+META_ANCHOR = """    annual, monthly = await admin_service.targets_for_year(db, year)
     return TargetsResponse(year=year, annual=annual, monthly=monthly)
-'''
-META_NEW = '''    """Revenue targets for a year (read-only) — powers the Overview progress donut.
-
-    Only disclosed to callers permitted a revenue measure — the same rule
-    pacing_service applies, so a store-installs-only role never learns the org's
-    revenue goal here either. The shape is kept (annual null, monthly empty) so the
-    donut renders its "target not set" state instead of surfacing an error.
-    """
+"""
+META_NEW = """    # Only disclosed to callers permitted a revenue measure - the same rule
+    # pacing_service applies, so a store-installs-only role never learns the org's
+    # revenue goal here either. The shape is kept (annual null, monthly empty) so the
+    # donut renders its "target not set" state instead of surfacing an error.
     if "total_revenue_usd" not in QueryBuilder(context).permitted_measures:
         return TargetsResponse(year=year, annual=None, monthly=[])
     annual, monthly = await admin_service.targets_for_year(db, year)
     return TargetsResponse(year=year, annual=annual, monthly=monthly)
-'''
+"""
 
 # ── 2. reports_service.py ─────────────────────────────────────────────────────
 REPORTS_HELPER_ANCHOR = "def build_csv(result: dict[str, Any]) -> bytes:\n"
@@ -159,7 +155,19 @@ def main() -> None:
         return
 
     if META in todo:
-        META.write_text(todo[META].replace(META_ANCHOR, META_NEW, 1))
+        text = todo[META].replace(META_ANCHOR, META_NEW, 1)
+        # Best-effort: the docstring above still claims the endpoint is visible to any
+        # authenticated user, which the gate has just made false. Wording differs
+        # between trees, so a miss here is not worth aborting a security fix over.
+        stale = "    Visible to any authenticated user; only admins can set them (``/admin/targets``).\n"
+        fixed = (
+            "    Only callers permitted a revenue measure see the figures; everyone else\n"
+            "    gets the same shape with nothing in it. Only admins can SET them\n"
+            "    (``/admin/targets``).\n"
+        )
+        if text.count(stale) == 1:
+            text = text.replace(stale, fixed, 1)
+        META.write_text(text)
         print(f"patched {META}: targets gated on revenue permission")
 
     if REPORTS in todo:
