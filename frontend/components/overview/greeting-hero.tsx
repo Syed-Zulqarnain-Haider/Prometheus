@@ -29,8 +29,13 @@ export function GreetingHero() {
   useEffect(() => setNow(new Date()), []);
 
   // First name only - "Good evening, Muhammad" is a greeting; the full corporate
-  // display name is a form field.
-  const name = (me?.display_name ?? me?.email ?? "").trim().split(/[@\s.]+/)[0];
+  // display name is a form field. The display name wins only when it actually SAYS
+  // something (?? alone let an empty-string display_name block the email fallback),
+  // and the first TRUTHY token is taken so a value starting with a separator
+  // (".khan", " . Ali") still yields a name instead of an empty greeting.
+  const source =
+    [me?.display_name, me?.email].map((value) => (value ?? "").trim()).find(Boolean) ?? "";
+  const name = source.split(/[@\s.]+/).find(Boolean) ?? "";
   const pretty = name ? name.charAt(0).toUpperCase() + name.slice(1) : "";
 
   return (

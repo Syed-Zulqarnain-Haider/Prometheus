@@ -22,6 +22,19 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+/* Module-scope capture: Chrome can fire beforeinstallprompt DURING page load, before
+ * React hydrates and any component effect has attached a listener - common on repeat
+ * visits and slow devices. An event that fires before the component exists would be
+ * lost and the button would never appear that visit, so it is caught here at import
+ * time and handed to the component on mount. */
+let earlyPrompt: BeforeInstallPromptEvent | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    earlyPrompt = event as BeforeInstallPromptEvent;
+  });
+}
+
 function isStandalone(): boolean {
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -41,9 +54,38 @@ export function InstallAppButton() {
   const [mode, setMode] = useState<"hidden" | "chromium" | "ios">("hidden");
   const [showIosHelp, setShowIosHelp] = useState(false);
   const deferred = useRef<BeforeInstallPromptEvent | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // The iOS help card dismisses like every other popover in the header: outside
+  // tap/click or Escape - not only its X.
+  useEffect(() => {
+    if (!showIosHelp) return;
+    const onPointer = (event: PointerEvent) => {
+      const container = containerRef.current;
+      if (container && event.target instanceof Node && !container.contains(event.target)) {
+        setShowIosHelp(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowIosHelp(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [showIosHelp]);
 
   useEffect(() => {
     if (isStandalone()) return; // already installed - nothing to offer
+
+    // An event that fired before this component mounted was stashed at module scope.
+    if (earlyPrompt) {
+      deferred.current = earlyPrompt;
+      earlyPrompt = null;
+      setMode("chromium");
+    }
 
     const onPrompt = (event: Event) => {
       event.preventDefault(); // hold the mini-infobar; the button replays it on demand
@@ -81,7 +123,7 @@ export function InstallAppButton() {
   }
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => void install()}

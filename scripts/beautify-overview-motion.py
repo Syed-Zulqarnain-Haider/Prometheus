@@ -60,7 +60,10 @@ CSS_ADD = """
   to { opacity: 1; transform: translateY(0); }
 }
 .anim-rise {
-  animation: rise-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* backwards, NOT both: 'both' keeps the final transform applied forever, making
+     every animated wrapper a containing block that captures position:fixed
+     descendants. backwards still hides staggered cards during their delay. */
+  animation: rise-in 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @keyframes hero-drift {
   from { transform: translate3d(0, 0, 0) scale(1); }
@@ -164,7 +167,17 @@ def main() -> None:
     todo: dict[Path, str] = {}
 
     if ".anim-rise" in files[GLOBALS]:
-        print(f"{GLOBALS}: motion vocabulary already present")
+        # Upgrade path: an earlier revision shipped fill-mode 'both', which leaves a
+        # permanent transform on every wrapper (a containing block for position:fixed
+        # descendants). Swap it in place if found.
+        stale = "animation: rise-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;"
+        if stale in files[GLOBALS]:
+            todo[GLOBALS] = files[GLOBALS].replace(
+                stale, "animation: rise-in 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;", 1
+            )
+            print(f"{GLOBALS}: upgrading fill-mode both -> backwards")
+        else:
+            print(f"{GLOBALS}: motion vocabulary already present")
     else:
         require_once(GLOBALS, files[GLOBALS], CSS_ANCHOR)
         todo[GLOBALS] = files[GLOBALS].replace(CSS_ANCHOR, CSS_ANCHOR + CSS_ADD, 1)

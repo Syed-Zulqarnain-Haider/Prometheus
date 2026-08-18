@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, Check, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -176,34 +176,40 @@ export function SpotlightClient() {
   }, [cards, mode, search]);
 
   /** Open a tile, seeding the draft from what is already stored so an existing value can
-   *  be corrected as easily as a blank one can be filled. */
-  const openCard = useCallback((card: Card) => {
-    setOpenKey((current) => {
-      if (current === card.key) return null; // clicking the open tile closes it
-      const seed: Record<string, string> = {};
-      for (const field of REQUIRED_FIELDS) seed[field.key] = display(card.row[field.key]);
-      setDraft(seed);
-      setSeedRow(card.row);
-      return card.key;
-    });
-  }, []);
+   *  be corrected as easily as a blank one can be filled. Seeding happens OUTSIDE any
+   *  state updater - updaters must be pure (StrictMode double-invokes them), so the
+   *  toggle check reads the rendered openKey instead. */
+  function openCard(card: Card): void {
+    if (openKey === card.key) {
+      setOpenKey(null); // clicking the open tile closes it
+      return;
+    }
+    const seed: Record<string, string> = {};
+    for (const field of REQUIRED_FIELDS) seed[field.key] = display(card.row[field.key]);
+    setDraft(seed);
+    setSeedRow(card.row);
+    setOpenKey(card.key);
+  }
 
   /** Inline validation for the one numeric field: the API takes 0-1, and "70%" or "70"
    *  would bounce off it as a raw 422 - catch it before the request with a usable hint. */
+  function badShare(value: string): boolean {
+    return !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 1;
+  }
   const shareDraft = (draft.net_revenue_share ?? "").trim();
   const shareSeed = display(seedRow.net_revenue_share);
-  const shareInvalid =
-    shareDraft !== "" &&
-    shareDraft !== shareSeed &&
-    (!Number.isFinite(Number(shareDraft)) || Number(shareDraft) < 0 || Number(shareDraft) > 1);
+  const shareInvalid = shareDraft !== "" && shareDraft !== shareSeed && badShare(shareDraft);
+  // A legacy STORED value can itself be out of range ("70" meant as 70%). It sits in
+  // the box looking accepted, and the unchanged-field rule silently drops it from every
+  // save - so say so, rather than letting the admin believe Save covered it.
+  const shareSeedInvalid = shareSeed !== "" && shareDraft === shareSeed && badShare(shareSeed);
 
-  function save(card: Card): void {
-    if (!card.key || shareInvalid) return;
-    // Only fields that actually CHANGED vs the SNAPSHOT taken at open - never the live
-    // row, which may have been refetched with another admin's newer values (diffing
-    // against those would re-send the stale seed and revert their edit). And never a
-    // change to blank: clearing a box here is far more likely to be a slip than an
-    // intent to erase a value in BigQuery.
+  /** The PATCH body save() would send: only fields CHANGED vs the SNAPSHOT taken at
+   *  open - never the live row, which may have been refetched with another admin's
+   *  newer values (diffing against those would re-send the stale seed and revert their
+   *  edit). And never a change to blank: clearing a box here is far more likely to be
+   *  a slip than an intent to erase a value in BigQuery. */
+  function pendingBody(): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     for (const field of REQUIRED_FIELDS) {
       const next = (draft[field.key] ?? "").trim();
@@ -213,6 +219,13 @@ export function SpotlightClient() {
           ? Number(next)
           : next;
     }
+    return body;
+  }
+  const hasChanges = Object.keys(pendingBody()).length > 0;
+
+  function save(card: Card): void {
+    if (!card.key || shareInvalid) return;
+    const body = pendingBody();
     if (Object.keys(body).length === 0) return;
     update.mutate({ key: card.key, body });
   }
@@ -424,15 +437,24 @@ export function SpotlightClient() {
                         70%).
                       </p>
                     )}
+                    {shareSeedInvalid && (
+                      <p className="mt-2 text-xs text-[color:var(--color-amber)]">
+                        The stored net revenue share ({shareSeed}) is outside 0-1 and will
+                        NOT be saved until corrected - enter the share as a fraction
+                        (e.g. 0.7 for 70%).
+                      </p>
+                    )}
                     <div className="mt-4 flex items-center gap-2">
                       <Button
                         size="sm"
-                        disabled={update.isPending || shareInvalid}
+                        disabled={update.isPending || shareInvalid || !hasChanges}
                         onClick={() => save(card)}
                       >
                         {update.isPending && update.variables?.key === card.key
                           ? "Saving..."
-                          : "Save changes"}
+                          : hasChanges
+                            ? "Save changes"
+                            : "No changes yet"}
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setOpenKey(null)}>
                         Close

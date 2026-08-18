@@ -50,7 +50,11 @@ function TickerItem({ announcement }: { announcement: Announcement }) {
         <a
           href={href}
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className="shrink-0 whitespace-nowrap rounded-full border border-current/40 bg-[color:var(--color-bg-card)] px-3 py-0.5 text-xs font-semibold transition-transform hover:scale-105"
+          // color-mix instead of border-current/40: Tailwind v3 generates NO css for an
+          // opacity modifier on currentColor, so the class silently fell back to the
+          // default border token.
+          style={{ borderColor: "color-mix(in srgb, currentcolor 40%, transparent)" }}
+          className="shrink-0 whitespace-nowrap rounded-full border bg-[color:var(--color-bg-card)] px-3 py-0.5 text-xs font-semibold transition-transform hover:scale-105"
         >
           {announcement.cta_label ?? "Learn more"}
         </a>
@@ -295,10 +299,15 @@ export function AnnouncementBar() {
           to { transform: translateY(0); opacity: 1; }
         }
         @keyframes announce-marquee {
-          /* 0 -> -50%: the track slides LEFT, so text enters from the right and exits
-             left - ticker direction. (The reverse read as drifting backwards.) */
+          /* One copy of the content, padded on the left by 100% of the BAR (padding
+             percentages resolve against the containing block, so this one actually
+             means "the bar's width" - unlike min-width inside a w-max track, which
+             resolves against the track's own content size and made the old two-copy
+             -50% loop shift only HALF a copy: blank bar for half of every cycle).
+             0 -> -100% of self = start fully right of the bar, travel until fully out
+             the left, repeat. Enters right, exits left, always traverses completely. */
           from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
+          to { transform: translateX(-100%); }
         }
         .announce-marquee { animation: announce-marquee linear infinite; }
         /* Hovering pauses the scroll so a CTA can actually be clicked. */
@@ -320,25 +329,18 @@ export function AnnouncementBar() {
           <Megaphone className="h-4 w-4 shrink-0" />
           <div className="announce-track min-w-0 flex-1 overflow-hidden">
             {(
-              // Two identical copies make the 0 -> -50% slide seamless: as the first
-              // finishes leaving, the second is exactly where it started. Each copy is
-              // min-w-full so a SHORT message still travels the whole bar before its
-              // twin enters - without it the -50% shift was less than the bar's width
-              // and the text visibly never made it across.
+              // ONE copy, left-padded by the bar's width (see the keyframes above for
+              // why the padding must be a percentage here and nowhere else). Keyed by
+              // the visible set so the animation RESTARTS when a message is added or
+              // dismissed - a running CSS animation keeps its progress FRACTION when
+              // its duration changes, which made the text visibly teleport mid-scroll.
               <div
-                className="announce-marquee flex w-max items-center"
-                style={{ animationDuration: `${Math.max(20, trackLength * 0.42)}s` }}
+                key={visible.map((entry) => entry.id).join(",")}
+                className="announce-marquee flex w-max items-center pl-[100%]"
+                style={{ animationDuration: `${Math.max(24, trackLength * 0.42 + 8)}s` }}
               >
-                {[0, 1].map((copy) => (
-                  <div
-                    key={copy}
-                    aria-hidden={copy === 1}
-                    className="flex min-w-full shrink-0 items-center pr-10"
-                  >
-                    {visible.map((entry) => (
-                      <TickerItem key={`${copy}-${entry.id}`} announcement={entry} />
-                    ))}
-                  </div>
+                {visible.map((entry) => (
+                  <TickerItem key={entry.id} announcement={entry} />
                 ))}
               </div>
             )}
