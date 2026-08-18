@@ -35,11 +35,21 @@ export function MobileNav() {
 
   // Same unread maths as the sidebar badge: a pending request carries no messages yet,
   // so without counting it a contact request is invisible until you open /chat.
+  //
+  // Accessed structurally rather than through the Conversation type: chat-hooks has
+  // drifted between trees (older ones predate contact requests entirely), and a badge
+  // must degrade to "fewer numbers" on an old tree - never break the build over a
+  // field it can live without.
   const { data: chatState } = useConversations();
-  const pendingRequests = (chatState?.conversations ?? []).filter(
-    (conversation) => conversation.status === "pending" && !conversation.requested_by_me,
-  ).length;
-  const unread = (chatState?.unread_total ?? 0) + pendingRequests;
+  const conversations = (chatState as { conversations?: unknown[] } | undefined)
+    ?.conversations;
+  const pendingRequests = (conversations ?? []).filter((entry) => {
+    const conversation = entry as { status?: string; requested_by_me?: boolean };
+    return conversation.status === "pending" && !conversation.requested_by_me;
+  }).length;
+  const unread =
+    ((chatState as { unread_total?: number } | undefined)?.unread_total ?? 0) +
+    pendingRequests;
 
   // A tap that navigates must also dismiss: the drawer covers the page it just opened.
   useEffect(() => setOpen(false), [pathname]);
