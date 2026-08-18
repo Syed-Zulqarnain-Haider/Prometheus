@@ -228,16 +228,16 @@ def main() -> None:
         else:
             missed.append(label)
 
-    if present and not applied:
-        print(f"{README}: already documented ({', '.join(present)})")
-        if not missed:
-            return
-
-    if not applied:
+    if applied:
+        README.write_text(text)
+        print(f"{README}: added {', '.join(applied)}")
+    elif present:
+        print(f"{README}: already documented ({len(present)} section(s))")
+    else:
         print(f"{README}: no section matched - documentation NOT updated")
-        return
-    README.write_text(text)
-    print(f"patched {README}: {', '.join(applied)}")
+
+    # Only worth mentioning when something is genuinely absent. Saying "could not place"
+    # about a section that is already there reads as a failure on a healthy tree.
     if missed:
         print(f"{README}: could not place {', '.join(missed)} - add by hand if it matters")
 
