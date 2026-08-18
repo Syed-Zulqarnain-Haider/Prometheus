@@ -1181,6 +1181,12 @@ def plan_edits(
 # reported as "present more than once" and then as a cycle. These are the ids that
 # replaced them, and the stale file has to go or the duplicate survives.
 REVISION_ID = "a17f4c02be93"
+BATCH_CHAIN = (
+    "a17f4c02be93",  # chart_annotations
+    "b28e5d13cfa4",  # watchlist
+    "c39f6e24d0b5",  # scoped_targets
+    "d40a7f35e1c6",  # discord_config
+)
 SUPERSEDED_REVISIONS = ("a1b2c3d4e5f6", "b2c3d4e5f6a7", "c3d4e5f6a7b8", "d4e5f6a7b8c9")
 STALE_MIGRATION = Path("backend/alembic/versions/20260818_1100_a1b2c3d4e5f6_chart_annotations.py")
 
@@ -1232,11 +1238,17 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
         # Correct it rather than leaving the test asserting a revision that no
         # longer exists.
         return [(f'_HEAD = "{current}"', f'_HEAD = "{new}"', None)]
+    if current in BATCH_CHAIN and BATCH_CHAIN.index(current) >= BATCH_CHAIN.index(new):
+        # Already at or beyond this patch's revision, because a LATER patch in the same
+        # batch moved it. That is the normal steady state once the batch has shipped, and
+        # warning about it every run just teaches people to ignore warnings.
+        print(f"{path}: head pin already at {current} - correct, nothing to do")
+        return None
     if current != old:
-        # NOT necessarily "further along" - it may be BEHIND, which means an earlier
-        # migration patch in the chain has not run here. Either way this patch must not
-        # rewrite a pin it does not recognise, but a pin left behind the database WILL
-        # fail test_migrations, so say which case it is rather than implying it is fine.
+        # Not one of this batch's revisions and not the expected predecessor, so the pin
+        # is somewhere this patch does not understand - probably BEHIND, which means the
+        # chain has not been run in order. Do not rewrite it, and do not pretend it is
+        # fine: a pin behind the database fails test_migrations.
         print(
             f"{path}: head pin is {current}, expected {old} - not touching it. "
             f"If the chain has not been run in order, this test will fail against a "
