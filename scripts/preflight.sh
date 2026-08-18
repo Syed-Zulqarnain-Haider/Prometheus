@@ -39,6 +39,12 @@ echo "==> dry run: applying every patch to the COPY, not to your tree"
 echo
 cd "$WORK"
 bash scripts/apply-decision-features.sh
+
+echo
+echo "==> checking the Alembic revision graph on the patched copy"
+# Free, and it catches exactly what got past this dry run once already: the patches
+# all APPLIED, and then `alembic upgrade head` died on a duplicate revision id.
+python3 scripts/check-migrations.py
 status=$?
 
 echo

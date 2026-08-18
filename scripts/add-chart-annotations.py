@@ -42,7 +42,7 @@ from pathlib import Path
 
 # ── new files ─────────────────────────────────────────────────────────────────
 MODEL = Path("backend/app/models/annotations.py")
-MIGRATION = Path("backend/alembic/versions/20260818_1100_a1b2c3d4e5f6_chart_annotations.py")
+MIGRATION = Path("backend/alembic/versions/20260818_1100_a17f4c02be93_chart_annotations.py")
 SCHEMA = Path("backend/app/schemas/annotations.py")
 ROUTER = Path("backend/app/api/v1/annotations.py")
 TEST = Path("backend/tests/test_annotations.py")
@@ -142,7 +142,7 @@ class ChartAnnotation(Base):
 
 MIGRATION_SOURCE = '''"""Chart annotations - dated notes pinned to the time-series charts.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a17f4c02be93
 Revises: c7d3e91a4b28
 """
 
@@ -152,7 +152,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "a17f4c02be93"
 down_revision: str | None = "c7d3e91a4b28"
 branch_labels = None
 depends_on = None
@@ -1174,6 +1174,44 @@ def plan_edits(
     return edits
 
 
+
+# The four ids this batch first used - a1b2c3d4e5f6, b2c3d4e5f6a7, c3d4e5f6a7b8,
+# d4e5f6a7b8c9 - were ALREADY TAKEN by migrations from June and July. I picked the
+# "obvious next" ids in the same rolling-hex family and collided head-on, which alembic
+# reported as "present more than once" and then as a cycle. These are the ids that
+# replaced them, and the stale file has to go or the duplicate survives.
+REVISION_ID = "a17f4c02be93"
+SUPERSEDED_REVISIONS = ("a1b2c3d4e5f6", "b2c3d4e5f6a7", "c3d4e5f6a7b8", "d4e5f6a7b8c9")
+STALE_MIGRATION = Path("backend/alembic/versions/20260818_1100_a1b2c3d4e5f6_chart_annotations.py")
+
+
+def drop_stale_migration() -> None:
+    """Remove the colliding migration an earlier version of this script wrote."""
+    if STALE_MIGRATION.exists():
+        STALE_MIGRATION.unlink()
+        print(f"removed {STALE_MIGRATION} (its revision id collided with an existing one)")
+
+
+def assert_revision_free(migration: Path, revision: str) -> None:
+    """Refuse to write a migration whose id is already used by a DIFFERENT file.
+
+    A duplicate id does not fail at write time - it fails much later, at `alembic upgrade`,
+    as an unreadable cycle error. Catching it here names the file instead.
+    """
+    versions = migration.parent
+    if not versions.is_dir():
+        return
+    pattern = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']" + re.escape(revision) + r"[\"']", re.M)
+    for other in sorted(versions.glob("*.py")):
+        if other.name == migration.name:
+            continue
+        if pattern.search(other.read_text()):
+            die(
+                f"revision id {revision!r} is already used by {other.name} - "
+                f"pick a different one rather than creating a cycle"
+            )
+
+
 def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, str, None]] | None:
     """Move test_migrations.py's pinned head revision - tolerantly.
 
@@ -1189,6 +1227,11 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
     if current == new:
         print(f"{path}: already pinned to {new}")
         return None
+    if current in SUPERSEDED_REVISIONS:
+        # The pin still names one of the colliding ids this batch first used.
+        # Correct it rather than leaving the test asserting a revision that no
+        # longer exists.
+        return [(f'_HEAD = "{current}"', f'_HEAD = "{new}"', None)]
     if current != old:
         # NOT necessarily "further along" - it may be BEHIND, which means an earlier
         # migration patch in the chain has not run here. Either way this patch must not
@@ -1269,11 +1312,14 @@ def main() -> None:
         if edits_or_none is not None:
             plan[path] = edits_or_none
 
+    drop_stale_migration()
+    assert_revision_free(MIGRATION, REVISION_ID)
+
     echarts_edits = plan_echarts(ECHARTS, texts[ECHARTS])
     if echarts_edits:
         plan[ECHARTS] = echarts_edits
 
-    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c7d3e91a4b28", "a1b2c3d4e5f6")
+    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c7d3e91a4b28", "a17f4c02be93")
     if head_edits is not None:
         plan[TEST_MIGRATIONS] = head_edits
 

@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 MODEL = Path("backend/app/models/discord_config.py")
-MIGRATION = Path("backend/alembic/versions/20260818_1400_d4e5f6a7b8c9_discord_config.py")
+MIGRATION = Path("backend/alembic/versions/20260818_1400_d40a7f35e1c6_discord_config.py")
 SCHEMA = Path("backend/app/schemas/discord.py")
 SERVICE = Path("backend/app/services/discord_service.py")
 TEST = Path("backend/tests/test_discord.py")
@@ -102,8 +102,8 @@ class DiscordConfig(Base):
 
 MIGRATION_SOURCE = '''"""Admin-editable Discord webhook (single row; URL encrypted at rest).
 
-Revision ID: d4e5f6a7b8c9
-Revises: c3d4e5f6a7b8
+Revision ID: d40a7f35e1c6
+Revises: c39f6e24d0b5
 """
 
 from __future__ import annotations
@@ -112,8 +112,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "d4e5f6a7b8c9"
-down_revision: str | None = "c3d4e5f6a7b8"
+revision: str = "d40a7f35e1c6"
+down_revision: str | None = "c39f6e24d0b5"
 branch_labels = None
 depends_on = None
 
@@ -930,7 +930,7 @@ SYSTEM_RENDER_ANCHOR = "        <SmtpPanel />\n"
 SYSTEM_RENDER_ADD = "        <DiscordPanel />\n"
 
 TEST_META_EDITS = [('    "scoped_targets",\n', '    "discord_config",\n', False)]
-TEST_MIGRATIONS_EDITS = [('_HEAD = "c3d4e5f6a7b8"', '_HEAD = "d4e5f6a7b8c9"', None)]
+TEST_MIGRATIONS_EDITS = [('_HEAD = "c39f6e24d0b5"', '_HEAD = "d40a7f35e1c6"', None)]
 
 
 def die(message: str) -> None:
@@ -952,6 +952,44 @@ def plan_edits(
     return edits
 
 
+
+# The four ids this batch first used - a1b2c3d4e5f6, b2c3d4e5f6a7, c3d4e5f6a7b8,
+# d4e5f6a7b8c9 - were ALREADY TAKEN by migrations from June and July. I picked the
+# "obvious next" ids in the same rolling-hex family and collided head-on, which alembic
+# reported as "present more than once" and then as a cycle. These are the ids that
+# replaced them, and the stale file has to go or the duplicate survives.
+REVISION_ID = "d40a7f35e1c6"
+SUPERSEDED_REVISIONS = ("a1b2c3d4e5f6", "b2c3d4e5f6a7", "c3d4e5f6a7b8", "d4e5f6a7b8c9")
+STALE_MIGRATION = Path("backend/alembic/versions/20260818_1400_d4e5f6a7b8c9_discord_config.py")
+
+
+def drop_stale_migration() -> None:
+    """Remove the colliding migration an earlier version of this script wrote."""
+    if STALE_MIGRATION.exists():
+        STALE_MIGRATION.unlink()
+        print(f"removed {STALE_MIGRATION} (its revision id collided with an existing one)")
+
+
+def assert_revision_free(migration: Path, revision: str) -> None:
+    """Refuse to write a migration whose id is already used by a DIFFERENT file.
+
+    A duplicate id does not fail at write time - it fails much later, at `alembic upgrade`,
+    as an unreadable cycle error. Catching it here names the file instead.
+    """
+    versions = migration.parent
+    if not versions.is_dir():
+        return
+    pattern = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']" + re.escape(revision) + r"[\"']", re.M)
+    for other in sorted(versions.glob("*.py")):
+        if other.name == migration.name:
+            continue
+        if pattern.search(other.read_text()):
+            die(
+                f"revision id {revision!r} is already used by {other.name} - "
+                f"pick a different one rather than creating a cycle"
+            )
+
+
 def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, str, None]] | None:
     """Move test_migrations.py's pinned head revision - tolerantly.
 
@@ -967,6 +1005,11 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
     if current == new:
         print(f"{path}: already pinned to {new}")
         return None
+    if current in SUPERSEDED_REVISIONS:
+        # The pin still names one of the colliding ids this batch first used.
+        # Correct it rather than leaving the test asserting a revision that no
+        # longer exists.
+        return [(f'_HEAD = "{current}"', f'_HEAD = "{new}"', None)]
     if current != old:
         # NOT necessarily "further along" - it may be BEHIND, which means an earlier
         # migration patch in the chain has not run here. Either way this patch must not
@@ -1038,7 +1081,10 @@ def main() -> None:
         if edits_or_none is not None:
             plan[path] = edits_or_none
 
-    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c3d4e5f6a7b8", "d4e5f6a7b8c9")
+    drop_stale_migration()
+    assert_revision_free(MIGRATION, REVISION_ID)
+
+    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c39f6e24d0b5", "d40a7f35e1c6")
     if head_edits is not None:
         plan[TEST_MIGRATIONS] = head_edits
 

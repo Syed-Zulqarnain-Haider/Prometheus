@@ -44,7 +44,7 @@ import sys
 from pathlib import Path
 
 MODEL = Path("backend/app/models/scoped_targets.py")
-MIGRATION = Path("backend/alembic/versions/20260818_1300_c3d4e5f6a7b8_scoped_targets.py")
+MIGRATION = Path("backend/alembic/versions/20260818_1300_c39f6e24d0b5_scoped_targets.py")
 SCHEMA = Path("backend/app/schemas/scoped_targets.py")
 SERVICE = Path("backend/app/services/scoped_target_service.py")
 ROUTER = Path("backend/app/api/v1/scoped_targets.py")
@@ -161,8 +161,8 @@ class ScopedTarget(Base):
 
 MIGRATION_SOURCE = '''"""Scoped monthly targets (revenue goals + UA budgets) per pod / app / publisher.
 
-Revision ID: c3d4e5f6a7b8
-Revises: b2c3d4e5f6a7
+Revision ID: c39f6e24d0b5
+Revises: b28e5d13cfa4
 """
 
 from __future__ import annotations
@@ -171,8 +171,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "c3d4e5f6a7b8"
-down_revision: str | None = "b2c3d4e5f6a7"
+revision: str = "c39f6e24d0b5"
+down_revision: str | None = "b28e5d13cfa4"
 branch_labels = None
 depends_on = None
 
@@ -1375,7 +1375,7 @@ CLIENT_ITEM_ANCHOR = '    benchmarks: <BenchmarksPanel filters={filters} />,\n'
 CLIENT_ITEM_ADD = '    pacing: <PacingBoard />,\n'
 
 TEST_META_EDITS = [('    "watchlist_items",\n', '    "scoped_targets",\n', False)]
-TEST_MIGRATIONS_EDITS = [('_HEAD = "b2c3d4e5f6a7"', '_HEAD = "c3d4e5f6a7b8"', None)]
+TEST_MIGRATIONS_EDITS = [('_HEAD = "b28e5d13cfa4"', '_HEAD = "c39f6e24d0b5"', None)]
 
 
 def die(message: str) -> None:
@@ -1397,6 +1397,44 @@ def plan_edits(
     return edits
 
 
+
+# The four ids this batch first used - a1b2c3d4e5f6, b2c3d4e5f6a7, c3d4e5f6a7b8,
+# d4e5f6a7b8c9 - were ALREADY TAKEN by migrations from June and July. I picked the
+# "obvious next" ids in the same rolling-hex family and collided head-on, which alembic
+# reported as "present more than once" and then as a cycle. These are the ids that
+# replaced them, and the stale file has to go or the duplicate survives.
+REVISION_ID = "c39f6e24d0b5"
+SUPERSEDED_REVISIONS = ("a1b2c3d4e5f6", "b2c3d4e5f6a7", "c3d4e5f6a7b8", "d4e5f6a7b8c9")
+STALE_MIGRATION = Path("backend/alembic/versions/20260818_1300_c3d4e5f6a7b8_scoped_targets.py")
+
+
+def drop_stale_migration() -> None:
+    """Remove the colliding migration an earlier version of this script wrote."""
+    if STALE_MIGRATION.exists():
+        STALE_MIGRATION.unlink()
+        print(f"removed {STALE_MIGRATION} (its revision id collided with an existing one)")
+
+
+def assert_revision_free(migration: Path, revision: str) -> None:
+    """Refuse to write a migration whose id is already used by a DIFFERENT file.
+
+    A duplicate id does not fail at write time - it fails much later, at `alembic upgrade`,
+    as an unreadable cycle error. Catching it here names the file instead.
+    """
+    versions = migration.parent
+    if not versions.is_dir():
+        return
+    pattern = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']" + re.escape(revision) + r"[\"']", re.M)
+    for other in sorted(versions.glob("*.py")):
+        if other.name == migration.name:
+            continue
+        if pattern.search(other.read_text()):
+            die(
+                f"revision id {revision!r} is already used by {other.name} - "
+                f"pick a different one rather than creating a cycle"
+            )
+
+
 def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, str, None]] | None:
     """Move test_migrations.py's pinned head revision - tolerantly.
 
@@ -1412,6 +1450,11 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
     if current == new:
         print(f"{path}: already pinned to {new}")
         return None
+    if current in SUPERSEDED_REVISIONS:
+        # The pin still names one of the colliding ids this batch first used.
+        # Correct it rather than leaving the test asserting a revision that no
+        # longer exists.
+        return [(f'_HEAD = "{current}"', f'_HEAD = "{new}"', None)]
     if current != old:
         # NOT necessarily "further along" - it may be BEHIND, which means an earlier
         # migration patch in the chain has not run here. Either way this patch must not
@@ -1482,7 +1525,10 @@ def main() -> None:
         if edits_or_none is not None:
             plan[path] = edits_or_none
 
-    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "b2c3d4e5f6a7", "c3d4e5f6a7b8")
+    drop_stale_migration()
+    assert_revision_free(MIGRATION, REVISION_ID)
+
+    head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "b28e5d13cfa4", "c39f6e24d0b5")
     if head_edits is not None:
         plan[TEST_MIGRATIONS] = head_edits
 
