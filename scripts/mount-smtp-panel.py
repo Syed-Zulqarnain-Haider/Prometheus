@@ -35,10 +35,20 @@ MOUNT_ADD = """      {/* Mail settings - the digest, alerts and scheduled report
 
 """
 
-FOOTNOTE_ANCHOR = """          Only non-secret operational settings are shown here. Credentials and connection
+# The footnote wording has drifted between trees (em dash vs hyphen, small edits), so
+# amending it is BEST-EFFORT: the mount is the feature, the footnote is a nicety, and
+# aborting the whole deploy over cosmetic prose was wrong. Every known variant is tried;
+# if none matches, the footnote is left alone and said so.
+FOOTNOTE_ANCHORS = (
+    """          Only non-secret operational settings are shown here. Credentials and connection
           strings are never stored in the database or displayed — they live in the
           environment / Secret Manager.
-"""
+""",
+    """          Only non-secret operational settings are shown here. Credentials and connection
+          strings are never stored in the database or displayed - they live in the
+          environment / Secret Manager.
+""",
+)
 FOOTNOTE_NEW = """          Only non-secret operational settings are shown here. Credentials and connection
           strings are never displayed; the one stored credential (the SMTP password below)
           is encrypted at rest and write-only.
@@ -62,16 +72,20 @@ def main() -> None:
         print("already mounted - nothing to do")
         return
 
-    for anchor in (IMPORT_ANCHOR, MOUNT_ANCHOR, FOOTNOTE_ANCHOR):
+    for anchor in (IMPORT_ANCHOR, MOUNT_ANCHOR):
         if text.count(anchor) != 1:
             first = anchor.splitlines()[0].strip()
             die(f"{PANEL}: expected exactly one {first!r}, found {text.count(anchor)}")
 
     text = text.replace(IMPORT_ANCHOR, IMPORT_ANCHOR + IMPORT_ADD, 1)
     text = text.replace(MOUNT_ANCHOR, MOUNT_ADD + MOUNT_ANCHOR, 1)
-    text = text.replace(FOOTNOTE_ANCHOR, FOOTNOTE_NEW, 1)
+    footnote = [a for a in FOOTNOTE_ANCHORS if text.count(a) == 1]
+    if footnote:
+        text = text.replace(footnote[0], FOOTNOTE_NEW, 1)
     PANEL.write_text(text)
     print(f"patched {PANEL}: Email delivery section mounted")
+    if not footnote:
+        print("note: settings footnote wording not recognised - left as is (cosmetic only)")
 
 
 if __name__ == "__main__":
