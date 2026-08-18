@@ -52,12 +52,28 @@ function safeDate(raw: string | null, fallback: string): string {
 
 '''
 
-FILTERS_USE_ANCHOR = """    dateFrom: params.get("from") ?? base.dateFrom,
+# Two shapes in the wild: the flat object literal, and the deployed tree's ternary that
+# only reads the URL dates for the "custom" preset. Both read params.get("from"/"to")
+# with a ?? fallback; either is a valid starting point.
+FILTERS_USE_ANCHORS = (
+    (
+        """    dateFrom: params.get("from") ?? base.dateFrom,
     dateTo: params.get("to") ?? base.dateTo,
-"""
-FILTERS_USE_NEW = """    dateFrom: safeDate(params.get("from"), base.dateFrom),
+""",
+        """    dateFrom: safeDate(params.get("from"), base.dateFrom),
     dateTo: safeDate(params.get("to"), base.dateTo),
-"""
+""",
+    ),
+    (
+        """      ? { from: params.get("from") ?? base.dateFrom, to: params.get("to") ?? base.dateTo }
+""",
+        """      ? {
+          from: safeDate(params.get("from"), base.dateFrom),
+          to: safeDate(params.get("to"), base.dateTo),
+        }
+""",
+    ),
+)
 
 # ── 2. saved-views-menu.tsx ───────────────────────────────────────────────────
 VIEWS_ANCHOR = """                    onClick={() => {
@@ -123,11 +139,18 @@ def main() -> None:
 
     todo: dict[Path, str] = {}
 
+    filters_use: tuple[str, str] | None = None
     if "function safeDate" in filters:
         print(f"{FILTERS}: already validated")
     else:
         require_once(FILTERS, filters, FILTERS_HELPER_ANCHOR)
-        require_once(FILTERS, filters, FILTERS_USE_ANCHOR)
+        found = [pair for pair in FILTERS_USE_ANCHORS if filters.count(pair[0]) == 1]
+        if len(found) != 1:
+            die(
+                f"{FILTERS}: expected exactly one known date-parsing shape, "
+                f"matched {len(found)} - patch it by hand"
+            )
+        filters_use = found[0]
         todo[FILTERS] = filters
 
     views_import: str | None = None
@@ -151,10 +174,10 @@ def main() -> None:
         print("already hardened - nothing to do")
         return
 
-    if FILTERS in todo:
+    if FILTERS in todo and filters_use is not None:
         text = todo[FILTERS]
         text = text.replace(FILTERS_HELPER_ANCHOR, FILTERS_HELPER_ADD + FILTERS_HELPER_ANCHOR, 1)
-        text = text.replace(FILTERS_USE_ANCHOR, FILTERS_USE_NEW, 1)
+        text = text.replace(filters_use[0], filters_use[1], 1)
         FILTERS.write_text(text)
         print(f"patched {FILTERS}: URL dates validated")
 
