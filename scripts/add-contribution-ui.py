@@ -418,7 +418,10 @@ def main() -> None:
             (HOOKS_ANCHOR, HOOKS_ADD, True),
         ]
 
-    if '"what-moved"' in texts[LAYOUT]:
+    # The EXACT array line, not a bare quoted word: a bare '"what-moved"' could match a
+    # comment or another literal and silently skip both edits, leaving the id out of
+    # OVERVIEW_ITEM_IDS while the registry entry still expects it.
+    if '  "what-moved",\n' in texts[LAYOUT]:
         print(f"{LAYOUT}: already registered")
     else:
         require_once(LAYOUT, texts[LAYOUT], LAYOUT_ID_ANCHOR)

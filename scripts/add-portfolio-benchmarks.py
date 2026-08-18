@@ -759,7 +759,7 @@ def main() -> None:
         ),
         (
             LAYOUT,
-            '"benchmarks"',
+            '  "benchmarks",\n',
             [(LAYOUT_ID_ANCHOR, LAYOUT_ID_ADD, False), (LAYOUT_GRID_ANCHOR, LAYOUT_GRID_ADD, False)],
         ),
         (

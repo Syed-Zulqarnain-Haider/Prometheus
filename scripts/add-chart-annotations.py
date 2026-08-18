@@ -673,7 +673,8 @@ async def test_author_can_delete_and_it_is_audited(metrics_env: MetricsEnv) -> N
     assert {"annotation_create", "annotation_delete"} <= actions
 '''
 
-HELPER_SOURCE = '''import type { MarkLineComponentOption } from "@/lib/echarts";
+HELPER_SOURCE = '''import type { MarkLineComponentOption } from "echarts";
+
 import type { Annotation } from "@/lib/types";
 
 /** ECharts markLine for dated notes on a CATEGORY x-axis of ISO dates.
@@ -932,25 +933,44 @@ export function AnnotationsPanel({ filters }: { filters: Filters }) {
 
 # echarts.ts is TREE-SHAKEN: markLine draws nothing at all unless MarkLineComponent is
 # registered. Silent no-op, not an error - exactly the kind of thing that ships broken.
-ECHARTS_EDITS = [
-    # Import block (alphabetical) ...
-    (
-        "  GridComponent,\n  LegendComponent,\n  TitleComponent,\n",
-        "  GridComponent,\n  LegendComponent,\n  MarkLineComponent,\n  TitleComponent,\n",
-        None,
-    ),
-    # ... and the registration list, which is what actually enables the feature.
-    (
-        "  LegendComponent,\n  DataZoomComponent,\n",
-        "  LegendComponent,\n  MarkLineComponent,\n  DataZoomComponent,\n",
-        None,
-    ),
-    (
-        'export type { EChartsOption } from "echarts";\n',
-        'export type { EChartsOption, MarkLineComponentOption } from "echarts";\n',
-        None,
-    ),
-]
+# echarts.ts is TREE-SHAKEN: markLine draws NOTHING at all unless MarkLineComponent is
+# registered - a silent no-op, not an error, which is exactly the kind of thing that ships
+# broken. The registration appears in two places (the import statement and the use() call)
+# and each is checked SEPARATELY. An earlier version used one "MarkLineComponent" marker
+# for the whole file; that string was already present in the deployed copy for another
+# reason, so every edit was skipped and the build failed on the one that mattered.
+_ECHARTS_IMPORT_RE = re.compile(r'import \{([^}]*)\} from "echarts/components";', re.S)
+_ECHARTS_USE_RE = re.compile(r"echarts\.use\(\[(.*?)\]\);", re.S)
+
+
+def plan_echarts(path: Path, text: str) -> list[tuple[str, str, bool | None]]:
+    """Register MarkLineComponent, checking the import and the use() list independently."""
+    edits: list[tuple[str, str, bool | None]] = []
+
+    imports = _ECHARTS_IMPORT_RE.search(text)
+    if imports is None:
+        die(f"{path}: no `import {{...}} from \"echarts/components\"` - file has changed shape")
+    if "MarkLineComponent" not in imports.group(1):
+        anchor = "  LegendComponent,\n  TitleComponent,\n"
+        if text.count(anchor) != 1:
+            die(f"{path}: cannot place MarkLineComponent in the import block")
+        edits.append((anchor, "  LegendComponent,\n  MarkLineComponent,\n  TitleComponent,\n", None))
+    else:
+        print(f"{path}: MarkLineComponent already imported")
+
+    used = _ECHARTS_USE_RE.search(text)
+    if used is None:
+        die(f"{path}: no `echarts.use([...])` call - file has changed shape")
+    if "MarkLineComponent" not in used.group(1):
+        anchor = "  LegendComponent,\n  DataZoomComponent,\n"
+        if text.count(anchor) != 1:
+            die(f"{path}: cannot place MarkLineComponent in the use() list")
+        edits.append((anchor, "  LegendComponent,\n  MarkLineComponent,\n  DataZoomComponent,\n", None))
+    else:
+        print(f"{path}: MarkLineComponent already registered")
+
+    return edits
+
 
 
 # Two existing tests know the schema by heart and MUST be told about the new table,
@@ -1202,7 +1222,6 @@ def main() -> None:
     plan: dict[Path, list[tuple[str, str, bool]]] = {}
     for path, marker, edits in (
         (MODELS_INIT, "ChartAnnotation", MODELS_INIT_EDITS),
-        (ECHARTS, "MarkLineComponent", ECHARTS_EDITS),
         (TEST_META, "chart_annotations", TEST_META_EDITS),
         (MAIN, "annotations_routes", MAIN_EDITS),
         (TYPES, "interface Annotation", [(TYPES_ANCHOR, TYPES_ADD, True)]),
@@ -1234,7 +1253,7 @@ def main() -> None:
         ),
         (
             LAYOUT,
-            '"annotations"',
+            '  "annotations",\n',
             [(LAYOUT_ID_ANCHOR, LAYOUT_ID_ADD, False), (LAYOUT_GRID_ANCHOR, LAYOUT_GRID_ADD, False)],
         ),
         (
@@ -1249,6 +1268,10 @@ def main() -> None:
         edits_or_none = plan_edits(path, texts[path], marker, edits)
         if edits_or_none is not None:
             plan[path] = edits_or_none
+
+    echarts_edits = plan_echarts(ECHARTS, texts[ECHARTS])
+    if echarts_edits:
+        plan[ECHARTS] = echarts_edits
 
     head_edits = plan_head_pin(TEST_MIGRATIONS, texts[TEST_MIGRATIONS], "c7d3e91a4b28", "a1b2c3d4e5f6")
     if head_edits is not None:

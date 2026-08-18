@@ -1465,7 +1465,7 @@ def main() -> None:
         ),
         (
             LAYOUT,
-            '"pacing"',
+            '  "pacing",\n',
             [(LAYOUT_ID_ANCHOR, LAYOUT_ID_ADD, False), (LAYOUT_GRID_ANCHOR, LAYOUT_GRID_ADD, False)],
         ),
         (
