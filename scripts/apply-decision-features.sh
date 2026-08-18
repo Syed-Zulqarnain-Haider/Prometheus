@@ -29,6 +29,7 @@ SCRIPTS=(
   add-today-screen             # 8    the phone-first Today screen
   add-discord-delivery         # 9    digest + alerts into Discord
   document-decision-features   #      README
+  fix-sidebar-alignment        #      collapsed rail: centre the icons and the logo
 )
 
 for name in "${SCRIPTS[@]}"; do
