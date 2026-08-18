@@ -433,7 +433,6 @@ def main() -> None:
             "latest_complete_date",
             [(META_IMPORT_ANCHOR, META_IMPORT_NEW, None), (META_ANCHOR, META_NEW, None)],
         ),
-        (TEST_METRICS, "latest_complete_date", [(TEST_ANCHOR, TEST_NEW, None)]),
         (TYPES, "latest_complete_date", [(TYPES_ANCHOR, TYPES_NEW, None)]),
         (
             NAV,
@@ -445,6 +444,17 @@ def main() -> None:
         edits_or_none = plan_edits(path, texts[path], marker, edits)
         if edits_or_none is not None:
             plan[path] = edits_or_none
+
+    # test_metrics_api.py is the single most branch-divergent file in the repo, and this
+    # edit only STRENGTHENS an existing assertion. Best-effort on purpose: a missing
+    # neighbour must never be able to abort the feature it ships with.
+    test_text = texts[TEST_METRICS]
+    if "latest_complete_date" in test_text:
+        print(f"{TEST_METRICS}: already asserts the new field")
+    elif test_text.count(TEST_ANCHOR) == 1:
+        plan[TEST_METRICS] = [(TEST_ANCHOR, TEST_NEW, None)]
+    else:
+        print(f"{TEST_METRICS}: freshness assertion not found - skipping that one assertion")
 
     new_files = {PAGE: PAGE_SOURCE, CLIENT_COMPONENT: CLIENT_SOURCE}
     stale = {p: s for p, s in new_files.items() if not p.exists() or p.read_text() != s}
