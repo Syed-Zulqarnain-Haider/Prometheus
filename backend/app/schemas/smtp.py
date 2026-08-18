@@ -8,9 +8,10 @@ one is stored, from ``password_set``.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SmtpConfigOut(BaseModel):
@@ -44,9 +45,23 @@ class SmtpConfigUpdate(BaseModel):
     host: str | None = Field(default=None, max_length=255)
     port: int = Field(default=587, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=255)
-    from_address: EmailStr | None = None
+    # Plain str, NOT pydantic's EmailStr: EmailStr imports the optional email-validator
+    # package at class-definition time, and a deployment without it fails to BOOT - the
+    # whole API down over one form field's validation. A sanity regex catches the typos
+    # that matter (missing @, spaces); the SMTP server is the real authority anyway.
+    from_address: str | None = Field(default=None, max_length=255)
     use_tls: bool = True
     password: str | None = Field(default=None, max_length=512)
+
+    @field_validator("from_address")
+    @classmethod
+    def _sane_email(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("from_address must look like an email address (user@domain.tld)")
+        return value
 
 
 class SmtpTestResult(BaseModel):
