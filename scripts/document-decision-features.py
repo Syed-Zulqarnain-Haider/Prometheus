@@ -193,22 +193,32 @@ def main() -> None:
         print(f"{README}: already documented")
         return
 
+    # PER-EDIT and NON-FATAL, unlike every other script here. These anchors are PROSE -
+    # section headings and sentences - and prose is the most drift-prone text in the
+    # repository. Documentation that cannot find its place is worth a warning; it is never
+    # worth failing a deploy of working features that have already been applied.
     edits = [
-        (PURPOSE_ANCHOR, PURPOSE_NEW),
-        (ALERTS_ANCHOR, ALERTS_NEW),
-        (PACING_ANCHOR, PACING_NEW),
-        (FEATURES_ANCHOR, FEATURES_ADD + FEATURES_ANCHOR),
-        (ENV_ANCHOR, ENV_NEW),
+        ("purpose bullet", PURPOSE_ANCHOR, PURPOSE_NEW),
+        ("alerts section", ALERTS_ANCHOR, ALERTS_NEW),
+        ("pacing section", PACING_ANCHOR, PACING_NEW),
+        ("feature sections", FEATURES_ANCHOR, FEATURES_ADD + FEATURES_ANCHOR),
+        ("env var table", ENV_ANCHOR, ENV_NEW),
     ]
-    for anchor, _ in edits:
-        if text.count(anchor) != 1:
-            first = anchor.splitlines()[0].strip()
-            die(f"{README}: expected exactly one {first!r}, found {text.count(anchor)}")
+    applied, missed = [], []
+    for label, anchor, replacement in edits:
+        if text.count(anchor) == 1:
+            text = text.replace(anchor, replacement, 1)
+            applied.append(label)
+        else:
+            missed.append(label)
 
-    for anchor, replacement in edits:
-        text = text.replace(anchor, replacement, 1)
+    if not applied:
+        print(f"{README}: no section matched - documentation NOT updated")
+        return
     README.write_text(text)
-    print(f"patched {README}: nine decision-support features + two env vars documented")
+    print(f"patched {README}: {', '.join(applied)}")
+    if missed:
+        print(f"{README}: could not place {', '.join(missed)} - add by hand if it matters")
 
 
 if __name__ == "__main__":

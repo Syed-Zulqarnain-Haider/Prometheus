@@ -1287,7 +1287,15 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
         print(f"{path}: already pinned to {new}")
         return None
     if current != old:
-        print(f"{path}: head is already at {current} (past {new}) - leaving it")
+        # NOT necessarily "further along" - it may be BEHIND, which means an earlier
+        # migration patch in the chain has not run here. Either way this patch must not
+        # rewrite a pin it does not recognise, but a pin left behind the database WILL
+        # fail test_migrations, so say which case it is rather than implying it is fine.
+        print(
+            f"{path}: head pin is {current}, expected {old} - not touching it. "
+            f"If the chain has not been run in order, this test will fail against a "
+            f"database at {new}."
+        )
         return None
     return [(f'_HEAD = "{old}"', f'_HEAD = "{new}"', None)]
 

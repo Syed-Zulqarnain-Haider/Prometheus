@@ -730,27 +730,25 @@ CONFIG_EDITS = [
 SCHEDULER_IMPORT_ANCHOR = "    digest_service,\n"
 SCHEDULER_IMPORT_ADD = "    discord_service,\n"
 
-SCHEDULER_ALERTS_ANCHOR = """                fired = await alerts_service.evaluate_and_notify(db, settings)
-            except Exception:  # noqa: BLE001 — must never block the digest or the loop
-                log.exception("alert evaluation failed")
-"""
-SCHEDULER_ALERTS_NEW = """                fired = await alerts_service.evaluate_and_notify(db, settings)
-                # Discord gets the same alerts the email carries. Best-effort and
-                # separately isolated: a Discord outage must not cost anyone the email.
-                await discord_service.deliver_alerts(db, settings, fired)
-            except Exception:  # noqa: BLE001 — must never block the digest or the loop
-                log.exception("alert evaluation failed")
-"""
+# CODE ONLY. An earlier version of these two anchors carried the `# noqa: BLE001 —`
+# comment lines with them and aborted on a tree whose style pass had replaced the em
+# dashes with hyphens. A comment is prose; prose drifts. Anchor on the statement.
+SCHEDULER_ALERTS_ANCHOR = (
+    "                fired = await alerts_service.evaluate_and_notify(db, settings)\n"
+)
+SCHEDULER_ALERTS_NEW = (
+    "                fired = await alerts_service.evaluate_and_notify(db, settings)\n"
+    "                # Discord gets the same alerts the email carries. Best-effort and\n"
+    "                # separately isolated: a Discord outage must not cost anyone the\n"
+    "                # email, so it sits inside the same try and swallows its own errors.\n"
+    "                await discord_service.deliver_alerts(db, settings, fired)\n"
+)
 
-SCHEDULER_DIGEST_ANCHOR = """                await digest_service.build_and_send(db, settings)
-            except Exception:  # noqa: BLE001 — the digest must never block the loop
-                log.exception("digest send failed")
-"""
-SCHEDULER_DIGEST_NEW = """                digest_text = await digest_service.build_and_send(db, settings)
-                await discord_service.deliver_digest(db, settings, digest_text)
-            except Exception:  # noqa: BLE001 — the digest must never block the loop
-                log.exception("digest send failed")
-"""
+SCHEDULER_DIGEST_ANCHOR = "                await digest_service.build_and_send(db, settings)\n"
+SCHEDULER_DIGEST_NEW = (
+    "                digest_text = await digest_service.build_and_send(db, settings)\n"
+    "                await discord_service.deliver_digest(db, settings, digest_text)\n"
+)
 
 # app.schemas.discord sorts between .admin and .integration - ruff's isort rule is a
 # gate here, not a preference.
@@ -762,9 +760,9 @@ ADMIN_SCHEMA_IMPORT_NEW = (
 ADMIN_SERVICE_IMPORT_ANCHOR = "    digest_service,\n"
 ADMIN_SERVICE_IMPORT_ADD = "    discord_service,\n"
 
-ADMIN_ROUTE_ANCHOR = (
-    "# ── System: SMTP settings (admin-only, audited; the password is write-only) ─────\n"
-)
+# The routes are APPENDED, not anchored. The only landmark near the SMTP section is a
+# banner comment made of box-drawing characters - the single most drift-prone string in
+# the file. A router decorator works wherever it sits, so position buys nothing.
 ADMIN_ROUTE_ADD = '''# ── System: Discord delivery (admin-only, audited; the webhook is write-only) ───
 @router.get("/discord", response_model=DiscordConfigOut)
 async def get_discord_config(db: DbSession) -> DiscordConfigOut:
@@ -970,7 +968,15 @@ def plan_head_pin(path: Path, text: str, old: str, new: str) -> list[tuple[str, 
         print(f"{path}: already pinned to {new}")
         return None
     if current != old:
-        print(f"{path}: head is already at {current} (past {new}) - leaving it")
+        # NOT necessarily "further along" - it may be BEHIND, which means an earlier
+        # migration patch in the chain has not run here. Either way this patch must not
+        # rewrite a pin it does not recognise, but a pin left behind the database WILL
+        # fail test_migrations, so say which case it is rather than implying it is fine.
+        print(
+            f"{path}: head pin is {current}, expected {old} - not touching it. "
+            f"If the chain has not been run in order, this test will fail against a "
+            f"database at {new}."
+        )
         return None
     return [(f'_HEAD = "{old}"', f'_HEAD = "{new}"', None)]
 
@@ -1008,8 +1014,7 @@ def main() -> None:
             [
                 (ADMIN_SCHEMA_IMPORT_ANCHOR, ADMIN_SCHEMA_IMPORT_NEW, None),
                 (ADMIN_SERVICE_IMPORT_ANCHOR, ADMIN_SERVICE_IMPORT_ADD, False),
-                (ADMIN_ROUTE_ANCHOR, ADMIN_ROUTE_ADD, True),
-                (ADMIN_ALERTS_ANCHOR, ADMIN_ALERTS_NEW, None),
+                        (ADMIN_ALERTS_ANCHOR, ADMIN_ALERTS_NEW, None),
                 (ADMIN_DIGEST_ANCHOR, ADMIN_DIGEST_NEW, None),
             ],
         ),
@@ -1037,6 +1042,14 @@ def main() -> None:
     if head_edits is not None:
         plan[TEST_MIGRATIONS] = head_edits
 
+    # Appended rather than planned as an edit, but still decided BEFORE anything is
+    # written, so a half-applied admin router is impossible.
+    admin_append = ADMIN_ROUTE_ADD if '@router.get("/discord"' not in texts[ADMIN] else None
+    if admin_append is not None:
+        for name in ("router = APIRouter", "get_settings", "AuditDep"):
+            if name not in texts[ADMIN]:
+                die(f"{ADMIN}: {name} is missing - the file has changed shape")
+
     new_files = {
         MODEL: MODEL_SOURCE,
         MIGRATION: MIGRATION_SOURCE,
@@ -1047,7 +1060,7 @@ def main() -> None:
     }
     stale = {p: s for p, s in new_files.items() if not p.exists() or p.read_text() != s}
 
-    if not plan and not stale:
+    if not plan and not stale and admin_append is None:
         print("already installed - nothing to do")
         return
 
@@ -1063,8 +1076,15 @@ def main() -> None:
                 text = text.replace(anchor, addition, 1)
             else:
                 text = text.replace(anchor, (addition + anchor) if before else (anchor + addition), 1)
+        if path is ADMIN and admin_append is not None:
+            text = text.rstrip("\n") + "\n\n\n" + admin_append.strip("\n") + "\n"
         path.write_text(text)
         print(f"patched {path}")
+
+    # ADMIN may have had no planned edits (already imported) but still need the routes.
+    if admin_append is not None and ADMIN not in plan:
+        ADMIN.write_text(texts[ADMIN].rstrip("\n") + "\n\n\n" + admin_append.strip("\n") + "\n")
+        print(f"patched {ADMIN}: Discord routes appended")
 
     print("\nMIGRATION REQUIRED: alembic upgrade head (creates discord_config).")
     print("Admin > System > Discord holds the webhook. Storing it needs SMTP_SECRET_KEY")
