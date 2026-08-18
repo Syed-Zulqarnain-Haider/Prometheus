@@ -298,7 +298,14 @@ def _auth(role: str) -> dict[str, str]:
 
 
 def _params(**overrides: Any) -> dict[str, Any]:
-    params: dict[str, Any] = {"from": "2026-06-01", "to": "2026-06-30", "group_by": "app"}
+    # date_from / date_to - NOT from / to. get_filters declares them by those names, so
+    # the short form is simply a missing required parameter and FastAPI 422s before the
+    # handler is ever reached.
+    params: dict[str, Any] = {
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30",
+        "group_by": "app",
+    }
     params.update(overrides)
     return params
 

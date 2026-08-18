@@ -35,12 +35,27 @@ from pathlib import Path
 
 TESTS = Path("backend/tests/test_metrics_api.py")
 
+# The block is delimited so a later correction can REPLACE it rather than append a
+# second copy or, worse, silently leave a broken version in place.
+# The block is delimited so a later correction can REPLACE it rather than append a second
+# copy or, worse, silently leave a broken version in place. Both markers are derived from
+# the block itself below - hand-counting box-drawing characters is how you get a marker
+# that never matches.
+# The FIRST version of this block shipped with no markers at all, so the repair has to
+# recognise that shape too - otherwise "replace" degrades into "append a second copy",
+# which is what a first attempt at this actually did.
+BLOCK_PREFIX = "# \u2500\u2500 /metrics/contribution"
+START_MARKER = "# \u2500\u2500 /metrics/contribution \u2500\u2500 START"
+END_MARKER = "# \u2500\u2500 /metrics/contribution \u2500\u2500 END"
+
+
 ADDITION = '''
 
-# ── /metrics/contribution ─────────────────────────────────────────────────────
+# ── /metrics/contribution ── START (managed block; edit the script, not this) ──
 # Self-contained on purpose (own range, own auth helper): appended blocks must not
 # depend on names defined above them, which differ between branches.
-_CONTRIB_RANGE = {"from": "2026-06-01", "to": "2026-06-30"}
+# date_from / date_to - NOT from / to. get_filters declares them by those names.
+_CONTRIB_RANGE = {"date_from": "2026-06-01", "date_to": "2026-06-30"}
 
 
 def _contrib_auth(role: str) -> dict[str, str]:
@@ -96,6 +111,7 @@ async def test_contribution_enforces_metric_rbac(metrics_env: MetricsEnv) -> Non
         headers=_contrib_auth("viewer"),
     )
     assert response.status_code == 400
+# ── /metrics/contribution ── END ──────────────────────────────────────────────
 '''
 
 
@@ -110,13 +126,33 @@ def main() -> None:
         die(f"{TESTS} not found - run from the repository root")
 
     text = TESTS.read_text()
-    if "test_contribution_reports_movers_and_arithmetic" in text:
-        print("already tested - nothing to do")
-        return
 
     # The ONLY thing the appended block borrows from the file above it.
     if "MetricsEnv" not in text:
         die(f"{TESTS}: MetricsEnv is not imported - this is not the metrics API test module")
+
+    # The block is DELIMITED so it can be REPLACED, not merely skipped. A marker that only
+    # says "already there" makes a wrong test permanent - which is exactly what happened:
+    # these tests shipped querying `from`/`to` instead of `date_from`/`date_to` and every
+    # one 422'd, and a skip-if-present guard would have left them broken forever.
+    start = text.find(BLOCK_PREFIX)
+    if start != -1:
+        end = text.find(END_MARKER, start)
+        if end == -1:
+            # An unmarked legacy block. It was appended at end of file, so that is where
+            # it ends - and nothing else in this file is appended after it.
+            end_of_line = len(text)
+        else:
+            end_of_line = text.find("\n", end)
+            end_of_line = len(text) if end_of_line == -1 else end_of_line
+        current = text[start:end_of_line]
+        replacement = ADDITION.strip("\n")
+        if current == replacement:
+            print("already tested - nothing to do")
+            return
+        TESTS.write_text(text[:start] + replacement + text[end_of_line:])
+        print(f"patched {TESTS}: contribution test block REPLACED with the current version")
+        return
 
     TESTS.write_text(text.rstrip("\n") + "\n" + ADDITION)
     print(f"patched {TESTS}: 3 contribution tests appended (maths, coverage, RBAC)")

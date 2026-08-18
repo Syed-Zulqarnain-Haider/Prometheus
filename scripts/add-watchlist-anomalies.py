@@ -778,8 +778,8 @@ async def test_unstar_is_idempotent(metrics_env: MetricsEnv) -> None:
 async def test_anomalies_endpoint_refuses_a_forbidden_metric(metrics_env: MetricsEnv) -> None:
     """viewer holds store_installs only - revenue must be a 400, not a silent empty."""
     params: dict[str, Any] = {
-        "from": "2026-06-01",
-        "to": "2026-06-30",
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30",
         "group_by": "app",
         "metric": "total_revenue_usd",
     }
@@ -793,8 +793,8 @@ async def test_anomalies_endpoint_returns_a_shape_on_thin_history(metrics_env: M
     """The seed has two days - far below the baseline minimum. The endpoint must answer
     cleanly with an empty list, never divide by an empty baseline."""
     params: dict[str, Any] = {
-        "from": "2026-06-01",
-        "to": "2026-06-30",
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30",
         "group_by": "app",
         "metric": "total_revenue_usd",
     }
