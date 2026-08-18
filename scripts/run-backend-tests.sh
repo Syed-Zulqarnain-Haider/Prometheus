@@ -67,10 +67,13 @@ RUN pip install --no-cache-dir pytest pytest-asyncio pytest-cov httpx
 DOCKEREOF
 
 echo "==> pytest"
-# backend/ is mounted so tests/ (not copied into the image) is present, and so a
-# failing run leaves nothing behind in the image.
+# The REPOSITORY ROOT is mounted, not just backend/: several tests resolve
+# Path(__file__).parents[2] to reach the canonical <repo>/sync/metric_registry.py and
+# compare it against the vendored backend/sync copy. Mounting only backend/ put those
+# paths outside the container and produced eleven FileNotFoundError failures that said
+# nothing about the code. Workdir is backend/ so pytest still collects from there.
 docker run --rm --network "$NET" \
-  -v "$PWD/backend:/src" -w /src \
+  -v "$PWD:/src" -w /src/backend \
   -e TEST_DATABASE_URL="postgresql+asyncpg://prometheus:prometheus@${PG}:5432/prometheus_test" \
   -e DATABASE_URL="postgresql+asyncpg://prometheus:prometheus@${PG}:5432/prometheus_test" \
   -e REDIS_TEST_URL="redis://${RD}:6379/0" \
