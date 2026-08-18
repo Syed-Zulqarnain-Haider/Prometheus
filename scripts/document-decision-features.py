@@ -15,6 +15,7 @@ Documentation only - nothing to rebuild, nothing to migrate.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -30,45 +31,6 @@ PURPOSE_NEW = """- **Purpose:** a single, governed analytics surface for mobile-
 """
 
 # Extend the existing alerts section rather than adding a competing one.
-ALERTS_ANCHOR = """- All three fire **exactly once cluster-wide** via a DB `job_runs` claim (no duplicate emails
-  per instance or per restart). Mail is stdlib SMTP — a graceful no-op when unconfigured.
-"""
-ALERTS_NEW = """- **Watchlist alerts** (opt-in, `watchlist_alerts_enabled`): star an app and the same daily
-  pass notifies **you** about unusual movement on it — evaluated through *your* resolved
-  context, so a viewer is told about installs, never a revenue figure they cannot see on
-  screen.
-- **Discord delivery** — the digest and the alerts also post to a Discord channel as
-  embeds. The webhook URL is a credential (anyone holding it can post as this app), so it
-  is Fernet-encrypted at rest, **never** returned by any endpoint or written to a log,
-  and validated against Discord's own hosts before storage — a webhook field that will
-  POST anywhere is an SSRF primitive handed to whoever holds the admin panel. Without an
-  at-rest key the service **refuses** to store it rather than writing plaintext;
-  `DISCORD_WEBHOOK_URL` in the environment still works in that state. Configure at
-  **Admin → System → Discord**; engine `services/discord_service.py`.
-- All of these fire **exactly once cluster-wide** via a DB `job_runs` claim (no duplicate
-  emails per instance or per restart). Mail is stdlib SMTP — a graceful no-op when
-  unconfigured, and a Discord outage never costs anyone the email.
-"""
-
-PACING_ANCHOR = """- `GET /metrics/forecast` — daily history plus an OLS linear-trend projection fit on
-  **calendar-day offsets** (so gaps in the series don't skew the slope).
-"""
-PACING_NEW = """- `GET /metrics/forecast` — daily history plus an OLS linear-trend projection fit on
-  **calendar-day offsets** (so gaps in the series don't skew the slope).
-- **Scoped targets & UA budgets** (`scoped_targets`, `GET /scoped-targets/pacing`) — the
-  org-wide goal is a number for the board; these are the goals the person who owns a pod
-  is actually measured against, plus the budget half of the question, which had no goal at
-  all before. A target is *(kind, scope, month, amount)*: a **revenue goal** or a **UA
-  budget**, org-wide or for one pod / app / publisher / HOU.
-  **Direction is per kind and is data, not a UI convention** — running ahead of a revenue
-  target is good, running ahead of a UA budget is overspending, so `higher_is_better`
-  ships in the payload and no consumer has to guess. Visibility follows the caller's row
-  scopes *and* their metric permissions (a target is a revenue figure). Monthly only, so
-  there is never a second answer to "what is the goal". Set at **Admin → Targets &
-  budgets**; shown by the *Targets & budgets* Overview widget with a tick where a straight
-  line says today should be.
-"""
-
 # The new block goes between "Explore" and "Sync self-healing" so the decision-support
 # features read together, after the query surfaces they build on.
 FEATURES_ANCHOR = "### Sync self-healing (promoted dynamic columns)\n"
@@ -156,6 +118,51 @@ ranks* on App Detail and as a best/worst leaderboard on Overview.
   means a better app and no UI has to know which way round CPI runs.
 - A benchmark is computed only when **both** component measures are permitted.
 
+### Scoped targets & UA budget pacing
+The org-wide monthly goal is a number for the board. It cannot tell the person who owns a
+pod whether **their** slice is ahead or behind, because nobody ever wrote down what their
+slice was supposed to do — and the other half of the question, "are we overspending this
+month", had no goal at all: UA cost was shown and never compared to a budget.
+
+A target is *(kind, scope, month, amount)*: a **revenue goal** or a **UA budget**,
+org-wide or for one pod / app / publisher / HOU (`scoped_targets`,
+`GET /scoped-targets/pacing`).
+
+**Direction is per kind and is data, not a UI convention** — running ahead of a revenue
+target is good, running ahead of a UA budget is overspending, so `higher_is_better` ships
+in the payload and no consumer has to guess. Visibility follows the caller's row scopes
+*and* their metric permissions (a target is a revenue figure — the same rule
+`/meta/targets` applies). Monthly only, so there is never a second answer to "what is the
+goal"; the org-wide annual target stays in `revenue_targets` and drives the yearly donut.
+The board costs a handful of queries, not one per target: targets are grouped by
+(kind, scope_type) and each group is answered with a single breakdown over that dimension.
+
+Set at **Admin → Targets & budgets**; shown by the *Targets & budgets* Overview widget
+with a tick where a straight line says today should be.
+
+### Discord delivery & watchlist alerts
+- **Watchlist alerts** (opt-in, `watchlist_alerts_enabled`): star an app and the daily
+  post-sync pass notifies **you** about unusual movement on it — evaluated through *your*
+  resolved context, so a viewer is told about installs, never a revenue figure they cannot
+  see on screen.
+- **Discord delivery** — the daily digest and the proactive alerts also post to a Discord
+  channel as embeds, the same content the email carries. The webhook URL is a credential
+  (anyone holding it can post as this app), so it is Fernet-encrypted at rest, **never**
+  returned by any endpoint or written to a log, and validated against Discord's own hosts
+  before storage — a webhook field that will POST anywhere is an SSRF primitive handed to
+  whoever holds the admin panel. Without an at-rest key the service **refuses** to store
+  it rather than writing plaintext; `DISCORD_WEBHOOK_URL` in the environment still works
+  in that state. Configure at **Admin → System → Discord**; engine
+  `services/discord_service.py`.
+- Delivery is best-effort and separately isolated: a Discord outage never costs anyone the
+  email, stops the sync, or reaches the request path.
+
+### Two environment variables these features use
+| Variable | What it does |
+|---|---|
+| `SMTP_SECRET_KEY` | A Fernet key — the app's **single** at-rest encryption key (named after the feature that needed it first). Without it the admin panel refuses to store the SMTP password or the Discord webhook rather than writing either in plaintext. |
+| `DISCORD_WEBHOOK_URL` | Fallback destination for the digest and alerts. An admin-stored (encrypted) webhook takes precedence; this keeps delivery working before anyone opens the page, and while no at-rest key is configured. |
+
 ### Today — the phone screen
 The dashboard is built for a desk; the installed PWA is not. `/today` answers the four
 things anyone checks on a phone — what happened, what moved it, is anything wrong, are we
@@ -170,12 +177,21 @@ a fixed window, and a date picker that silently did nothing would be worse than 
 
 """
 
-ENV_ANCHOR = """| backend (optional — observability) | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LOG_LEVEL`, `LOG_JSON` |
-"""
-ENV_NEW = """| backend (optional — observability) | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LOG_LEVEL`, `LOG_JSON` |
-| backend (optional — secrets at rest) | `SMTP_SECRET_KEY` — a Fernet key. The app's **single** at-rest encryption key (named after the feature that needed it first): without it the admin panel refuses to store the SMTP password or the Discord webhook rather than writing either in plaintext |
-| backend (optional — Discord) | `DISCORD_WEBHOOK_URL` — fallback destination for the digest and alerts. An admin-stored (encrypted) webhook takes precedence; this keeps delivery working before anyone opens the page, and while no at-rest key is configured |
-"""
+
+def _split_sections(block: str) -> list[tuple[str, str]]:
+    """Split the documentation block into one entry per `### ` heading.
+
+    Per SECTION, not per block: the deployed README already carries the sections from an
+    earlier pass, so a whole-block marker would skip the new ones forever and a
+    whole-block insert would duplicate the old ones. Each heading is its own marker and
+    its own edit.
+    """
+    out: list[tuple[str, str]] = []
+    for part in re.split(r"(?m)^(?=### )", block):
+        if not part.strip():
+            continue
+        out.append((part.splitlines()[0].strip(), part))
+    return out
 
 
 def die(message: str) -> None:
@@ -189,28 +205,33 @@ def main() -> None:
         die(f"{README} not found - run from the repository root")
 
     text = README.read_text()
-    if '### "What moved" — contribution analysis' in text:
-        print(f"{README}: already documented")
-        return
 
     # PER-EDIT and NON-FATAL, unlike every other script here. These anchors are PROSE -
     # section headings and sentences - and prose is the most drift-prone text in the
     # repository. Documentation that cannot find its place is worth a warning; it is never
     # worth failing a deploy of working features that have already been applied.
-    edits = [
-        ("purpose bullet", PURPOSE_ANCHOR, PURPOSE_NEW),
-        ("alerts section", ALERTS_ANCHOR, ALERTS_NEW),
-        ("pacing section", PACING_ANCHOR, PACING_NEW),
-        ("feature sections", FEATURES_ANCHOR, FEATURES_ADD + FEATURES_ANCHOR),
-        ("env var table", ENV_ANCHOR, ENV_NEW),
-    ]
-    applied, missed = [], []
-    for label, anchor, replacement in edits:
-        if text.count(anchor) == 1:
+    # (label, "already there?" marker, anchor, replacement). Each edit is guarded by its
+    # OWN marker, so a tree that already took part of this documentation can still take
+    # the rest - a single whole-file guard made the first pass permanent.
+    edits = [("purpose bullet", "decision-support layer", PURPOSE_ANCHOR, PURPOSE_NEW)]
+    # Every `### ` section is placed independently, immediately before Sync self-healing,
+    # so they land in list order and an already-present one is left exactly as it is.
+    for heading, body in _split_sections(FEATURES_ADD):
+        edits.append((heading, heading, FEATURES_ANCHOR, body + FEATURES_ANCHOR))
+    applied, missed, present = [], [], []
+    for label, marker, anchor, replacement in edits:
+        if marker in text:
+            present.append(label)
+        elif text.count(anchor) == 1:
             text = text.replace(anchor, replacement, 1)
             applied.append(label)
         else:
             missed.append(label)
+
+    if present and not applied:
+        print(f"{README}: already documented ({', '.join(present)})")
+        if not missed:
+            return
 
     if not applied:
         print(f"{README}: no section matched - documentation NOT updated")
