@@ -117,7 +117,10 @@ export function PrivacyShield() {
         // Stacked above the announcement toggle, both clear of the iPhone home indicator.
         style={{ bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}
         className={cn(
-          "fixed right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-lg",
+          // hidden on touch-only devices: the shield reveals a circle around the MOUSE
+          // POINTER, and with no pointer it is a dead control that blurs the screen
+          // with no way to see anything - while covering scarce phone space.
+          "fixed right-4 z-[60] hidden h-11 w-11 items-center justify-center rounded-full shadow-lg [@media(hover:hover)]:flex",
           // Dimmed at rest: these float over page content (table pagination sits
           // right underneath) and a solid button there hides data. Full opacity
           // returns on hover/focus, and while the shield is ON it stays visible so
