@@ -59,8 +59,6 @@ def add_service_imports(rel: str, names: list) -> None:
         problems.append(f"{rel}: file not found")
         return
     text = path.read_text()
-    if all(n in text for n in names):
-        return
     match = SERVICES_PAREN.search(text)
     if match:
         existing = [n.strip().rstrip(",") for n in match.group(1).split("\n") if n.strip()]
@@ -70,6 +68,8 @@ def add_service_imports(rel: str, names: list) -> None:
             problems.append(f"{rel}: no 'from app.services import ...' to extend")
             return
         existing = [n.strip() for n in match.group(1).split(",") if n.strip()]
+    if set(names) <= set(existing):
+        return  # already ON THE IMPORT LINE - checking the whole file would find a usage
     merged = sorted(set(existing) | set(names))
     flat = "from app.services import " + ", ".join(merged) + "\n"
     block = (
@@ -257,6 +257,10 @@ if am_tests.exists() and "_apply_immediately" not in am_tests.read_text():
         planned.append((am_tests, t, "backend/tests/test_app_master.py"))
 elif am_tests.exists():
     print("  = backend/tests/test_app_master.py: already applied")
+
+# The helper above calls settings_service; the import is a separate concern from the
+# marker, so this runs either way.
+add_service_imports("backend/tests/test_app_master.py", ["settings_service"])
 
 md = Path("backend/tests/test_models_metadata.py")
 if md.exists() and "app_master_change_requests" not in md.read_text():
