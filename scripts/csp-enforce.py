@@ -185,6 +185,31 @@ if TESTS.exists():
         'get("Content-Security-Policy")',
     )
 
+    # fix-login-csp.py exits early when the config is already correct, and that early
+    # exit skips its test edit - which leaves the suite asserting a COOP value that would
+    # break Google sign-in if anyone "fixed" the config to match. Close that here.
+    stale_coop = '    expect(get("Cross-Origin-Opener-Policy")).toBe("same-origin");'
+    if stale_coop in t:
+        t = t.replace(
+            stale_coop,
+            '    // NOT "same-origin". That severs window.opener, and this app signs in with\n'
+            '    // signInWithPopup - the popup hands the credential back through exactly that\n'
+            '    // reference. This value still isolates the page from whatever opened IT.\n'
+            '    expect(get("Cross-Origin-Opener-Policy")).toBe("same-origin-allow-popups");\n'
+            '    // Firebase\'s popup flow loads these; blocking them is a silent login failure.\n'
+            '    expect(csp0).toContain("https://apis.google.com");',
+            1,
+        )
+        # That block reads the policy, which the surrounding test does not otherwise fetch.
+        t = t.replace(
+            '  it("sets the headers the scan checks for", async () => {\n'
+            "    const { get } = await loadHeaders();",
+            '  it("sets the headers the scan checks for", async () => {\n'
+            "    const { get } = await loadHeaders();\n"
+            '    const csp0 = get("Content-Security-Policy") ?? "";',
+            1,
+        )
+
     todo_assert = (
         "    // TODO: once a real sign-in produces a clean console, move the policy back to\n"
         "    // the enforcing header and restore this assertion - report-only protects nothing.\n"
