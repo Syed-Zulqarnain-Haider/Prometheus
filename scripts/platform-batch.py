@@ -2697,6 +2697,32 @@ def resolve(text: str, anchor: str, replacement: str, marker: str) -> tuple[str,
     return anchor, replacement, marker
 
 
+def locate(lines: list[str], anchor: str) -> int | None:
+    """Line index where the longest present run of the anchor's own lines begins."""
+    wanted = anchor.splitlines()
+    joined = "\n".join(lines)
+    for take in range(len(wanted), 0, -1):
+        for start in (0, len(wanted) - take):
+            probe = "\n".join(wanted[start:start + take])
+            if not probe.strip():
+                continue
+            index = joined.find(probe)
+            if index != -1:
+                return joined.count("\n", 0, index) - start
+    # No run of consecutive lines survives, so fall back to the single most
+    # distinctive line. A blind dump of the head of a 1000-line file is not an
+    # answer, and one recognisable line is enough to place the hunk.
+    for offset, line in sorted(
+        enumerate(wanted), key=lambda pair: len(pair[1].strip()), reverse=True
+    ):
+        if len(line.strip()) < 12:
+            break
+        index = joined.find(line)
+        if index != -1:
+            return joined.count("\n", 0, index) - offset
+    return None
+
+
 def main() -> int:
     if not Path("backend/app").is_dir() or not Path("frontend/app").is_dir():
         print("ABORTED: run this from the repository root")
@@ -2704,6 +2730,7 @@ def main() -> int:
 
     data = json.loads(base64.b64decode(PAYLOAD.strip()).decode())
     problems: list[str] = []
+    failures: list[tuple[str, str]] = []   # (path, anchor) for the echo below
     planned: dict[str, str] = {}      # path -> new text
     skipped: list[str] = []
 
@@ -2753,6 +2780,7 @@ def main() -> int:
                 f"{'>=1' if expected_all else 'exactly 1'} match, found {found}\n"
                 f"        anchor starts: {head!r}"
             )
+            failures.append((rel, anchor))
             continue
         planned[rel] = text.replace(anchor, item["replacement"], -1 if expected_all else 1)
 
@@ -2761,8 +2789,29 @@ def main() -> int:
         print()
         for problem in problems:
             print(problem)
+        # Naming a missing anchor without showing the file costs a whole extra
+        # round-trip just to look at it. Print the region the anchor was aiming
+        # at - the longest run of its own lines that IS present - so the file can
+        # be re-anchored from this output alone.
+        shown: dict[str, list[tuple[int, int]]] = {}
+        for rel, anchor in failures:
+            lines = Path(rel).read_text().splitlines()
+            hit = locate(lines, anchor)
+            if hit is None:
+                lo, hi = 0, min(len(lines), 120)
+                note = "nothing from this anchor is on disk - head of file"
+            else:
+                lo, hi = max(0, hit - 30), min(len(lines), hit + 30)
+                note = f"nearest partial match at line {hit + 1}"
+            if any(lo >= a and hi <= b for a, b in shown.get(rel, [])):
+                continue
+            shown.setdefault(rel, []).append((lo, hi))
+            print()
+            print(f"----- {rel} lines {lo + 1}-{hi} of {len(lines)} ({note}) -----")
+            for number, line in enumerate(lines[lo:hi], start=lo + 1):
+                print(f"{number:6d}\t{line}")
         print()
-        print("Send me the files named above and I will re-anchor against them.")
+        print("The regions above are what is actually on disk; I re-anchor from them.")
         return 1
 
     for rel, content in sorted(planned.items()):
