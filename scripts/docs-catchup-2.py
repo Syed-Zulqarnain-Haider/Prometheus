@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Bring README.md and CLAUDE.md back in line with what actually ships.
+
+REPLACES docs-catchup.py, which could not apply. That script carried one 25-line anchor
+spanning the whole App Master section through to Sync self-healing, on the assumption that
+those two sections were neighbours. In the deployed README they are ~290 lines apart with
+Today, Scoped targets, Discord and the environment table in between, so the anchor matched
+nothing - and its replacement would have re-inserted a dozen sections the file already had.
+
+This one does not assume a shape. Each new section is keyed by its own heading and is
+inserted only if that heading is ABSENT, so re-running it cannot duplicate a section and it
+does not care what order the surrounding document is in. The App Master "six -> seven" line
+is a separate two-line edit rather than a passenger on a 25-line block.
+
+Documented here because it is a decision, not a description: App Master now has SEVEN
+editable columns (`type` joined the six), and cohort LTV is recorded as NOT buildable from
+this warehouse - checked against four datasets, not assumed - so nobody spends a week
+rediscovering it.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import sys
+from pathlib import Path
+
+PAYLOAD = """
+eyJzZWN0aW9ucyI6IFsiIyMjIFNwb3RsaWdodCBcdTIwMTQgdGhlIGFwcHMgY2FycnlpbmcgbW9uZXkgdGhhdCBub2JvZHkg
+b3duc1xuQW4gYXBwIGFycml2ZXMgZnJvbSB0aGUgc3RvcmUgZmVlZCB3aXRoIGEgbmFtZSBhbmQgYW4gaWQgYW5kIG5vdGhp
+bmcgZWxzZS4gVW50aWwgaXRzIHBvZCwgb3duZXIsXG5IT1UsIHBhcnRuZXIsIHJldmVudWUgc2hhcmUgYW5kIHR5cGUgYXJl
+IGZpbGxlZCBpbiwgZXZlcnl0aGluZyBpdCBlYXJucyBsYW5kcyBpbiBhIGJ1Y2tldCBtYXJrZWRcbip1bmFzc2lnbmVkKiBc
+dTIwMTQgcmVhbCByZXZlbnVlLCByZWFsIHByb2ZpdCwgYXR0cmlidXRlZCB0byBub2JvZHkuXG5cbioqU3BvdGxpZ2h0Kiog
+bGlzdHMgdGhvc2UgYXBwcyB3aXRoIHRoZSBudW1iZXJzIHRoYXQganVzdGlmeSB0aGUgZWZmb3J0IHJpZ2h0IGJlc2lkZSB0
+aGVtXG4ocmV2ZW51ZSwgaW5zdGFsbHMsIFVBIGNvc3QpIGFuZCBhIGxpbmsgc3RyYWlnaHQgdG8gdGhlIEFwcCBNYXN0ZXIg
+cm93LiBUd28gdGhpbmdzIGFib3V0IGl0IGFyZVxuZGVsaWJlcmF0ZTpcblxuKiAqKk9yZGVyZWQgYnkgcmV2ZW51ZSwgbm90
+IGJ5IGhvdyBtYW55IGZpZWxkcyBhcmUgYmxhbmsuKiogQW4gaWRsZSB0ZXN0IGFwcCBtaXNzaW5nIGFsbCBzZXZlblxuICBt
+YXR0ZXJzIGxlc3MgdGhhbiBhIGxpdmUgYXBwIG1pc3Npbmcgb25lOyBzb3J0aW5nIGJ5IGJsYW5rbmVzcyBwYXJrcyB0aGUg
+dGVzdCBhcHAgYXQgdGhlIHRvcFxuICBldmVyeSBtb3JuaW5nIHVudGlsIHBlb3BsZSBzdG9wIHJlYWRpbmcgdGhlIHBhZ2Uu
+XG4qICoqUm93LXNjb3BlZC4qKiBBbiBhZG1pbiBzZWVzIHRoZSBwb3J0Zm9saW8ncyB3b3JzdCBvZmZlbmRlcnMsIGEgcG9k
+IG93bmVyIHNlZXMgdGhlaXIgb3duIFx1MjAxNFxuICBiZWluZyB0b2xkIGFuIGFwcCBuZWVkcyBhdHRlbnRpb24gaXMgYmVp
+bmcgdG9sZCBpdCBleGlzdHMuIFdpdGggbm8gc2NvcGUgYXQgYWxsIGl0IHNob3dzXG4gICpub3RoaW5nKiwgbm90IGV2ZXJ5
+dGhpbmcuXG5cblwiU3BvdGxpZ2h0IG9mIHRoZSBkYXlcIiBhbmQgXCJvZiB0aGUgd2Vla1wiIGFyZSB0aGUgc2FtZSBsaXN0
+IG92ZXIgYSBvbmUtZGF5IGFuZCBzZXZlbi1kYXkgd2luZG93LlxuQW4gZW1wdHkgc3RyaW5nIGNvdW50cyBhcyBtaXNzaW5n
+OiBhIGNvbHVtbiBob2xkaW5nIGBcIlwiYCBvciBgXCIgIFwiYCBpcyBub3QgZmlsbGVkIGluLCBhbmQgdHJlYXRpbmdcbml0
+IGFzIGZpbGxlZCBpcyBob3cgYW4gYXBwIHNpdHMgaW4gdGhlIGJsaW5kIHNwb3QgZm9yZXZlci5cbiIsICIjIyMgUG9kIE93
+bmVyIFBlcmZvcm1hbmNlIChhZG1pbiBvbmx5KVxuVGhlIEhPVSB0YWJsZSwgZ3JvdXBlZCBieSB0aGUgcGVyc29uIGluc3Rl
+YWQgb2YgdGhlIHVuaXQgXHUyMDE0IHNhbWUgY29sdW1ucywgc2FtZSBvcmRlciwgYmVjYXVzZSBpdFxuaW5oZXJpdHMgdGhl
+IHNoYXJlZCBjb2x1bW4gZGVmaW5pdGlvbnMgcmF0aGVyIHRoYW4gcmVzdGF0aW5nIHRoZW0uXG5cbkFkbWluLW9ubHkgbWVh
+bnMgbW9yZSB0aGFuIGEgaGlkZGVuIHBhZ2U6IGBwb2Rfb3duZXJgIGlzIGRlbGliZXJhdGVseSAqKm5vdCoqIG9uIHRoZSBw
+dWJsaWNcbmAvbWV0cmljcy9icmVha2Rvd25gIHdoaXRlbGlzdCwgc28gbm9ib2R5IGhvbGRpbmcgYW4gYGFsbGAgcm93IHNj
+b3BlIGNhbiBwdWxsIHRoZSBzYW1lIG51bWJlcnNcbmZyb20gdGhlIEFQSSB3aGlsZSB0aGUgcGFnZSBtZXJlbHkgZmFpbHMg
+dG8gcmVuZGVyLiBBIHRlc3QgcGlucyB0aGF0IGFic2VuY2UsIGFuZCBhbm90aGVyIHBpbnNcbnRoYXQgYW4gKmV4ZWN1dGl2
+ZSogXHUyMDE0IHdobyBjYW4gc2VlIGV2ZXJ5IHJvdyBpbiB0aGUgcG9ydGZvbGlvIFx1MjAxNCBpcyBzdGlsbCByZWZ1c2Vk
+LiBTZWVpbmcgdGhlIHJvd3NcbmFuZCBzZWVpbmcgaG93IGVhY2ggbmFtZWQgcGVyc29uIGlzIHBlcmZvcm1pbmcgYXJlIG5v
+dCB0aGUgc2FtZSBwZXJtaXNzaW9uLlxuXG5Sb3dzIHdpdGggbm8gcG9kIG93bmVyIGNvbGxhcHNlIGludG8gb25lIHZpc2li
+bGUgKipVbmFzc2lnbmVkKiogYnVja2V0IHJhdGhlciB0aGFuIGJlaW5nIGRyb3BwZWQsXG5zbyB0aGUgdGFibGUgcmVjb25j
+aWxlcyB3aXRoIGV2ZXJ5IG90aGVyIHBhZ2UgYW5kIHRoZSB3b3JrIGJlbG9uZ2luZyB0byBub2JvZHkgc3RheXMgdmlzaWJs
+ZS5cbiIsICIjIyMgQXNrIEFkdmlzb3IgXHUyMDE0IHdoYXQgbW92ZWQgc2luY2UgeW91IGxhc3QgbG9va2VkXG5BIHNsaWRl
+LW92ZXIgb24gZXZlcnkgcGFnZS4gQSBkYXNoYm9hcmQgYWxyZWFkeSBzaG93cyB0aGUgbnVtYmVyczsgd2hhdCBpdCBjYW5u
+b3QgZG8gaXMgbm90aWNlXG55b3UgaGF2ZSBiZWVuIGF3YXkgZm91ciBkYXlzIGFuZCB0aGF0IHJldmVudWUgbW92ZWQgd2hp
+bGUgeW91IHdlcmUgXHUyMDE0IHNvIGBhZHZpc29yX2xhc3Rfc2VlbmAgaG9sZHNcbm9uZSB0aW1lc3RhbXAgcGVyIHVzZXIg
+YW5kIHRoZSBicmllZmluZyBpcyBjb21wdXRlZCBhZ2FpbnN0IGl0LCB1c2luZyB3aGF0ZXZlciBmaWx0ZXJzIHRoZSBwYWdl
+XG5pcyBhbHJlYWR5IHNob3dpbmcuXG5cbkl0IHJlbmRlcnMgKip3aXRob3V0KiogdGhlIGNoYXQgYXNzaXN0YW50IGJlaW5n
+IGNvbmZpZ3VyZWQgKHRoZSBicmllZmluZyBuZWVkcyBubyBBUEkga2V5KSwgYW5kXG50aGUgcmVhZCBpcyBtYXJrZWQgb24g
+KipjbG9zZSoqIFx1MjAxNCBub3Qgb24gZmV0Y2ggYW5kIG5vdCBvbiBvcGVuLCBzbyBhIGJhY2tncm91bmQgdGFiIGNhbm5v
+dCBlYXRcbnRoZSBuZXdzLiBBIHJvbGUgdGhhdCBjYW5ub3Qgc2VlIHJldmVudWUgaXMgKnRvbGQqIHNvOyBcIlJldmVudWU6
+ICQwXCIgYW5kIFwiUmV2ZW51ZTogbm90IGluY2x1ZGVkXG5pbiB5b3VyIHJvbGVcIiBsb29rIGlkZW50aWNhbCB0byBhIGNh
+cmVsZXNzIGltcGxlbWVudGF0aW9uIGFuZCBub3RoaW5nIGFsaWtlIHRvIGEgcmVhZGVyLlxuIiwgIiMjIyBQYXliYWNrIFx1
+MjAxNCBhbmQgd2h5IGl0IGlzIG5vdCBjb2hvcnQgTFRWXG5DdW11bGF0aXZlIFVBIHNwZW5kIGFnYWluc3QgY3VtdWxhdGl2
+ZSByZXZlbnVlIGZvciB0aGUgY3VycmVudCBzbGljZSwgd2l0aCB0aGUgZGF5IHRoZSBsaW5lc1xuY3Jvc3NlZC4gVGhlIHJl
+c3BvbnNlIGNhcnJpZXMgaXRzIG93biBjYXZlYXQgYW5kIHRoZSBVSSByZW5kZXJzIGl0LCBiZWNhdXNlIHRoaXMgaXMgYSAq
+KmNhc2gqKlxucXVlc3Rpb24sIG5vdCBhIHBlci1jb2hvcnQgb25lOiByZXZlbnVlIG9uIGFueSBkYXkgY29tZXMgZnJvbSBl
+dmVyeSB1c2VyIGV2ZXIgaW5zdGFsbGVkLCBub3QgZnJvbVxudGhlIHVzZXJzIHRoaXMgd2luZG93J3Mgc3BlbmQgYWNxdWly
+ZWQuIFJlYWQgYXMgYW4gTFRWIGN1cnZlIGl0IHdvdWxkIGp1c3RpZnkgcG91cmluZyBidWRnZXQgaW50b1xuYSBzbGljZSBl
+YXJuaW5nIG1vc3RseSBmcm9tIHVzZXJzIGFjcXVpcmVkIHllYXJzIGFnby5cblxuQSByZWFsIGNvaG9ydCBjdXJ2ZSBpcyBu
+b3QgYnVpbGRhYmxlIGhlcmUgXHUyMDE0IGBhcGkuZGFpbHlfcGVyZm9ybWFuY2VfdjFgLCBgRmluYWxfU3RhZ2luZ190YWJs
+ZXNgLFxuYGFkanVzdF9kYXRhYCBhbmQgYG1hcnRzYCB3ZXJlIGVhY2ggc2VhcmNoZWQgZm9yIGEgY29ob3J0IC8gTFRWIC8g
+cmV0ZW50aW9uIC8gaW5zdGFsbC1kYXRlIGNvbHVtblxuYW5kIGFsbCBmb3VyIHJldHVybmVkIHplcm8gcm93cy4gVGhhdCBu
+ZWVkcyBpbnN0YWxsLWNvaG9ydCBkYXRhIGluIHRoZSB3YXJlaG91c2UgZmlyc3QuXG4iLCAiIyMjIEZyZXNobmVzcyBieSBz
+b3VyY2VcblwiRGF0YSBhcyBvZiAxOSBBdWd1c3RcIiBpcyBvbmUgc2VudGVuY2UgY292ZXJpbmcgYSBkb3plbiBpbmRlcGVu
+ZGVudCBwaXBlbGluZXMgYW5kIGlzIG9ubHkgZXZlciBhc1xudHJ1ZSBhcyB0aGUgc2xvd2VzdCBvZiB0aGVtLiBNZWFzdXJl
+ZCBvbiBsaXZlIGRhdGE6IGFkIHJldmVudWUgYW5kIGF0dHJpYnV0aW9uIGhhZCByZWFjaGVkIHRoZVxuMjB0aCB3aGlsZSBp
+bnN0YWxscywgVUEgc3BlbmQsIEZhY2Vib29rLCBHb29nbGUgQWRzIGFuZCBBZE1vYiBoYWQgb25seSByZWFjaGVkIHRoZSAx
+OXRoIFx1MjAxNCBzb1xuYW55b25lIGNvbXBhcmluZyBpbnN0YWxscyB0byBhZCByZXZlbnVlIGZvciBcInRvZGF5XCIgd2Fz
+IGNvbXBhcmluZyB0d28gZGlmZmVyZW50IGRheXMuXG5cblRoZSBiYW5uZXIgbmFtZXMgd2hpY2hldmVyIGZlZWQgaGFzIGZh
+bGxlbiBiZWhpbmQ7ICoqRGF0YSBIZWFsdGgqKiBicmVha3MgdGhlIHNlbnRlbmNlIGFwYXJ0IGluXG5mdWxsLiBGcmVzaG5l
+c3MgbWVhbnMgdGhlIGxhc3QgZGF5IGEgc291cmNlIGFjdHVhbGx5ICoqZGVsaXZlcmVkKiosIG5vdCB0aGUgbGFzdCBkYXkg
+YSByb3cgZXhpc3RzOlxudGhlIHN5bmMgd3JpdGVzIGEgcm93IGZvciBldmVyeSBhcHAtZGF5IGl0IGtub3dzIGFib3V0LCBz
+byBhIGRlYWQgZmVlZCBzdGlsbCBsZWF2ZXMgemVyb3MgYmVoaW5kXG5hbmQgY291bnRpbmcgdGhvc2UgaXMgaG93IGl0IHJl
+YWRzIGFzIGN1cnJlbnQgZm9yIGEgd2Vlay4gQSBmZWVkIHRoYXQgKndhcyogZGVsaXZlcmluZyBhbmQgZmVsbFxuYmVoaW5k
+IGlzIGtlcHQgc2VwYXJhdGUgZnJvbSBvbmUgdGhhdCBoYXMgKm5ldmVyKiBkZWxpdmVyZWQgXHUyMDE0IG1peGluZyB0aGVt
+IGxlYXZlcyB0aGUgYWxhcm1cbnBlcm1hbmVudGx5IG9uLCB3aGljaCBpcyB0aGUgc2FtZSBhcyBoYXZpbmcgbm8gYWxhcm0u
+XG4iLCAiIyMjIEZlZWQgaW50ZWdyaXR5IChEYXRhIEhlYWx0aClcblR3byBpbXBvc3NpYmlsaXRpZXMgdGhlIHVwc3RyZWFt
+IGZlZWQgc2VuZHMsIGNvdW50ZWQgb3ZlciB0aGUgbGFzdCA5MCBkYXlzOiBhcHAtZGF5cyB3aXRoIHBhaWRcbmluc3RhbGxz
+IGFnYWluc3QgKip6ZXJvKiogVUEgc3BlbmQgKDU0OCBvZiB0aGVtIGluIGxpdmUgZGF0YSwgb25lIEhPVSBjYXJyeWluZyA2
+LjlNIFwicGFpZFwiXG5pbnN0YWxscyBib3VnaHQgZm9yIG5vdGhpbmcpLCBhbmQgYXBwLWRheXMgd2l0aCBtb3JlIHBhaWQg
+aW5zdGFsbHMgdGhhbiB0aGUgc3RvcmUgcmVjb3JkZWRcbmluc3RhbGxzIGF0IGFsbCAoODc5IG9mIDksMjI0IHJvd3MpLiBO
+ZWl0aGVyIGlzIGEgZGFzaGJvYXJkIGJ1ZyBhbmQgbmVpdGhlciBpcyBmaXhhYmxlIGhlcmUgXHUyMDE0XG5idXQgcHJlc2Vu
+dGluZyBhIENQSSBkZXJpdmVkIGZyb20gdGhlbSBhcyBzb3VuZCBpcywgYW5kIHRoaXMgc3RvcHMgdGhhdC5cbiIsICIjIyMg
+T3ZlcnZpZXc6IGhpZGVhYmxlIGNhcmRzLCBhbmQgYXZlcmFnZXMgb24gWVREL01URFxuQW55IE92ZXJ2aWV3IGNhcmQgY2Fu
+IGJlIGhpZGRlbiBmcm9tICoqQ3VzdG9taXplIGxheW91dCoqLiBIaWRkZW4gaWRzIHJpZGUgaW5zaWRlIHRoZSBzYW1lIHNh
+dmVkXG5wYXlsb2FkIHVuZGVyIGEga2V5IHRoYXQgaXMgbm90IGEgYnJlYWtwb2ludCwgc28gbGF5b3V0cyBzYXZlZCBiZWZv
+cmUgdGhlIGZlYXR1cmUgZXhpc3RlZCBrZWVwXG53b3JraW5nLiBIaWRpbmcgKipmaWx0ZXJzIGF0IHJlbmRlciB0aW1lKiog
+cmF0aGVyIHRoYW4gZGVsZXRpbmcgdGhlIGVudHJ5LCBzbyB1bmhpZGluZyBwdXRzIHRoZVxuY2FyZCBiYWNrIGV4YWN0bHkg
+d2hlcmUgaXQgd2FzOyB2aWV3IG1vZGUgc2F5cyBob3cgbWFueSBhcmUgaGlkZGVuLCBiZWNhdXNlIGEgZGFzaGJvYXJkIHNp
+bGVudGx5XG5taXNzaW5nIGEgY2FyZCBzb21lb25lIGhpZCBtb250aHMgYWdvIHJlYWRzIGFzIGJyb2tlbi5cblxuVGhlIFlU
+RCBhbmQgTVREIGNhcmRzIGNhcnJ5IHRoZWlyIHBlcmlvZCdzIGRhaWx5IHJldmVudWUgd2l0aCBhIHRyYWlsaW5nIGF2ZXJh
+Z2Ugb3ZlciBpdCBcdTIwMTRcbm1vbnRobHkvd2Vla2x5IG9uIHRoZSB5ZWFyLCB3ZWVrbHkvZGFpbHkgb24gdGhlIG1vbnRo
+LiBBbiAqKmluY29tcGxldGUgd2luZG93IHJldHVybnMgbm90aGluZyoqXG5yYXRoZXIgdGhhbiBhIHBhcnRpYWwgYXZlcmFn
+ZTogb24gdGhlIHRoaXJkIG9mIHRoZSBtb250aCBhIFwiNy1kYXkgYXZlcmFnZVwiIGZyb20gdGhyZWUgZGF5cyBpcyBhXG4z
+LWRheSBhdmVyYWdlIHdlYXJpbmcgdGhlIHdyb25nIGxhYmVsLiBBIGdhcCBkb2VzIHRoZSBzYW1lIHRvIGFueSB3aW5kb3cg
+Y29udGFpbmluZyBpdCwgc2luY2UgYVxubWlzc2luZyBkYXkgaXMgbm90IGEgemVyby5cbiJdLCAiaW5zZXJ0X2JlZm9yZSI6
+ICIjIyMgU3luYyBzZWxmLWhlYWxpbmcgKHByb21vdGVkIGR5bmFtaWMgY29sdW1ucykiLCAiZWRpdHMiOiBbeyJwYXRoIjog
+IlJFQURNRS5tZCIsICJhbmNob3IiOiAiXG4tICoqQXVkaWVuY2U6KiogfjUwIGludGVybmFsIHVzZXJzIGFjcm9zcyByb2xl
+cyAoZXhlY3V0aXZlcywgcG9kIG93bmVycywgbWFya2V0aW5nLFxuICBmaW5hbmNlLCBhbmFseXN0cy92aWV3ZXJzKS5cbi0g
+KipQdXJwb3NlOioqIGEgc2luZ2xlLCBnb3Zlcm5lZCBhbmFseXRpY3Mgc3VyZmFjZSBmb3IgbW9iaWxlLWFwcCBwZXJmb3Jt
+YW5jZSBcdTIwMTQgdGhlXG4gIFwiRXhlY3V0aXZlIE92ZXJ2aWV3XCIgcGx1cyBSZXZlbnVlLCBVQSwgU3RvcmUsIEFwcHMg
+RXhwbG9yZXIsIGFuZCBBcHAgRGV0YWlsIHBhZ2VzLlxuLSAqKldoeSBub3QgTG9va2VyOioqIHNlcnZlci1zaWRlIFJCQUMg
+ZG93biB0byB0aGUgcm93LCBhIGZhc3RlciBwdXJwb3NlLWJ1aWx0IFVJLFxuICBzYXZlZCB2aWV3cy9yZXBvcnRzIHdpdGgg
+YWRtaW4tYXBwcm92ZWQgc2hhcmluZywgZXhwb3J0cywgYW5kIGFuIGF1ZGl0YWJsZSB0cmFpbC5cblxuLS0tXG4iLCAicmVw
+bGFjZW1lbnQiOiAiXG4tICoqQXVkaWVuY2U6KiogfjUwIGludGVybmFsIHVzZXJzIGFjcm9zcyByb2xlcyAoZXhlY3V0aXZl
+cywgcG9kIG93bmVycywgbWFya2V0aW5nLFxuICBmaW5hbmNlLCBhbmFseXN0cy92aWV3ZXJzKS5cbi0gKipQdXJwb3NlOioq
+IGEgc2luZ2xlLCBnb3Zlcm5lZCBhbmFseXRpY3Mgc3VyZmFjZSBmb3IgbW9iaWxlLWFwcCBwZXJmb3JtYW5jZSBcdTIwMTQg
+dGhlXG4gIFwiRXhlY3V0aXZlIE92ZXJ2aWV3XCIgcGx1cyBSZXZlbnVlLCBVQSwgU3RvcmUsIEFwcHMgRXhwbG9yZXIsIGFu
+ZCBBcHAgRGV0YWlsIHBhZ2VzLFxuICBhIHBob25lLWZpcnN0ICoqVG9kYXkqKiBzY3JlZW4sIGFuZCBhIGRlY2lzaW9uLXN1
+cHBvcnQgbGF5ZXIgdGhhdCBleHBsYWlucyAqd2h5KiBhXG4gIG51bWJlciBtb3ZlZCByYXRoZXIgdGhhbiBvbmx5IHNob3dp
+bmcgdGhhdCBpdCBkaWQgKHNlZSBcdTAwYTczKS5cbi0gKipXaHkgbm90IExvb2tlcjoqKiBzZXJ2ZXItc2lkZSBSQkFDIGRv
+d24gdG8gdGhlIHJvdywgYSBmYXN0ZXIgcHVycG9zZS1idWlsdCBVSSxcbiAgc2F2ZWQgdmlld3MvcmVwb3J0cyB3aXRoIGFk
+bWluLWFwcHJvdmVkIHNoYXJpbmcsIGV4cG9ydHMsIGFuZCBhbiBhdWRpdGFibGUgdHJhaWwuXG5cbi0tLVxuIiwgIm1hcmtl
+ciI6ICJhIGRlY2lzaW9uLXN1cHBvcnQgbGF5ZXIgdGhhdCBleHBsYWlucyAqd2h5KiBhIn0sIHsicGF0aCI6ICJSRUFETUUu
+bWQiLCAiYW5jaG9yIjogIlRoZSBhZG1pbiBBcHAgTWFzdGVyIHBhZ2Ugc2hvd3MgZXZlcnkgYGFwcF9tYXN0ZXJfdjJgIGNv
+bHVtbiBhbmQgYWxsb3dzIGVkaXRpbmcgZXhhY3RseSBzaXggXHUyMDE0XG5gcHVibGlzaGVyYCwgYGhvdWAsIGBwb2Rfb3du
+ZXJgLCBgcG9kYCwgYHBhcnRuZXJfbmFtZWAsIGBuZXRfcmV2ZW51ZV9zaGFyZWAgXHUyMDE0IHdyaXRpbmcgdG9cbiIsICJy
+ZXBsYWNlbWVudCI6ICJUaGUgYWRtaW4gQXBwIE1hc3RlciBwYWdlIHNob3dzIGV2ZXJ5IGBhcHBfbWFzdGVyX3YyYCBjb2x1
+bW4gYW5kIGFsbG93cyBlZGl0aW5nIGV4YWN0bHkgc2V2ZW4gXHUyMDE0XG5gcHVibGlzaGVyYCwgYGhvdWAsIGBwb2Rfb3du
+ZXJgLCBgcG9kYCwgYHBhcnRuZXJfbmFtZWAsIGBuZXRfcmV2ZW51ZV9zaGFyZWAsIGB0eXBlYCBcdTIwMTQgd3JpdGluZyB0
+b1xuIiwgIm1hcmtlciI6ICJhbGxvd3MgZWRpdGluZyBleGFjdGx5IHNldmVuIn0sIHsicGF0aCI6ICJDTEFVREUubWQiLCAi
+YW5jaG9yIjogImF1ZGl0aW5nLiBDdXJyZW50IGZvY3VzIGlzIG1hdHVyaXR5L2hhcmRlbmluZzsgc3RhbmRpbmcgc2VjdXJp
+dHkvcXVhbGl0eSByZXZpZXdzIChhdWRpdCxcbnJlZC10ZWFtLCBjbGVhbnVwLCBlbnRlcnByaXNlKSBpbmZvcm0gaXQsIGFu
+ZCBrbm93biBvcGVuIGl0ZW1zIGluY2x1ZGUgdGhlIE5leHQuanNcbmRlcGVuZGVuY3kgdXBncmFkZSwgZnJvbnRlbmQgdGVz
+dHMsIGFuZCBvYnNlcnZhYmlsaXR5LlxuXG4jIyBFbmdpbmVlcmluZyBjb252ZW50aW9uc1xuLSBQeXRob246IHJ1ZmYgKyBt
+eXB5IC0tc3RyaWN0IHBhc3MgcmVxdWlyZWQuIFB5dGVzdCBmb3IgZXZlcnkgc2VydmljZSAmIHJvdXRlO1xuICBSQkFDIG1h
+dHJpeCB0ZXN0cyAoZXZlcnkgcm9sZSBcdTAwZDcgcmVwcmVzZW50YXRpdmUgZW5kcG9pbnRzKSBhcmUgbWFuZGF0b3J5IGlu
+IHN0ZXAgMi0zLlxuLSBUeXBlU2NyaXB0OiBzdHJpY3QgbW9kZSwgZXNsaW50IGNsZWFuLiBObyBgYW55YC4gQ29tcG9uZW50
+cyBzbWFsbCBhbmQgdHlwZWQuXG4iLCAicmVwbGFjZW1lbnQiOiAiYXVkaXRpbmcuIEN1cnJlbnQgZm9jdXMgaXMgbWF0dXJp
+dHkvaGFyZGVuaW5nOyBzdGFuZGluZyBzZWN1cml0eS9xdWFsaXR5IHJldmlld3MgKGF1ZGl0LFxucmVkLXRlYW0sIGNsZWFu
+dXAsIGVudGVycHJpc2UpIGluZm9ybSBpdCwgYW5kIGtub3duIG9wZW4gaXRlbXMgaW5jbHVkZSB0aGUgTmV4dC5qc1xuZGVw
+ZW5kZW5jeSB1cGdyYWRlLCBmcm9udGVuZCB0ZXN0cywgYW5kIG9ic2VydmFiaWxpdHkuXG5cbkJleW9uZCB0aGUgcGxhbiAo
+MjAyNi0wOC0yMCk6IFNwb3RsaWdodCAodW5hc3NpZ25lZCBhcHBzLCByZXZlbnVlLW9yZGVyZWQsIHJvdy1zY29wZWQpLFxu
+YWRtaW4tb25seSBQb2QgT3duZXIgUGVyZm9ybWFuY2UsIEFzayBBZHZpc29yIGJyaWVmaW5nIHBhbmVsLCBwYXliYWNrLCBw
+ZXItc291cmNlXG5mcmVzaG5lc3MsIGhpZGVhYmxlIE92ZXJ2aWV3IGNhcmRzLCBZVEQvTVREIG1vdmluZyBhdmVyYWdlcywg
+aW4tY2VsbCBtYWduaXR1ZGUgYmFycyArXG5zdGlja3kvZnJvemVuIGRhdGEgdGFibGUsIGNoYXJ0IGRhdGEtdGFibGUgZmFs
+bGJhY2ssIHByaW50IHN0eWxlcywgYW5kIGEgZmVlZC1pbnRlZ3JpdHlcbmNoZWNrIG9uIERhdGEgSGVhbHRoLlxuXG4qKk93
+bmVyIGRlY2lzaW9uICgyMDI2LTA4LTIwKTogQXBwIE1hc3RlciBoYXMgU0VWRU4gZWRpdGFibGUgY29sdW1ucywgbm90IHNp
+eC4qKiBgdHlwZWBcbmpvaW5lZCBgcHVibGlzaGVyLCBob3UsIHBvZF9vd25lciwgcG9kLCBwYXJ0bmVyX25hbWUsIG5ldF9y
+ZXZlbnVlX3NoYXJlYCwgYmVjYXVzZSB0aGVcblNwb3RsaWdodCBmbGFncyBhbiBhcHAgYXMgaW5jb21wbGV0ZSB3aGVuIGB0
+eXBlYCBpcyBtaXNzaW5nIGFuZCBhbiBhbGFybSBub2JvZHkgY2FuIGFjdCBvblxuZnJvbSB0aGUgYXBwIGlzIGFuIGFsYXJt
+IHdpdGggbm8gb2ZmIHN3aXRjaC4gQm90aCBkcmlmdCBndWFyZHMgKHRoZSBjb2x1bW4gcmVnaXN0cnknc1xuYXNzZXJ0aW9u
+IGFuZCBgQXBwTWFzdGVyVXBkYXRlYCdzKSB3ZXJlIHdpZGVuZWQgZGVsaWJlcmF0ZWx5IGFuZCBzdGlsbCByZWZ1c2UgdG8g
+d2lkZW4gYnlcbmFjY2lkZW50LlxuXG4qKkNvaG9ydCBMVFYgaXMgTk9UIGJ1aWxkYWJsZSBhbmQgc2hvdWxkIG5vdCBiZSBh
+dHRlbXB0ZWQgZnJvbSB0aGlzIHdhcmVob3VzZS4qKiBDaGVja2VkLFxubm90IGFzc3VtZWQ6IGBhcGkuZGFpbHlfcGVyZm9y
+bWFuY2VfdjFgLCBgRmluYWxfU3RhZ2luZ190YWJsZXNgLCBgYWRqdXN0X2RhdGFgIGFuZCBgbWFydHNgXG53ZXJlIGVhY2gg
+c2VhcmNoZWQgZm9yIGEgY29ob3J0IC8gTFRWIC8gcmV0ZW50aW9uIC8gaW5zdGFsbC1kYXRlIGNvbHVtbiBhbmQgYWxsIGZv
+dXJcbnJldHVybmVkIHplcm8gcm93cy4gV2hhdCBzaGlwcyBpbnN0ZWFkIGlzIFBBWUJBQ0sgXHUyMDE0IGN1bXVsYXRpdmUg
+c3BlbmQgYWdhaW5zdCBjdW11bGF0aXZlXG5yZXZlbnVlIFx1MjAxNCBhbmQgaXRzIHJlc3BvbnNlIGNhcnJpZXMgaXRzIG93
+biBjYXZlYXQgc2F5aW5nIGl0IGlzIGEgY2FzaCBxdWVzdGlvbiwgbm90IGFcbnBlci1jb2hvcnQgb25lLCBiZWNhdXNlIHJl
+dmVudWUgb24gYW55IGRheSB0aGVyZSBjb21lcyBmcm9tIGV2ZXJ5IHVzZXIgZXZlciBpbnN0YWxsZWQuXG5SZWFkIGFzIGFu
+IExUViBjdXJ2ZSBpdCB3b3VsZCBqdXN0aWZ5IG92ZXItaW52ZXN0aW5nIGluIGEgc2xpY2UgZWFybmluZyBmcm9tIHVzZXJz
+XG5hY3F1aXJlZCB5ZWFycyBhZ28uIEEgcmVhbCBjb2hvcnQgY3VydmUgbmVlZHMgaW5zdGFsbC1jb2hvcnQgZGF0YSBpbiB0
+aGUgd2FyZWhvdXNlIGZpcnN0XG4oQWRqdXN0IGNvaG9ydCByZXBvcnRzKTsgdGhhdCBpcyBhIHBpcGVsaW5lIGNoYW5nZSwg
+bm90IGEgZGFzaGJvYXJkIG9uZS5cblxuIyMgRW5naW5lZXJpbmcgY29udmVudGlvbnNcbi0gUHl0aG9uOiBydWZmICsgbXlw
+eSAtLXN0cmljdCBwYXNzIHJlcXVpcmVkLiBQeXRlc3QgZm9yIGV2ZXJ5IHNlcnZpY2UgJiByb3V0ZTtcbiAgUkJBQyBtYXRy
+aXggdGVzdHMgKGV2ZXJ5IHJvbGUgXHUwMGQ3IHJlcHJlc2VudGF0aXZlIGVuZHBvaW50cykgYXJlIG1hbmRhdG9yeSBpbiBz
+dGVwIDItMy5cbi0gVHlwZVNjcmlwdDogc3RyaWN0IG1vZGUsIGVzbGludCBjbGVhbi4gTm8gYGFueWAuIENvbXBvbmVudHMg
+c21hbGwgYW5kIHR5cGVkLlxuIiwgIm1hcmtlciI6ICIqKkNvaG9ydCBMVFYgaXMgTk9UIGJ1aWxkYWJsZSJ9XX0=
+"""
+
+
+def flatten(text: str) -> str:
+    """This deployment writes hyphens where the source had em-dashes."""
+    return text.replace("\u2014", "-")
+
+
+def present(text: str, needle: str) -> bool:
+    """Is this in the file, in either punctuation?"""
+    return needle in text or flatten(needle) in text
+
+
+def main() -> int:
+    for name in ("README.md", "CLAUDE.md"):
+        if not Path(name).is_file():
+            print(f"ABORTED: {name} not found - run this from the repository root")
+            return 1
+
+    data = json.loads(base64.b64decode(PAYLOAD.strip()).decode())
+    problems: list[str] = []
+    planned: dict[str, str] = {}
+    skipped: list[str] = []
+    added: list[str] = []
+
+    for item in data["edits"]:
+        rel = item["path"]
+        text = planned.get(rel, Path(rel).read_text())
+        # These files are MIXED - some lines kept their em-dashes, others were rewritten to
+        # hyphens - so "does this file use em-dashes" is the wrong question to ask once for
+        # the whole file. Each anchor is resolved on its own, and when the flattened form is
+        # the one that matches, the replacement is flattened with it: otherwise the patch
+        # writes back the very character the line had been cleaned of.
+        anchor, replacement, marker = item["anchor"], item["replacement"], item["marker"]
+        if anchor not in text and flatten(anchor) in text:
+            anchor, replacement, marker = flatten(anchor), flatten(replacement), flatten(marker)
+        if present(text, marker):
+            skipped.append(f"{rel}: already carries {marker.strip()[:48]!r}")
+            continue
+        found = text.count(anchor)
+        if found != 1:
+            problems.append(
+                f"  {rel}: expected exactly 1 match, found {found}\n"
+                f"        anchor starts: {anchor.strip().splitlines()[0][:76]!r}"
+            )
+            continue
+        planned[rel] = text.replace(anchor, replacement, 1)
+
+    # Sections, each keyed by its own heading: absent means insert, present means leave
+    # alone. Nothing here depends on what sits next to what.
+    readme = planned.get("README.md", Path("README.md").read_text())
+    hook = data["insert_before"]
+    if hook not in readme:
+        hook = flatten(hook)
+    if hook not in readme:
+        problems.append(f"  README.md: no section {hook!r} to insert before")
+    else:
+        block = ""
+        for section in data["sections"]:
+            heading = section.splitlines()[0]
+            if present(readme, heading):
+                skipped.append(f"README.md: {heading[:56]!r} already documented")
+                continue
+            block += section + "\n"
+            added.append(heading)
+        if block:
+            planned["README.md"] = readme.replace(hook, block + hook, 1)
+
+    if problems:
+        print("ABORTED - NOTHING was written. Every problem, so one round-trip fixes all:")
+        print()
+        for problem in problems:
+            print(problem)
+        return 1
+
+    for rel, content in sorted(planned.items()):
+        Path(rel).write_text(content)
+        print(f"wrote {rel}")
+    for heading in added:
+        print(f"  + {heading}")
+    for note in skipped:
+        print(f"skip  {note}")
+    if not planned:
+        print("nothing to do - already applied")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
