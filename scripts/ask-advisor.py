@@ -36,6 +36,13 @@ whatever head this repository is actually on when the script runs, because a rev
 invented against a stale tree is how you get two alembic heads and a failed deploy. If it
 finds more than one head, it refuses rather than guessing.
 
+The head is found by PARSING the migration files, not by matching them. The first version
+of this used a regex that only recognised `down_revision: str | None = "x"`, so any file
+written as plain `down_revision = "x"` - or as a merge revision's tuple of parents - had
+its parent go unrecorded, and that parent then looked like a head. It reported three heads
+on a tree that has one, and refused a deploy over it. Python's own parser knows every
+spelling of an assignment; a regex knows the one you thought of.
+
 A guard in the existing suite caught something worth keeping: test_models_metadata pins
 the exact set of mapped tables, so a new table cannot appear without someone deciding it
 should. `advisor_last_seen` is added to that list deliberately, alongside its migration.
@@ -47,6 +54,7 @@ ALL-OR-NOTHING: everything is checked before anything is written; any failure re
 problem, prints the offending files, and writes nothing. Idempotent.
 """
 
+import ast
 import base64
 import json
 import re
@@ -536,25 +544,68 @@ MAX_ECHO_LINES = 400
 VERSIONS = Path("backend/alembic/versions")
 
 
+def _assignments(path: Path) -> dict[str, object]:
+    """Module-level `revision` / `down_revision` values, parsed rather than matched.
+
+    A regex was tried first and got this wrong in production: it only recognised the
+    annotated form `down_revision: str | None = "x"`, so any file written as plain
+    `down_revision = "x"` - or as a merge revision's tuple - had its parent go
+    unrecorded, and that parent then looked like a head. It reported three heads on a
+    tree that has one. Python's own parser knows every spelling; nothing else does.
+    """
+    found: dict[str, object] = {}
+    try:
+        tree = ast.parse(path.read_text())
+    except SyntaxError:
+        return found
+    for node in tree.body:
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in ("revision", "down_revision"):
+                try:
+                    found[target.id] = ast.literal_eval(value)
+                except (ValueError, SyntaxError):
+                    pass
+    return found
+
+
 def alembic_head() -> tuple[str | None, str]:
     """The single revision nothing else points at, or why there isn't one."""
     revisions: dict[str, str] = {}
     parents: set[str] = set()
-    for path in VERSIONS.glob("*.py"):
-        text = path.read_text()
-        rev = re.search(r'^revision: str = "([^"]+)"', text, re.M)
-        down = re.search(r'^down_revision: str \| None = (?:"([^"]+)"|None)', text, re.M)
-        if rev:
-            revisions[rev.group(1)] = path.name
-        if down and down.group(1):
-            parents.add(down.group(1))
+    for path in sorted(VERSIONS.glob("*.py")):
+        values = _assignments(path)
+        rev = values.get("revision")
+        if isinstance(rev, str):
+            revisions[rev] = path.name
+        down = values.get("down_revision")
+        # A merge revision names several parents. Each one is a parent, not a head.
+        if isinstance(down, str):
+            parents.add(down)
+        elif isinstance(down, (tuple, list)):
+            parents.update(d for d in down if isinstance(d, str))
     heads = sorted(set(revisions) - parents)
     if len(heads) == 1:
         return heads[0], revisions[heads[0]]
     if not heads:
         return None, "no head found - the migration graph looks circular"
-    listed = ", ".join(f"{h} ({revisions[h]})" for h in heads)
-    return None, f"{len(heads)} heads already exist: {listed}"
+    # Print what each supposed head actually declares. If this is a real branch the
+    # lines below show it; if it is a parsing problem they show that too, in one trip.
+    lines = [f"{len(heads)} heads:"]
+    for head in heads:
+        name = revisions[head]
+        declared = _assignments(VERSIONS / name).get("down_revision")
+        lines.append(f"      {head}  {name}  down_revision={declared!r}")
+    lines.append("      Confirm with `alembic heads` before merging - this needs a human.")
+    return None, "\n".join(lines)
 
 
 def main() -> int:
