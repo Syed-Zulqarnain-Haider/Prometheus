@@ -674,6 +674,26 @@ b25lbnRzIHNtYWxsIGFuZCB0eXBlZC5cbiIsICJjb3VudCI6ICJvbmUifV0sICJyZXBsYWNlbWVudHMi
 """
 
 
+def resolve(text: str, anchor: str, replacement: str, marker: str) -> tuple[str, str, str]:
+    """Match an anchor against a file that may have had its punctuation normalised.
+
+    This deployment rewrites em-dashes to hyphens at some point in its own tooling, so an
+    anchor carrying `—` finds nothing in a file carrying `-` even though the two are the
+    same line to a reader. It cost a round-trip before this existed.
+
+    When the plain anchor misses and the normalised one matches, the REPLACEMENT and the
+    MARKER are normalised too - otherwise the patch would quietly reintroduce the very
+    character the file had been cleaned of, and the next patch would miss for the same
+    reason all over again.
+    """
+    if anchor in text:
+        return anchor, replacement, marker
+    flat = anchor.replace("\u2014", "-")
+    if flat != anchor and flat in text:
+        return flat, replacement.replace("\u2014", "-"), marker.replace("\u2014", "-")
+    return anchor, replacement, marker
+
+
 def main() -> int:
     if not Path("backend/app").is_dir() or not Path("frontend/app").is_dir():
         print("ABORTED: run this from the repository root")
@@ -715,10 +735,12 @@ def main() -> int:
             problems.append(f"  [{index}] {rel}: file not found")
             continue
         text = planned.get(rel, path.read_text())
-        if item["marker"] in text:
+        anchor, replacement, marker = resolve(
+            text, item["anchor"], item["replacement"], item["marker"]
+        )
+        if marker in text:
             skipped.append(f"{rel} [{index}]: already applied")
             continue
-        anchor = item["anchor"]
         found = text.count(anchor)
         expected_all = item.get("count") == "all"
         if found == 0 or (found != 1 and not expected_all):
