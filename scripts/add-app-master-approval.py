@@ -329,6 +329,29 @@ stage("frontend/components/layout/command-palette.tsx", "visibleNavItems", [
     ("  }, [isAdmin, router]);", "  }, [capabilities, roles, router]);"),
 ])
 
+# ---- the hooks the App Changes page imports -------------------------------------
+# Appended, not anchored: the tail of api-hooks.ts is the one part that never drifts.
+# Without this the page compiles to "useChangeRequests is not exported" and the frontend
+# build fails - which is exactly what happened the first time this script ran.
+HOOKS_BLOCK = '\n// ── App Master change requests (propose → admin approves) ────────────────────\n/** One queued edit to the app master. `stale` names the columns whose value moved\n *  underneath the request while it waited; empty means nothing changed. */\nexport interface AppMasterChangeRequest {\n  id: string;\n  canonical_key: string;\n  changes: Record<string, unknown>;\n  before_snapshot: Record<string, unknown>;\n  status: "pending" | "scheduled" | "approved" | "rejected" | "cancelled" | "failed";\n  requested_by_name: string | null;\n  requested_at: string;\n  /** Set only while scheduled: when it applies by itself unless cancelled. */\n  apply_after: string | null;\n  decided_at: string | null;\n  decision_note: string | null;\n  stale: Record<string, { when_proposed: unknown; now: unknown }>;\n}\n\n/** The editable columns of one app, for building a proposal form. */\nexport interface AppMasterEditableRow {\n  canonical_key: string;\n  app_name: string | null;\n  values: Record<string, unknown>;\n}\n\nexport function useChangeRequests(openOnly = true) {\n  const { user } = useAuth();\n  return useQuery({\n    queryKey: ["app-master-requests", openOnly],\n    queryFn: () =>\n      apiFetch<AppMasterChangeRequest[]>(\n        `/api/v1/app-master-requests${buildQuery({ open_only: openOnly })}`,\n      ),\n    enabled: Boolean(user),\n    refetchInterval: 60000,\n  });\n}\n\n/** Current values for one app — 404s (and so stays undefined) outside the caller\'s scopes. */\nexport function useEditableRow(canonicalKey: string | null) {\n  const { user } = useAuth();\n  return useQuery({\n    queryKey: ["app-master-editable", canonicalKey],\n    queryFn: () =>\n      apiFetch<AppMasterEditableRow>(\n        `/api/v1/app-master-requests/editable/${encodeURIComponent(canonicalKey ?? "")}`,\n      ),\n    enabled: Boolean(user) && Boolean(canonicalKey),\n    retry: false,\n  });\n}\n\nfunction invalidateRequests(queryClient: ReturnType<typeof useQueryClient>) {\n  queryClient.invalidateQueries({ queryKey: ["app-master-requests"] });\n  queryClient.invalidateQueries({ queryKey: ["app-master"] });\n  queryClient.invalidateQueries({ queryKey: ["app-master-editable"] });\n}\n\nexport function useProposeChange() {\n  const queryClient = useQueryClient();\n  return useMutation({\n    mutationFn: (body: { canonical_key: string; changes: Record<string, unknown> }) =>\n      apiFetch<AppMasterChangeRequest>("/api/v1/app-master-requests", {\n        method: "POST",\n        body: JSON.stringify(body),\n      }),\n    onSuccess: () => invalidateRequests(queryClient),\n  });\n}\n\nexport function useApproveChange() {\n  const queryClient = useQueryClient();\n  return useMutation({\n    mutationFn: (id: string) =>\n      apiFetch<Record<string, unknown>>(`/api/v1/app-master-requests/${id}/approve`, {\n        method: "POST",\n      }),\n    onSuccess: () => invalidateRequests(queryClient),\n  });\n}\n\nexport function useRejectChange() {\n  const queryClient = useQueryClient();\n  return useMutation({\n    mutationFn: ({ id, note }: { id: string; note?: string }) =>\n      apiFetch<AppMasterChangeRequest>(`/api/v1/app-master-requests/${id}/reject`, {\n        method: "POST",\n        body: JSON.stringify({ note: note?.trim() || null }),\n      }),\n    onSuccess: () => invalidateRequests(queryClient),\n  });\n}\n\nexport function useCancelChange() {\n  const queryClient = useQueryClient();\n  return useMutation({\n    mutationFn: (id: string) =>\n      apiFetch<AppMasterChangeRequest>(`/api/v1/app-master-requests/${id}/cancel`, {\n        method: "POST",\n      }),\n    onSuccess: () => invalidateRequests(queryClient),\n  });\n}\n'
+
+hooks_file = Path("frontend/lib/api-hooks.ts")
+if not hooks_file.exists():
+    problems.append("frontend/lib/api-hooks.ts: file not found")
+else:
+    _h = hooks_file.read_text()
+    if "useChangeRequests" in _h:
+        print("  = frontend/lib/api-hooks.ts: already applied")
+    else:
+        missing = [n for n in ("buildQuery", "useQueryClient", "useAuth", "apiFetch") if n not in _h]
+        if missing:
+            problems.append(
+                "frontend/lib/api-hooks.ts: these are not available in the file: "
+                + ", ".join(missing)
+            )
+        else:
+            planned.append((hooks_file, _h.rstrip("\n") + "\n" + HOOKS_BLOCK, "frontend/lib/api-hooks.ts"))
+
 if problems:
     print()
     print("ABORTED - nothing was written. These anchors did not match:")
