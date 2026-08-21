@@ -24,6 +24,12 @@ admin turns it on.
 What still needs the owner (cannot be done from code): enable TOTP MFA in the Firebase
 console, then the frontend re-auth prompt that reacts to STEP_UP_REQUIRED. This change is
 the backend half - the half that actually enforces.
+
+INCOMPLETE ON ITS OWN. As written here the gate has no break-glass exemption, so it stands
+in front of the very settings routes that switch it back off - a lockout the backend suite
+catches (test_admin_2fa.py::test_settings_route_is_breakglass). scripts/fix-stepup-breakglass.py
+adds that exemption and MUST be run after this one; it is left as a separate, idempotent
+step rather than folded in here because this script has already been applied to the server.
 """
 
 from __future__ import annotations
