@@ -46,16 +46,28 @@ def main() -> int:
     delete = "--delete" in sys.argv
 
     with psycopg.connect(url) as conn, conn.cursor() as cur:
+        # The users table's shape is not assumed either - the first deployment of this
+        # script guessed a `role` column and found out the hard way that roles live
+        # elsewhere here. Ask the catalog, select what exists.
         cur.execute(
-            "SELECT id, email, role, is_active FROM users WHERE email = ANY(%s)",
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'users'"
+        )
+        user_cols = {r[0] for r in cur.fetchall()}
+        if not {"id", "email"} <= user_cols:
+            print("ABORTED: users table has no id/email columns - wrong database?")
+            return 1
+        shown = [c for c in ("id", "email", "role", "is_active") if c in user_cols]
+        cur.execute(
+            f"SELECT {', '.join(shown)} FROM users WHERE email = ANY(%s)",
             (TEST_EMAILS,),
         )
         found = cur.fetchall()
         if not found:
             print("nothing to do - no test accounts present")
             return 0
-        for uid, email, role, active in found:
-            print(f"found  {email}  role={role}  active={active}  id={uid}")
+        for row in found:
+            print("found  " + "  ".join(f"{c}={v}" for c, v in zip(shown, row)))
 
         # Every FK edge in the schema: (child table, child column, parent table, parent
         # column). Identifiers below come from information_schema, never from any input.
@@ -132,11 +144,14 @@ def main() -> int:
             if cur.rowcount:
                 print(f"deleted {cur.rowcount:5d} rows from {table}")
         if audit_blocked:
-            cur.execute(
-                "UPDATE users SET is_active = false, role = 'viewer' WHERE id = ANY(%s)",
-                (ids,),
-            )
-            print(f"neutralized {cur.rowcount} account(s) - deactivated, role dropped to viewer")
+            sets = [s for s, col in (("is_active = false", "is_active"), ("role = 'viewer'", "role")) if col in user_cols]
+            if not sets:
+                print("cannot neutralize: users has neither is_active nor role -")
+                print("deactivate the account from Admin -> Users instead.")
+                conn.commit()
+                return 1
+            cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ANY(%s)", (ids,))
+            print(f"neutralized {cur.rowcount} account(s) via: {', '.join(sets)}")
         else:
             cur.execute("DELETE FROM users WHERE id = ANY(%s)", (ids,))
             print(f"deleted {cur.rowcount} account(s)")
