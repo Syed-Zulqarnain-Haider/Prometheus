@@ -107,7 +107,13 @@ def main() -> int:
             continue
         kept.append(entry)
 
-    if already_merged and not removed and not repaired:
+    # "Nothing to repair" has to mean EVERY kind of damage this script can leave behind,
+    # not just headless entries. A missing LucideIcon import is one of them - checking only
+    # the entries is how the second early-return bug happened.
+    needs_type_import = bool(re.search(r"\bLucideIcon\b", source)) and not re.search(
+        r"import \{[^}]*\btype LucideIcon\b", source, re.S
+    )
+    if already_merged and not removed and not repaired and not needs_type_import:
         print("skip  nav.ts: already merged, nothing to repair")
         return 0
 
@@ -161,17 +167,45 @@ def main() -> int:
 
     updated = source[: match.start()] + head + new_body + tail + source[match.end() :]
 
-    # Drop icon imports nothing references any more - an unused import is a lint error here.
+    # Drop imports nothing references any more - an unused import is a lint error here.
+    #
+    # A specifier may be `Database` or `type LucideIcon`. The usage check must run on the
+    # NAME, and the `type ` prefix must survive re-emission: treating "type LucideIcon" as
+    # the identifier meant searching the file for that whole string, finding nothing, and
+    # deleting the type the interface depends on - which is the second build this file
+    # broke. Type imports and value imports are not the same thing.
     import_match = re.search(r"import \{\n(.*?)\n\} from \"lucide-react\";", updated, re.S)
     dropped = []
     if import_match:
-        names = [n.strip().rstrip(",") for n in import_match.group(1).splitlines() if n.strip()]
+        specifiers = [n.strip().rstrip(",") for n in import_match.group(1).splitlines() if n.strip()]
         after_imports = updated[import_match.end() :]
-        alive = [n for n in names if re.search(rf"\b{re.escape(n)}\b", after_imports)]
-        dropped = [n for n in names if n not in alive]
+        alive = []
+        for spec in specifiers:
+            name = spec.split()[-1]  # "type LucideIcon" -> "LucideIcon"
+            if re.search(rf"\b{re.escape(name)}\b", after_imports):
+                alive.append(spec)
+            else:
+                dropped.append(spec)
         if dropped:
             block = "import {\n" + "".join(f"  {n},\n" for n in alive) + '} from "lucide-react";'
             updated = updated[: import_match.start()] + block + updated[import_match.end() :]
+
+    # Repair the exact wound an earlier run of THIS script inflicted: the interface still
+    # says `icon: LucideIcon` while the import that provided it is gone. Narrow on purpose -
+    # LucideIcon is a known type export of lucide-react and we are the reason it is missing.
+    restored = None
+    if re.search(r"\bLucideIcon\b", updated) and not re.search(
+        r"import \{[^}]*\btype LucideIcon\b", updated, re.S
+    ):
+        block = re.search(r"import \{\n(.*?)\n\} from \"lucide-react\";", updated, re.S)
+        if block:
+            names = [n.strip().rstrip(",") for n in block.group(1).splitlines() if n.strip()]
+            names = sorted({*names, "type LucideIcon"}, key=lambda n: n.split()[-1].lower())
+            rebuilt_block = (
+                "import {\n" + "".join(f"  {n},\n" for n in names) + '} from "lucide-react";'
+            )
+            updated = updated[: block.start()] + rebuilt_block + updated[block.end() :]
+            restored = "type LucideIcon"
 
     # Never hand back a nav.ts that cannot type-check. Every entry must carry an href -
     # the exact property whose absence broke the build twice. Checking the OUTPUT costs
@@ -187,13 +221,30 @@ def main() -> int:
             print("Nothing was written.")
             return 1
 
+    # ...and every NAME the file uses must still be imported. Checking only for `href`
+    # let this script delete `type LucideIcon` - which the interface depends on - and hand
+    # back a file that passed its own check and failed the build. A check that does not
+    # check the thing that broke is decoration.
+    imported = set()
+    block = re.search(r"import \{\n(.*?)\n\} from \"lucide-react\";", updated, re.S)
+    if block:
+        imported = {n.strip().rstrip(",").split()[-1] for n in block.group(1).splitlines() if n.strip()}
+    used = set(re.findall(r"icon:\s*([A-Z][A-Za-z0-9_]*)", updated))
+    missing = sorted(used - imported)
+    if missing:
+        print(f"ABORTED: the rewrite would reference un-imported name(s): {', '.join(missing)}")
+        print("Nothing was written.")
+        return 1
+
     NAV.write_text(updated)
     if repaired:
         for entry in repaired:
             print(f"repaired  removed an entry with no href: {entry}")
     print(f"merged    {', '.join(removed) or '(already gone)'} -> {MERGED_HREF}")
     if dropped:
-        print(f"cleaned   unused icon import(s): {', '.join(dropped)}")
+        print(f"cleaned   unused import(s): {', '.join(dropped)}")
+    if restored:
+        print(f"restored  {restored} - the interface needs it and an earlier run removed it")
     print("wrote frontend/lib/nav.ts")
     print()
     print("Rebuild the frontend.")
