@@ -28,29 +28,26 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 from pathlib import Path
 
 FOOTER = 'Re-run the backend test suite.'
 
 PAYLOAD = """
-eyJuZXdfZmlsZXMiOiB7fSwgImVkaXRzIjogW3sicGF0aCI6ICJiYWNrZW5kL3Rlc3RzL3Rlc3RfbWlncmF0aW9ucy5weSIs
-ICJhbmNob3IiOiAiX0hFQUQgPSBcImI3ZTJhOWM0ZjFkOFwiICAjIGFubm91bmNlbWVudHMgKGN1cnJlbnQgaGVhZCkiLCAi
-cmVwbGFjZW1lbnQiOiAiX0hFQUQgPSBcInNhc3VwZXJhZG1pblwiICAjIHN1cGVyX2FkbWluIHJvbGUgKGN1cnJlbnQgaGVh
-ZCkiLCAibWFya2VyIjogIl9IRUFEID0gXCJzYXN1cGVyYWRtaW5cIiJ9LCB7InBhdGgiOiAiYmFja2VuZC90ZXN0cy90ZXN0
-X3JiYWNfbWF0cml4LnB5IiwgImFuY2hvciI6ICJST0xFX01FVFJJQ19HUk9VUFM6IGRpY3Rbc3RyLCBzZXRbR3JvdXBdXSA9
-IHtcbiAgICBcImFkbWluXCI6IEZVTEwsIiwgInJlcGxhY2VtZW50IjogIlJPTEVfTUVUUklDX0dST1VQUzogZGljdFtzdHIs
-IHNldFtHcm91cF1dID0ge1xuICAgIFwiYWRtaW5cIjogRlVMTCxcbiAgICAjIFNhbWUgREFUQSBhY2Nlc3MgYXMgYWRtaW4u
-IFdoYXQgc2V0cyBzdXBlcl9hZG1pbiBhcGFydCBpcyBzdHJ1Y3R1cmFsIC0gd2hvIG1heVxuICAgICMgbWFuYWdlIHdob20g
-KGFkbWluX3NlcnZpY2UuZ3VhcmRfdGFyZ2V0X21hbmFnZW1lbnQpIC0gbm90IGV4dHJhIG1ldHJpYyBncm91cHMuXG4gICAg
-XCJzdXBlcl9hZG1pblwiOiBGVUxMLCIsICJtYXJrZXIiOiAiXCJzdXBlcl9hZG1pblwiOiBGVUxMLCJ9LCB7InBhdGgiOiAi
-YmFja2VuZC90ZXN0cy90ZXN0X3JiYWNfbWF0cml4LnB5IiwgImFuY2hvciI6ICJST0xFX0NBUEFCSUxJVElFUzogZGljdFtz
-dHIsIHNldFtzdHJdXSA9IHtcbiAgICBcImFkbWluXCI6IHtcImV4cG9ydFwiLCBcInNoYXJlX3JlcG9ydFwiLCBcImFkbWlu
-X3BhbmVsXCJ9LCIsICJyZXBsYWNlbWVudCI6ICJST0xFX0NBUEFCSUxJVElFUzogZGljdFtzdHIsIHNldFtzdHJdXSA9IHtc
-biAgICBcImFkbWluXCI6IHtcImV4cG9ydFwiLCBcInNoYXJlX3JlcG9ydFwiLCBcImFkbWluX3BhbmVsXCJ9LFxuICAgIFwi
-c3VwZXJfYWRtaW5cIjoge1wiZXhwb3J0XCIsIFwic2hhcmVfcmVwb3J0XCIsIFwiYWRtaW5fcGFuZWxcIn0sIiwgIm1hcmtl
-ciI6ICJcInN1cGVyX2FkbWluXCI6IHtcImV4cG9ydFwiLCBcInNoYXJlX3JlcG9ydFwiLCBcImFkbWluX3BhbmVsXCJ9LCJ9
-XX0=
+eyJuZXdfZmlsZXMiOiB7fSwgImVkaXRzIjogW3sicGF0aCI6ICJiYWNrZW5kL3Rlc3RzL3Rlc3RfcmJhY19tYXRyaXgucHki
+LCAiYW5jaG9yIjogIlJPTEVfTUVUUklDX0dST1VQUzogZGljdFtzdHIsIHNldFtHcm91cF1dID0ge1xuICAgIFwiYWRtaW5c
+IjogRlVMTCwiLCAicmVwbGFjZW1lbnQiOiAiUk9MRV9NRVRSSUNfR1JPVVBTOiBkaWN0W3N0ciwgc2V0W0dyb3VwXV0gPSB7
+XG4gICAgXCJhZG1pblwiOiBGVUxMLFxuICAgICMgU2FtZSBEQVRBIGFjY2VzcyBhcyBhZG1pbi4gV2hhdCBzZXRzIHN1cGVy
+X2FkbWluIGFwYXJ0IGlzIHN0cnVjdHVyYWwgLSB3aG8gbWF5XG4gICAgIyBtYW5hZ2Ugd2hvbSAoYWRtaW5fc2VydmljZS5n
+dWFyZF90YXJnZXRfbWFuYWdlbWVudCkgLSBub3QgZXh0cmEgbWV0cmljIGdyb3Vwcy5cbiAgICBcInN1cGVyX2FkbWluXCI6
+IEZVTEwsIiwgIm1hcmtlciI6ICJcInN1cGVyX2FkbWluXCI6IEZVTEwsIn0sIHsicGF0aCI6ICJiYWNrZW5kL3Rlc3RzL3Rl
+c3RfcmJhY19tYXRyaXgucHkiLCAiYW5jaG9yIjogIlJPTEVfQ0FQQUJJTElUSUVTOiBkaWN0W3N0ciwgc2V0W3N0cl1dID0g
+e1xuICAgIFwiYWRtaW5cIjoge1wiZXhwb3J0XCIsIFwic2hhcmVfcmVwb3J0XCIsIFwiYWRtaW5fcGFuZWxcIn0sIiwgInJl
+cGxhY2VtZW50IjogIlJPTEVfQ0FQQUJJTElUSUVTOiBkaWN0W3N0ciwgc2V0W3N0cl1dID0ge1xuICAgIFwiYWRtaW5cIjog
+e1wiZXhwb3J0XCIsIFwic2hhcmVfcmVwb3J0XCIsIFwiYWRtaW5fcGFuZWxcIn0sXG4gICAgXCJzdXBlcl9hZG1pblwiOiB7
+XCJleHBvcnRcIiwgXCJzaGFyZV9yZXBvcnRcIiwgXCJhZG1pbl9wYW5lbFwifSwiLCAibWFya2VyIjogIlwic3VwZXJfYWRt
+aW5cIjoge1wiZXhwb3J0XCIsIFwic2hhcmVfcmVwb3J0XCIsIFwiYWRtaW5fcGFuZWxcIn0sIn1dfQ==
 """
 
 
@@ -87,9 +84,67 @@ def locate(lines, anchor):
     return None
 
 
+
+_REV_RE = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']([^\"']+)[\"']", re.M)
+_DOWN_RE = re.compile(r"^down_revision(?::[^=\n]+)?\s*=\s*(.+)$", re.M)
+_HEAD_LINE_RE = re.compile(r'^_HEAD\s*=\s*"[^"]*".*$', re.M)
+
+
+def _parents(text: str) -> list[str]:
+    match = _DOWN_RE.search(text)
+    if not match:
+        return []
+    raw = match.group(1).strip()
+    if raw == "None":
+        return []
+    return [p.strip().strip("\"'") for p in raw.strip("()").split(",") if p.strip()]
+
+
+def sync_migration_head() -> str:
+    """Point test_migrations._HEAD at the head the migration files ACTUALLY declare.
+
+    It was a hand-typed constant, so every migration silently invalidated it until
+    somebody remembered - which is how this script failed its own deploy once already.
+    Reading the graph instead means the guard keeps guarding (a chain that forks or
+    loses its head still fails) without needing a human to retype a revision id.
+    """
+    versions = Path("backend/alembic/versions")
+    target = Path("backend/tests/test_migrations.py")
+    if not versions.is_dir() or not target.exists():
+        return "alembic versions or test_migrations.py not found"
+    ids, referenced = {}, set()
+    for f in versions.glob("*.py"):
+        text = f.read_text()
+        match = _REV_RE.search(text)
+        if not match:
+            continue
+        ids[match.group(1)] = f.name
+        referenced.update(_parents(text))
+    heads = [r for r in ids if r not in referenced]
+    if len(heads) != 1:
+        return f"expected exactly one head, found {len(heads)}: {sorted(heads)}"
+    head = heads[0]
+    source = target.read_text()
+    line = _HEAD_LINE_RE.search(source)
+    if not line:
+        return "no _HEAD assignment found in test_migrations.py"
+    current = re.search(r'"([^"]*)"', line.group(0))
+    if current and current.group(1) == head:
+        print(f"skip  test_migrations._HEAD already {head}")
+        return ""
+    slug = ids[head].split("_", 3)[-1].removesuffix(".py")
+    replacement = f'_HEAD = "{head}"  # {slug} (current head)'
+    target.write_text(source[: line.start()] + replacement + source[line.end() :])
+    print(f"wrote backend/tests/test_migrations.py  (_HEAD -> {head})")
+    return ""
+
 def main() -> int:
     if not Path("backend/app").is_dir():
         print("ABORTED: run this from the repository root")
+        return 1
+    problem = sync_migration_head()
+    if problem:
+        print(f"ABORTED: {problem}")
         return 1
     data = json.loads(base64.b64decode(PAYLOAD.strip()).decode())
     problems, failures, planned, skipped = [], [], {}, []

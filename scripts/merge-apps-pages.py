@@ -166,15 +166,15 @@ export function AppsAdminClient() {{
 '''
 
 
-MERGED_PAGE = '''import type {{ Metadata }} from "next";
-import {{ Suspense }} from "react";
+MERGED_PAGE = '''import type { Metadata } from "next";
+import { Suspense } from "react";
 
-import {{ AppsAdminClient }} from "@/components/apps-admin/apps-admin-client";
-import {{ PageHeader }} from "@/components/layout/page-header";
+import { AppsAdminClient } from "@/components/apps-admin/apps-admin-client";
+import { PageHeader } from "@/components/layout/page-header";
 
-export const metadata: Metadata = {{ title: "Apps - Prometheus" }};
+export const metadata: Metadata = { title: "Apps - Prometheus" };
 
-export default function AppsAdminPage() {{
+export default function AppsAdminPage() {
   return (
     <div className="space-y-4">
       <PageHeader
@@ -186,7 +186,7 @@ export default function AppsAdminPage() {{
       </Suspense>
     </div>
   );
-}}
+}
 '''
 
 
@@ -241,6 +241,18 @@ def main() -> int:
         print(f"found {slug:12s} -> {found[slug][0]} from {found[slug][1]}")
 
     client = build_client(found)
+
+    # Never emit TSX again without checking it first. These files are BUILT from string
+    # templates, and a template that is an f-string needs doubled braces while a plain one
+    # must not have them - a distinction invisible on review that shipped `import type {{
+    # Metadata }}` and broke the frontend build. Refusing to write is free; a red build on
+    # the server is a whole round trip.
+    for name, content in (("client", client), ("page", MERGED_PAGE)):
+        if "{{" in content or "}}" in content:
+            print(f"ABORTED: generated {name} still contains doubled braces - the template")
+            print("is an f-string/plain-string mix-up. Nothing was written.")
+            return 1
+
     wrote = []
     for path, content in ((CLIENT, client), (MERGED, MERGED_PAGE)):
         if path.exists() and path.read_text() == content:
