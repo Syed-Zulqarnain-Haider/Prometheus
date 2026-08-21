@@ -79,8 +79,14 @@ def main() -> int:
         print("ABORTED: no nav entries parsed - nothing was changed.")
         return 1
 
+    # ONE FULL PASS FIRST, then decide. The previous version returned the moment it saw
+    # an /apps-admin entry - so on a half-finished tree, where the merged entry already
+    # exists AND a headless corpse is still sitting further down, it declared success and
+    # left the file broken. An early return inside a scan is a decision made on partial
+    # information; that is exactly what went wrong.
     kept, removed, repaired = [], [], []
-    insert_at = None  # where the FIRST merged entry sat, so the group keeps its place
+    insert_at = None      # where the FIRST merged entry sat, so the group keeps its place
+    already_merged = False
     for entry in entries:
         href = re.search(r'href:\s*"([^"]+)"', entry)
         if href is None:
@@ -90,8 +96,10 @@ def main() -> int:
                 insert_at = len(kept)
             continue
         if href.group(1) == MERGED_HREF:
-            print("skip  nav.ts: already merged")
-            return 0
+            already_merged = True
+            if insert_at is None:
+                insert_at = len(kept)
+            continue          # dropped here, re-inserted below - never duplicated
         if href.group(1) in MERGE_HREFS:
             if insert_at is None:
                 insert_at = len(kept)
@@ -99,7 +107,11 @@ def main() -> int:
             continue
         kept.append(entry)
 
-    if not removed and not repaired:
+    if already_merged and not removed and not repaired:
+        print("skip  nav.ts: already merged, nothing to repair")
+        return 0
+
+    if not removed and not repaired and not already_merged:
         print("ABORTED: none of the three entries were found, and nothing needed repair.")
         print("Merging by hand is safer than guessing. Current entries:")
         for entry in entries:
@@ -127,6 +139,14 @@ def main() -> int:
                 icon = found.group(1)
                 break
     if icon is None:
+        for entry in entries:
+            href = re.search(r'href:\s*"([^"]+)"', entry)
+            if href and href.group(1) == MERGED_HREF:
+                found = re.search(r"icon:\s*([A-Za-z0-9_]+)", entry)
+                if found:
+                    icon = found.group(1)
+                    break
+    if icon is None:
         print("ABORTED: could not read an icon from the merged or damaged entries.")
         return 1
 
@@ -152,6 +172,20 @@ def main() -> int:
         if dropped:
             block = "import {\n" + "".join(f"  {n},\n" for n in alive) + '} from "lucide-react";'
             updated = updated[: import_match.start()] + block + updated[import_match.end() :]
+
+    # Never hand back a nav.ts that cannot type-check. Every entry must carry an href -
+    # the exact property whose absence broke the build twice. Checking the OUTPUT costs
+    # nothing; shipping it and finding out on the server costs a round trip each time.
+    check = re.search(r"export const NAV_ITEMS[^=]*=\s*\[(.*?)\n\];", updated, re.S)
+    if not check:
+        print("ABORTED: the rewritten array could not be re-parsed - nothing was written.")
+        return 1
+    for entry in split_entries(check.group(1)):
+        if not re.search(r'href:\s*"', entry):
+            print("ABORTED: the rewrite would leave an entry with no href:")
+            print("  " + " ".join(entry.split())[:80])
+            print("Nothing was written.")
+            return 1
 
     NAV.write_text(updated)
     if repaired:
