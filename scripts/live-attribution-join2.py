@@ -57,6 +57,9 @@ MARKER = "from app.services.live_attribution import"
 
 problems: list[str] = []
 notes: list[str] = []
+# Set ONLY when the in-script compile check actually ran to completion. A run that
+# skipped it must never print a line that reads like a green one.
+verified = False
 
 
 def fail(msg: str) -> None:
@@ -674,6 +677,9 @@ def verify() -> None:
     from app.services.live_attribution import (  # noqa: PLC0415
         FACT_WITH_MASTER, LIVE_ATTRIBUTION_COLUMNS, live_column,
     )
+    global verified
+
+    verified = True
     note(f"live attribution columns: {list(LIVE_ATTRIBUTION_COLUMNS)}")
     sql = str(sa_select(live_column("pod").label("pod")).select_from(FACT_WITH_MASTER)
               .compile(dialect=postgresql.dialect()))
@@ -785,8 +791,12 @@ def report() -> None:
         print("\nFAILED:")
         for line in problems:
             print(f"  - {line}")
+    elif verified:
+        print("\nOK - live attribution wired, and every statement compiled here "
+              "with exactly one FROM.")
     else:
-        print("\nOK - live attribution wired and every statement verified.")
+        print("\nPATCHED, NOT YET VERIFIED. Nothing was checked by this run. The check is\n"
+              "backend/tests/test_live_attribution.py - run:  ./scripts/run-backend-tests.sh")
 
 
 if __name__ == "__main__":
