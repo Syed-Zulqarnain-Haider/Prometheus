@@ -100,9 +100,11 @@ def patch_attribution() -> None:
         if not re.search(rf"^export (?:function|const) {name}\b", source, re.M)
     ]
     if absent:
+        # Built outside the f-string: 3.11 forbids a backslash inside one.
+        pattern = "^export (?:function|const) " + r"(\w+)"
+        found = re.findall(pattern, source, re.M)
         fail(f"attribution.ts does not export {absent} - the helper and its test "
-             f"would not compile. Exports found: "
-             f"{re.findall(r'^export (?:function|const) (\w+)', source, re.M)}")
+             f"would not compile. Exports found: {found}")
         return
     writes[ATTRIBUTION] = source.rstrip("\n") + "\n" + HELPER
     note("attribution.ts: added dimensionLabel")
