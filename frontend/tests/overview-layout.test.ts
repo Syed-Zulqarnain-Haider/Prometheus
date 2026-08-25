@@ -19,6 +19,18 @@ import {
 const byId = (items: Layout[], id: string): Layout | undefined =>
   items.find((item) => item.i === id);
 
+// Widget ids are product decisions and they change - "publisher" was removed in a past
+// release, and an earlier version of this file hardcoded it. Worse, the assertions on it
+// then compared undefined to undefined and PASSED, checking nothing. So the ids come from
+// the module itself, and `mustFind` refuses to let a lookup miss go quiet.
+const [FIRST_WIDGET, SECOND_WIDGET] = OVERVIEW_ITEM_IDS;
+
+function mustFind(items: Layout[], id: string): Layout {
+  const found = byId(items, id);
+  expect(found, `widget ${id} is missing from the layout`).toBeDefined();
+  return found as Layout;
+}
+
 describe("defaultLayouts", () => {
   it("places every draggable widget on the desktop grid", () => {
     const lg = defaultLayouts().lg ?? [];
@@ -30,21 +42,19 @@ describe("defaultLayouts", () => {
     // user dragging a widget would silently rewrite the default for every later caller
     // in the same process - a bug that only shows up under load, never in review.
     const first = defaultLayouts();
-    const target = byId(first.lg ?? [], "trend");
-    expect(target).toBeDefined();
-    if (target) target.x = 99;
+    mustFind(first.lg ?? [], FIRST_WIDGET).x = 99;
 
     const second = defaultLayouts();
-    expect(byId(second.lg ?? [], "trend")?.x).not.toBe(99);
+    expect(mustFind(second.lg ?? [], FIRST_WIDGET).x).not.toBe(99);
   });
 });
 
 describe("normalizeLayouts", () => {
   it("keeps a position the user chose", () => {
     const saved: Layouts = {
-      lg: [{ i: "trend", x: 8, y: 3, w: 4, h: 16 }],
+      lg: [{ i: FIRST_WIDGET, x: 8, y: 3, w: 4, h: 16 }],
     };
-    expect(byId(normalizeLayouts(saved).lg ?? [], "trend")).toMatchObject({
+    expect(mustFind(normalizeLayouts(saved).lg ?? [], FIRST_WIDGET)).toMatchObject({
       x: 8,
       y: 3,
     });
@@ -53,7 +63,7 @@ describe("normalizeLayouts", () => {
   it("fills in a widget added since the layout was saved", () => {
     // An older saved layout knows nothing about newer widgets. They must appear at their
     // default spot rather than vanish from the dashboard.
-    const saved: Layouts = { lg: [{ i: "trend", x: 0, y: 0, w: 4, h: 16 }] };
+    const saved: Layouts = { lg: [{ i: FIRST_WIDGET, x: 0, y: 0, w: 4, h: 16 }] };
     const lg = normalizeLayouts(saved).lg ?? [];
     expect(lg.map((item) => item.i).sort()).toEqual([...OVERVIEW_ITEM_IDS].sort());
   });
@@ -62,27 +72,28 @@ describe("normalizeLayouts", () => {
     // A stale id would be positioned but never rendered, leaving a hole in the grid.
     const saved: Layouts = {
       lg: [
-        { i: "trend", x: 0, y: 0, w: 4, h: 16 },
+        { i: FIRST_WIDGET, x: 0, y: 0, w: 4, h: 16 },
         { i: "widget-removed-two-releases-ago", x: 0, y: 40, w: 12, h: 10 },
       ],
     };
     const ids = (normalizeLayouts(saved).lg ?? []).map((item) => item.i);
     expect(ids).not.toContain("widget-removed-two-releases-ago");
-    expect(ids).toContain("trend");
+    expect(ids).toContain(FIRST_WIDGET);
   });
 
   it("re-applies today's minimum size over a stale saved one", () => {
     // The anti-clipping guarantee. A layout saved when a widget could be 1x1 must not
     // pin it below the minimum it needs now, or its content renders cut off.
     const saved: Layouts = {
-      lg: [{ i: "publisher", x: 0, y: 0, w: 12, h: 18, minW: 1, minH: 1 }],
+      lg: [{ i: SECOND_WIDGET, x: 0, y: 0, w: 12, h: 18, minW: 1, minH: 1 }],
     };
-    const restored = byId(normalizeLayouts(saved).lg ?? [], "publisher");
-    const fresh = byId(defaultLayouts().lg ?? [], "publisher");
-    expect(restored?.minW).toBe(fresh?.minW);
-    expect(restored?.minH).toBe(fresh?.minH);
+    const restored = mustFind(normalizeLayouts(saved).lg ?? [], SECOND_WIDGET);
+    const fresh = mustFind(defaultLayouts().lg ?? [], SECOND_WIDGET);
+    expect(restored.minW).toBe(fresh.minW);
+    expect(restored.minH).toBe(fresh.minH);
+    expect(restored.minW).not.toBe(1);
     // ...while still honouring where the user put it.
-    expect(restored?.w).toBe(12);
+    expect(restored.w).toBe(12);
   });
 
   it("returns every breakpoint even when nothing was saved for it", () => {

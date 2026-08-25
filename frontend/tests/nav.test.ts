@@ -56,13 +56,18 @@ describe("sidebar navigation", () => {
     }
   });
 
-  it("does not gate anything that is not an admin route", () => {
+  it("gates a deliberate, reviewable set and nothing by accident", () => {
     // The reverse mistake: marking an ordinary page admin-only hides it from the people
-    // who need it, and nobody reports a page they never knew existed.
+    // who need it, and nobody reports a page they never knew existed. This cannot be
+    // inferred from the URL - /pod-owners is admin-only and lives nowhere near /admin -
+    // so the list is explicit. Gating a new page is a decision, and adding it here is
+    // how that decision gets seen by a reviewer rather than slipping through.
+    const INTENTIONALLY_GATED = [...ADMIN_ONLY, "/pod-owners", "/apps-admin"];
     for (const item of NAV_ITEMS.filter((i) => i.requiresAdmin)) {
       expect(
-        ADMIN_ONLY.includes(item.href) || item.href.startsWith("/admin"),
-        `${item.href} is gated but is not an admin route`,
+        INTENTIONALLY_GATED.includes(item.href) || item.href.startsWith("/admin"),
+        `${item.href} is admin-gated but is not in the reviewed list in this test - ` +
+          "if that is intentional, add it",
       ).toBe(true);
     }
   });
