@@ -667,7 +667,9 @@ def main() -> int:
 
     qb_out = patch_query_builder(module)
     conftest_out = patch_conftest()
-    live_out = LIVE_SOURCE.format(module=module, key=key)
+    # Plain substitution, not str.format: the generated module contains dict and set
+    # comprehensions, and every brace in them would be read as a format field.
+    live_out = LIVE_SOURCE.replace("{module}", module).replace("{key}", key)
 
     for label, text in (("live_attribution.py", live_out), ("query_builder.py", qb_out or "")):
         if not text:
