@@ -371,7 +371,12 @@ statement's FROM list from the columns it sees, so a predicate mentioning
 warning and not an error. An earlier cut of this feature shipped exactly that
 into a service that reused the query builder's scope predicate.
 
-The important test here is the exhaustive one: it walks EVERY public method of
+Note ``_compile`` below: a plain ``stmt.compile(dialect=...)`` does NOT run
+SQLAlchemy's FROM linter, so it would happily compile a cross join and report
+nothing. The linter has to be asked for explicitly. Every statement here goes
+through it.
+
+The important test is the exhaustive one: it walks EVERY public method of
 QueryBuilder and asserts each statement has exactly one FROM entry. A guard that
 only checks the methods I happened to think of is decoration.
 """
@@ -387,6 +392,7 @@ import pytest
 from sqlalchemy import Select, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import SAWarning
+from sqlalchemy.sql.compiler import FROM_LINTING
 
 from app.core.fact_table import FACT_TABLE
 from app.core.metric_registry import Group
@@ -398,17 +404,20 @@ from app.services.live_attribution import (
     live_column,
     live_scope_columns,
 )
-from app.services.query_builder import QueryBuilder
+from app.services.query_builder import _GROUP_BY_COLUMN, QueryBuilder
 from app.services.scopes import build_scope_filter
 
-# Methods below this many exercised means the walk quietly stopped covering things.
+# Below this many exercised, the walk has quietly stopped covering the builder.
 MIN_METHODS_EXERCISED = 6
+
+_DIALECT = postgresql.dialect()
 
 
 def _compile(stmt: Select[Any]) -> str:
+    """Compile WITH the FROM linter on, so a missing join condition raises here."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", SAWarning)
-        return str(stmt.compile(dialect=postgresql.dialect()))
+        return str(_DIALECT.statement_compiler(_DIALECT, stmt, linting=FROM_LINTING))
 
 
 def _builder() -> QueryBuilder:
@@ -435,8 +444,7 @@ def test_pod_is_resolved_live_and_type_matched() -> None:
     assert "pod" in LIVE_ATTRIBUTION_COLUMNS
     sql = _compile(select(live_column("pod").label("pod")).select_from(FACT_WITH_MASTER))
     assert "coalesce" in sql.lower()
-    assert "CAST" in sql.upper()
-    assert "app_master" in sql
+    assert "CAST(app_master.pod AS" in sql
 
 
 def test_columns_app_master_does_not_own_stay_on_the_fact_table() -> None:
@@ -453,8 +461,10 @@ def test_the_join_cannot_multiply_fact_rows() -> None:
 
 def test_a_live_predicate_without_the_join_is_a_cartesian_product() -> None:
     """The exact failure mode this feature has to stay ahead of, pinned down."""
+    unjoined = select(FACT_TABLE.c.date).where(live_column("pod") == "3")
+    assert len(unjoined.get_final_froms()) == 2
     with pytest.raises(SAWarning, match="cartesian"):
-        _compile(select(FACT_TABLE.c.date).where(live_column("pod") == "3"))
+        _compile(unjoined)
 
 
 def test_scope_columns_cover_every_scope_type() -> None:
@@ -469,20 +479,37 @@ def test_scope_columns_cover_every_scope_type() -> None:
 def test_the_exposed_scope_filter_stays_free_of_app_master() -> None:
     """Other services reuse this predicate WITHOUT joining app_master.
 
-    spotlight_service does exactly that at fact_scope_filter(). If an app_master
-    reference ever leaks back into it, this fails before the cross join ships.
+    spotlight_service does exactly that. If an app_master reference ever leaks
+    back into it, this fails before the cross join can ship.
     """
     builder = _builder()
     exposed = getattr(builder, "fact_scope_filter", None)
     predicate = exposed() if callable(exposed) else builder._scope_filter
-    sql = str(select(FACT_TABLE.c.date).where(predicate).compile(dialect=postgresql.dialect()))
+    sql = str(select(FACT_TABLE.c.date).where(predicate).compile(dialect=_DIALECT))
     assert "app_master" not in sql
 
 
 # ── every statement the builder can produce ──────────────────────────────────
-def _arguments(builder: QueryBuilder, method: Any) -> dict[str, Any] | None:
-    """Best-effort arguments for one builder method, or None if it needs something
-    this walk does not know how to supply."""
+def _callable_methods() -> list[tuple[str, Any, bool]]:
+    """(name, function, takes_self) for each public method.
+
+    ``previous_period`` is a staticmethod: treating it like a bound method passes
+    the builder itself in as ``params``, which is how this walk first went wrong.
+    """
+    found: list[tuple[str, Any, bool]] = []
+    for name in dir(QueryBuilder):
+        if name.startswith("_"):
+            continue
+        raw = inspect.getattr_static(QueryBuilder, name)
+        if isinstance(raw, staticmethod):
+            found.append((name, raw.__func__, False))
+        elif inspect.isfunction(raw):
+            found.append((name, raw, True))
+    return found
+
+
+def _arguments(builder: QueryBuilder, function: Any, takes_self: bool) -> dict[str, Any] | None:
+    """Best-effort arguments, or None if the method needs something unknown here."""
     measure = sorted(builder.permitted_measures)[0]
     known: dict[str, Any] = {
         "params": _filters(),
@@ -501,8 +528,11 @@ def _arguments(builder: QueryBuilder, method: Any) -> dict[str, Any] | None:
         "direction": "desc",
         "limit": 5,
     }
+    parameters = list(inspect.signature(function).parameters.values())
+    if takes_self:
+        parameters = parameters[1:]
     supplied: dict[str, Any] = {}
-    for parameter in list(inspect.signature(method).parameters.values())[1:]:
+    for parameter in parameters:
         if parameter.name in known:
             supplied[parameter.name] = known[parameter.name]
         elif parameter.default is inspect.Parameter.empty:
@@ -514,13 +544,13 @@ def test_every_query_builder_statement_has_exactly_one_from() -> None:
     """A second FROM entry with no join condition IS the cartesian product."""
     builder = _builder()
     exercised: list[str] = []
-    for name, method in inspect.getmembers(QueryBuilder, predicate=inspect.isfunction):
-        if name.startswith("_"):
-            continue
-        arguments = _arguments(builder, method)
+    for name, function, takes_self in _callable_methods():
+        arguments = _arguments(builder, function, takes_self)
         if arguments is None:
             continue
-        statement = method(builder, **arguments)
+        statement = (
+            function(builder, **arguments) if takes_self else function(**arguments)
+        )
         if not isinstance(statement, Select):
             continue
         froms = statement.get_final_froms()
@@ -535,11 +565,21 @@ def test_every_query_builder_statement_has_exactly_one_from() -> None:
 
 @pytest.mark.parametrize("group_by", ["pod", "publisher", "hou", "app"])
 def test_breakdown_groups_on_the_live_value(group_by: str) -> None:
+    """The GROUPED column specifically must be the live one, not just any mention.
+
+    Asserting on the presence of "app_master" anywhere in the SQL proves nothing:
+    every statement joins it, and the scope filter references it too.
+    """
     builder = _builder()
-    measure = sorted(builder.permitted_measures)[0]
-    sql = _compile(builder.breakdown(_filters(), group_by, [measure]))
-    expected = group_by in LIVE_ATTRIBUTION_COLUMNS
-    assert ("app_master" in sql) is expected
+    sql = _compile(
+        builder.breakdown(_filters(), group_by, [sorted(builder.permitted_measures)[0]])
+    )
+    column = _GROUP_BY_COLUMN[group_by]
+    if column in LIVE_ATTRIBUTION_COLUMNS:
+        assert f"CAST(app_master.{column} AS" in sql
+        assert f") AS {group_by}" in sql
+    else:
+        assert f"fact_daily_performance.{column} AS {group_by}" in sql
 '''
 
 
