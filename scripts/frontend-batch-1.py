@@ -270,9 +270,17 @@ def patch_app_master() -> None:
 
 
 # ── 4. YTD / MTD averages as numbers ─────────────────────────────────────────
-OLD_OPTION = "  const option: EChartsOption = {"
+# `const option: EChartsOption = {` occurs twice in this file - the progress donut and
+# the trend chart below it. Anchor on pacePct, which is defined exactly once.
+OLD_OPTION = """  const pacePct = isYear
+    ? (targetSet && projected != null ? projected / (target as number) : null)
+    : (pacing.data?.pace_pct ?? null);"""
 
-NEW_OPTION = '''  // Averages as plain figures, not only as a smoothing option on the trend line.
+NEW_OPTION = '''  const pacePct = isYear
+    ? (targetSet && projected != null ? projected / (target as number) : null)
+    : (pacing.data?.pace_pct ?? null);
+
+  // Averages as plain figures, not only as a smoothing option on the trend line.
   // "Is this month any good" is answered by a number you can hold next to last month's,
   // not by the shape of a curve. Both are revenue-to-date divided by how much of the
   // period has elapsed, so they read the same way on day 3 as on day 300 - and they are
@@ -285,9 +293,7 @@ NEW_OPTION = '''  // Averages as plain figures, not only as a smoothing option o
   // YTD reads best per week and per month; MTD per day and per week - a monthly average
   // inside a month that is at most 31 days long is just the total again.
   const firstAverage = isYear ? perWeek : perDay;
-  const secondAverage = isYear ? perMonth : perWeek;
-
-  const option: EChartsOption = {'''
+  const secondAverage = isYear ? perMonth : perWeek;'''
 
 OLD_FIGURE = '''          <Figure
             label={isYear ? "YTD Revenue" : "MTD Revenue"}
