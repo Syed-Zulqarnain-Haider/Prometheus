@@ -56,7 +56,10 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
       - name: Install
-        run: pip install ".[dev]"
+        # Install the sync constraints too, so CI resolves the SAME dependency set the
+        # production image builds (backend/Dockerfile). Without this, tests ran against
+        # redis 8.x while the shipped container ran redis 5.x.
+        run: pip install ".[dev]" -r sync/requirements.txt
       - name: Ruff (lint + format check)
         run: |
           ruff check .

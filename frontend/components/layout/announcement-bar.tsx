@@ -33,6 +33,9 @@ interface Announcement {
  *  reached the database still cannot be clicked into execution. */
 function safeHref(url: string | null): string | null {
   if (!url) return null;
+  // Browsers treat a backslash as a forward slash for special schemes, so
+  // "/\\evil.com" passes the leading-slash test below and still lands off-site.
+  if (url.includes("\\")) return null;
   if (url.startsWith("/") && !url.startsWith("//")) return url;
   if (url.startsWith("https://")) return url;
   return null;

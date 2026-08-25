@@ -1,3 +1,8 @@
 google-cloud-bigquery==3.*
 psycopg[binary]==3.*
-redis==5.*
+# Kept in lockstep with the API's floor (backend/pyproject.toml: redis>=8.0). The production
+# backend image installs THIS file and the package in one resolver pass, so the previous
+# `==5.*` pin here silently decided the API's redis version too, landing on 5.x - whose
+# from_url() carries no type annotations, so `mypy --strict` rejects it. The image therefore
+# shipped a client the type checker refuses and CI never exercised.
+redis>=8.0

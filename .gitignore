@@ -25,6 +25,9 @@ __pycache__/
 # the frontend keeps source in `frontend/lib/`. Python build artifacts are
 # covered by the venv ignores below + path-anchored entries.
 /build/
+# `pip install .` in backend/ leaves a setuptools staging copy of the whole package
+# here; the root-anchored /build/ above does not reach it.
+backend/build/
 develop-eggs/
 /dist/
 downloads/

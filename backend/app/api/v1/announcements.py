@@ -74,6 +74,11 @@ class AnnouncementCreate(BaseModel):
         """
         if value is None:
             return None
+        # A backslash is never legitimate in an in-app path, and browsers follow the
+        # WHATWG URL rule that treats it as a forward slash for special schemes - so
+        # "/\\evil.com" would pass the two tests below and still resolve off-site.
+        if "\\" in value:
+            raise ValueError("Link must be an in-app path starting with / or an https:// URL")
         if value.startswith("/") and not value.startswith("//"):
             return value
         if value.startswith("https://") and len(value) > len("https://"):

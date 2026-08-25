@@ -26,9 +26,14 @@ COPY alembic.ini ./
 COPY scripts ./scripts
 COPY sync ./sync
 
-RUN pip install .
-# The sync job needs BigQuery + psycopg (not part of the API's runtime deps).
-RUN pip install -r sync/requirements.txt
+# ONE resolver pass over BOTH dependency sets. As two separate steps, the second
+# install silently DOWNGRADED redis: pyproject declares `redis>=5.0` (resolving to 8.x,
+# which is what CI installs and every test runs against) while sync/requirements.txt
+# pins `redis==5.*`, so the image shipped a client library no test had ever exercised -
+# and it is the library behind the rate limiter and the permission-keyed cache.
+# Resolved together, pip reconciles them once and a genuine conflict fails the build
+# instead of being quietly reconciled in the shipped artifact.
+RUN pip install . -r sync/requirements.txt
 
 # Drop privileges - never run the service as root.
 RUN useradd --create-home --uid 10001 appuser

@@ -31,7 +31,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/compare", label: "Compare", icon: Scale },
   { href: "/chat", label: "Chat", icon: MessagesSquare },
-  { href: "/spotlight", label: "Spotlight", icon: Sparkles },
+  { href: "/spotlight", label: "Spotlight", icon: Sparkles, requiresAdmin: true },
   { href: "/admin", label: "Admin", icon: Shield, requiresAdmin: true },
   { href: "/data-health", label: "Data Health", icon: Activity, requiresAdmin: true },
 ];

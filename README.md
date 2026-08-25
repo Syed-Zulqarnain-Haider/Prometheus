@@ -819,9 +819,10 @@ Findings from three audits (API, frontend, infrastructure):
   `location.assign`, and a `javascript:` URL has an opaque origin); the CPI scatter tooltip
   uses `renderMode: "richText"` so an upstream app name cannot reach `innerHTML`;
   announcement dismissals are scoped per user and shape-checked.
-- Dev compose binds Postgres/Redis to loopback; `.gitignore` and the secret-scan denylist
-  cover `*.rdb`, `backups/` and Firebase `*adminsdk*.json` key filenames; CI `GITHUB_TOKEN`
-  is reduced to `contents: read`.
+- Dev compose binds Postgres/Redis to loopback; `.gitignore` covers `*.rdb`, `backups/` and
+  Firebase `*adminsdk*.json` key filenames; CI `GITHUB_TOKEN` is reduced to `contents: read`.
+  (There is no separate secret-scan denylist - `.gitignore` is the whole control. A plain
+  `.sql` dump is not covered, only `*.sql.gz`/`*.dump`.)
 
 ### Operational note
 The deployed tree and the working mirror drift. Before any backend deploy, diff the target
@@ -902,21 +903,50 @@ credential. Protection comes from server-side JWT verification plus RBAC on ever
 from concealing it. The Admin SDK service-account key is the real secret; it is a mounted
 file and has never been in git.
 
+Items 1-3 below are DONE in the branch (worker-thread verification, the IP-keyed pre-auth
+ceiling, `TRUSTED_PROXY`, and production doc-route suppression all landed) - they remain
+listed only because the deployed host may still be running an image from before them. Check
+the server before assuming either way.
+
 Open hardening items, highest impact first:
 
-1. Firebase token verification runs on the event loop, and every rate limiter engages only
-   after authentication — junk bearer tokens each cost a full RSA verification and can stall
-   the process. Move verification to a worker thread and add an IP-keyed pre-auth ceiling.
-2. `client_ip()` trusts `X-Real-IP`/`X-Forwarded-For` unconditionally; reached without the
-   nginx in front, the audit log's actor IP is forgeable. Gate on an explicit
-   `TRUSTED_PROXY` setting.
-3. `/docs`, `/redoc` and `/openapi.json` are enabled in production.
-4. Group creation bypasses the chat contact-request consent gate — anyone can add a user to
-   a group and message them immediately.
-5. No block list: a declined contact request can be re-sent indefinitely.
-6. The aggregate cache accepts unbounded distinct parameter combinations with ~24h TTLs.
-7. Two database dumps remain in git history (untracked now; purging needs a history rewrite).
-8. Dockerfiles use floating base-image tags, so a registry outage blocks every deploy.
+1. Group creation bypasses the chat contact-request consent gate. Confirmed by audit:
+   `create_group` never sets `status`, so the `'accepted'` server default applies and the
+   only consent check - `send_message`'s `status != "accepted"` test - passes. One request
+   reaches up to 49 non-consenting people, and the victim's UI shows a normal thread rather
+   than a request. `add_participant` (the invite-code path) has the same shape.
+2. No block list: a declined contact request can be re-sent indefinitely. A pending thread
+   can never hold a message, so `remove_direct` always takes its hard-delete branch, freeing
+   the unique `direct_key` for an immediate re-request. Nothing records that a decline
+   happened. The same gap exists for rejected access requests - the platform has no
+   deny-list primitive anywhere, so one shared fix is worth more than two local ones.
+3. The aggregate cache accepts unbounded distinct parameter combinations with ~24h TTLs.
+4. `/meta/targets` serves the annual and monthly revenue plan to ANY authenticated caller,
+   with no `role_metric_permissions` check - so a `viewer` (store_installs only) can read it.
+   Documented in the route as deliberate, but it contradicts the locked metric-scope rule
+   and the budget-pacing behaviour. Needs an owner decision, not a silent change.
+5. Dockerfiles use floating base-image tags, so a registry outage blocks every deploy, and
+   two builds of one commit are not the same artifact. No dependency lockfile either.
+6. The chat tables (`conversations`, `conversation_participants`, `messages`) have NO
+   migration in the repository - `scripts/add-chat.py` generates it at deploy time with a
+   host-dependent `down_revision`, and the result was never committed back. `alembic upgrade
+   head` from a clean checkout therefore produces a database missing three tables the app
+   models. Same check is owed for `scripts/add-profile-presence.py`.
+7. No secret scanning runs anywhere. `.gitignore` coverage is genuinely good, but there is
+   no gitleaks/trufflehog config, no pre-commit hook, and no CI job - so the "denylist"
+   referred to above is `.gitignore` alone.
+8. `sync/Dockerfile` runs as root; `backend/` and `frontend/` both correctly drop privileges.
+9. No edge rate limiting in `docs/nginx-prometheus.conf`, though CLAUDE.md specifies
+   "per-user sliding window in Redis + edge". Production Redis also has no password.
+
+**Corrected (was item 7):** the "two database dumps in git history" are neither dumps nor in
+this history. They are seven ~0.4-1.2 KB **Redis RDB** snapshots on the stale branch
+`claude/sharp-planck-4df2am` only - absent from `dev`, `production` and `main`. Decoded, they
+hold nothing but pytest fixture state (`userctx:*-uid`, `rl:*` counters, `<uid>@terafort.org`
+addresses generated by `tests/conftest.py`). No credential, no token, no customer data. No
+history rewrite is needed: deleting that branch removes them. A full-history sweep for
+private keys, service-account JSON, cloud tokens and credentialed connection strings across
+every ref came back clean - every hit is a placeholder.
 
 ## Planned: super-administrator role
 

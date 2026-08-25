@@ -92,6 +92,13 @@ Set in `.env` (see the template's comments):
 - `REDIS_URL` → `redis://redis:6379/0` (in-network; no TLS needed).
 - `CORS_ORIGINS` / `NEXT_PUBLIC_API_BASE_URL` → `https://your-domain` (exact, no trailing slash).
 - `NEXT_PUBLIC_FIREBASE_*` → your Firebase **web** config (public).
+- `TRUSTED_PROXY` → **`true`** for this deployment. Do not skip it: nginx sits in front and
+  the backend is bound to `127.0.0.1`, so with it unset `client_ip()` falls back to the
+  socket peer — the Docker bridge gateway, which is the *same address for every user*. The
+  append-only `audit_log`'s `ip` column then records one constant value for the whole estate,
+  and the field that says who did something says nothing. Set it `true` only where this
+  repo's nginx really is in front; on any host reachable directly, leave it false, because
+  there any caller can forge the header and stamp an arbitrary address on their own rows.
 
 > The BigQuery key PATH (`BQ_CREDENTIALS_PATH=/secrets/bq-reader.json`) is set in
 > `docker-compose.prod.yml`, not `.env`. The non-secret sync settings (GCP project, view,

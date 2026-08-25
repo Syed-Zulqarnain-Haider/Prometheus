@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import {
   type AppMasterFilters,
   useAppMaster,
+  useMe,
   useUpdateAppMaster,
 } from "@/lib/api-hooks";
 import { cn } from "@/lib/utils";
@@ -101,6 +102,7 @@ interface Card {
 }
 
 export function SpotlightClient() {
+  const { data: me, isLoading: meLoading } = useMe();
   const [offset, setOffset] = useState(0);
   const list = useAppMaster(EMPTY_FILTERS, PAGE, offset);
   const update = useUpdateAppMaster();
@@ -230,6 +232,16 @@ export function SpotlightClient() {
     update.mutate({ key: card.key, body });
   }
 
+  // Spotlight edits master data through the ADMIN App Master API, so it carries the
+  // same guard app-master-client.tsx does. Hiding the nav entry restricts nothing on
+  // its own - a typed /spotlight URL still renders this component. Placed after every
+  // hook, so the early return cannot change hook order between renders.
+  if (meLoading) {
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
+  }
+  if (!me?.capabilities.includes("admin_panel")) {
+    return <p className="text-sm text-muted-foreground">You don&apos;t have access to Spotlight.</p>;
+  }
   if (list.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading app master...</p>;
   }

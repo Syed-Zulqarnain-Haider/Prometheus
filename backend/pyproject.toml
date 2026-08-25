@@ -15,7 +15,11 @@ dependencies = [
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.14.2",
-    "redis>=5.0",
+    # >=8.0, not >=5.0: redis-py only annotates from_url() from 8.0 onwards, and
+    # `mypy --strict` rejects the untyped call on anything older (verified against
+    # 5.3.1, 6.2.0 and 7.0.0). The old floor let a resolver legally pick a client the
+    # type checker refuses.
+    "redis>=8.0",
     "firebase-admin>=6.5",
     # Runtime dependency (NOT optional): the XLSX export writer in
     # services/reports_service.build_xlsx imports openpyxl. Keep it here so

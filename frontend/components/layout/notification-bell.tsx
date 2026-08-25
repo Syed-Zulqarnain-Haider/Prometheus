@@ -149,7 +149,15 @@ export function NotificationBell() {
     // so an unchecked link would execute script in this authenticated session. The
     // leading-slash test (rejecting "//host", which is protocol-relative) closes both
     // that and the silent off-site redirect.
-    if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) {
+    // The backslash test matters: browsers resolve a backslash as a forward slash
+    // for special schemes, so "/\\evil.com" satisfies both slash tests and then
+    // reaches router.push() as a foreign origin.
+    if (
+      n.link &&
+      n.link.startsWith("/") &&
+      !n.link.startsWith("//") &&
+      !n.link.includes("\\")
+    ) {
       setOpen(false);
       router.push(n.link); // deep-link straight to where the change happened
     }
