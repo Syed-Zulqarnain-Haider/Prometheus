@@ -48,6 +48,35 @@ TH_OPEN = re.compile(r"<th(?=[\s>])")
 THEAD_OPEN = "<thead"
 THEAD_CLOSE = "</thead>"
 
+SCOPE_ATTR = ' scope="col"'
+
+
+def tag_end(text: str, start: int) -> int:
+    """Index of the '>' that actually closes the JSX tag opening at `start`, or -1.
+
+    A regex cannot do this and must not try. An attribute may hold an arrow function -
+    onDragOver={(e) => reordering && e.preventDefault()} - whose '>' would end the tag
+    early, and a className may hold a template literal full of braces. So: count brace
+    depth, skip string and template literals, and take the first '>' seen at depth zero
+    outside quotes. That is the real one.
+    """
+    index, depth, quote = start, 0, ""
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote and text[index - 1] != "\\":
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif char == ">" and depth == 0:
+            return index
+        index += 1
+    return -1
+
 # Only containers whose whole opening tag is a plain className string. Anything with a
 # brace expression is skipped and reported - a regex has no business inside JSX braces.
 CONTAINER = re.compile(r'<(div|CardContent)\s+className="([^"]*)"\s*>')
@@ -72,9 +101,13 @@ GUARD = '''/**
  * scroll container wrapping a table must be focusable or its far columns are unreachable
  * without a mouse. Neither is visible in review, so the guard has to be automatic.
  *
- * The last test is the one that matters most: it asserts the scanner actually FOUND
- * tables. A source scanner whose regex silently stops matching passes every other test in
- * this file while checking nothing at all.
+ * It finds the end of a tag by counting braces rather than by regex, because an attribute
+ * can hold an arrow function whose ">" is not the end of the tag. The first version of the
+ * patch script used a positional check instead and added a second scope to a header that
+ * already had one; the duplicate-attribute test below is that bug, pinned.
+ *
+ * The count assertions matter as much as the offender lists: a source scanner whose regex
+ * quietly stops matching passes every "no offenders" test while checking nothing at all.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -95,38 +128,63 @@ function tsxFiles(dir: string): string[] {
 
 const FILES = [join(ROOT, "components"), join(ROOT, "app")].flatMap(tsxFiles);
 
-/** Every <thead>...</thead> body in a file. */
-function theadRegions(source: string): string[] {
-  const regions: string[] = [];
+/** Index of the ">" that really closes the tag opening at `start`, or -1. */
+function tagEnd(text: string, start: number): number {
+  let depth = 0;
+  let quote = "";
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (quote) {
+      if (char === quote && text[i - 1] !== "\\\\") quote = "";
+    } else if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+    } else if (char === ">" && depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** Every <th ...> opening tag that sits inside a <thead>...</thead>. */
+function headerTags(source: string): string[] {
+  const tags: string[] = [];
   let at = 0;
   for (;;) {
     const open = source.indexOf("<thead", at);
     if (open === -1) break;
     const close = source.indexOf("</thead>", open);
     if (close === -1) break;
-    regions.push(source.slice(open, close));
+    for (const match of source.slice(open, close).matchAll(/<th(?=[\\s>])/g)) {
+      const absolute = open + (match.index ?? 0);
+      const end = tagEnd(source, absolute);
+      if (end !== -1 && end < close) tags.push(source.slice(absolute, end + 1));
+    }
     at = close + 1;
   }
-  return regions;
+  return tags;
 }
 
 describe("table accessibility, enforced against the source", () => {
-  it("gives every column header a scope", () => {
-    const offenders: string[] = [];
+  it("gives every column header exactly one scope", () => {
+    const missing: string[] = [];
+    const duplicated: string[] = [];
     let headers = 0;
     for (const file of FILES) {
-      const source = readFileSync(file, "utf8");
-      for (const region of theadRegions(source)) {
-        for (const match of region.matchAll(/<th(?=[\\s>])/g)) {
-          headers += 1;
-          if (!region.slice(match.index).startsWith('<th scope=')) {
-            offenders.push(`${relative(ROOT, file)}: <th without scope`);
-          }
-        }
+      for (const tag of headerTags(readFileSync(file, "utf8"))) {
+        headers += 1;
+        const scopes = (tag.match(/\\bscope=/g) ?? []).length;
+        if (scopes === 0) missing.push(`${relative(ROOT, file)}: <th without scope`);
+        if (scopes > 1) duplicated.push(`${relative(ROOT, file)}: <th with two scopes`);
       }
     }
     expect(headers).toBeGreaterThan(20);
-    expect(offenders).toEqual([]);
+    expect(missing).toEqual([]);
+    // A duplicate is not a style nit - react/jsx-no-duplicate-props fails the build.
+    expect(duplicated).toEqual([]);
   });
 
   it("keeps every table scroll container reachable from the keyboard", () => {
@@ -144,8 +202,6 @@ describe("table accessibility, enforced against the source", () => {
         }
       }
     }
-    // If this drops to zero the scanner has stopped seeing tables and the test above it
-    // is passing vacuously. That is the failure mode this assertion exists to catch.
     expect(containers).toBeGreaterThan(3);
     expect(offenders).toEqual([]);
   });
@@ -153,9 +209,20 @@ describe("table accessibility, enforced against the source", () => {
 '''
 
 
-def add_scopes(source: str) -> tuple[str, int]:
-    """Insert scope="col" into every <th> that lives inside a <thead> and lacks one."""
-    out, at, added = [], 0, 0
+def add_scopes(source: str) -> tuple[str, int, int, list[str]]:
+    """Give every <th> inside a <thead> a scope, exactly once.
+
+    Three cases, and the middle one is what the first version of this script got wrong:
+    a header with NO scope gets one; a header that ALREADY has one - anywhere in the tag,
+    not merely straight after `<th` - is left alone; and a header carrying two, because an
+    earlier run inserted a duplicate next to an existing attribute, is repaired by dropping
+    the one this script added. That last case is why this is a repair, not just a guard:
+    the broken output is already sitting in a working tree somewhere.
+    """
+    edits: list[tuple[int, int, str]] = []
+    added = repaired = 0
+    notes: list[str] = []
+    at = 0
     while True:
         open_at = source.find(THEAD_OPEN, at)
         if open_at == -1:
@@ -163,21 +230,48 @@ def add_scopes(source: str) -> tuple[str, int]:
         close_at = source.find(THEAD_CLOSE, open_at)
         if close_at == -1:
             break
-        out.append(source[at:open_at])
-        region = source[open_at:close_at]
-        pieces, last = [], 0
-        for match in TH_OPEN.finditer(region):
-            if region[match.start():].startswith('<th scope='):
+        for match in TH_OPEN.finditer(source, open_at, close_at):
+            end_at = tag_end(source, match.start())
+            if end_at == -1 or end_at > close_at:
+                notes.append("unterminated <th tag - left untouched")
                 continue
-            pieces.append(region[last:match.end()])
-            pieces.append(' scope="col"')
-            last = match.end()
-            added += 1
-        pieces.append(region[last:])
-        out.append("".join(pieces))
-        at = close_at
-    out.append(source[at:])
-    return "".join(out), added
+            tag = source[match.start():end_at + 1]
+            count = tag.count("scope=")
+            if count == 0:
+                edits.append((match.start(), end_at + 1, "<th" + SCOPE_ATTR + tag[3:]))
+                added += 1
+            elif count > 1 and tag.startswith("<th" + SCOPE_ATTR):
+                edits.append(
+                    (match.start(), end_at + 1, "<th" + tag[3 + len(SCOPE_ATTR):])
+                )
+                repaired += 1
+        at = close_at + len(THEAD_CLOSE)
+
+    out, last = [], 0
+    for begin, finish, replacement in edits:
+        out.append(source[last:begin])
+        out.append(replacement)
+        last = finish
+    out.append(source[last:])
+    return "".join(out), added, repaired, notes
+
+
+def duplicate_attributes(source: str) -> list[str]:
+    """Tags carrying the same attribute twice - what ESLint's jsx-no-duplicate-props
+    rejects, and what the previous version of this script silently produced. Checked on
+    the OUTPUT before anything is written: a script that can corrupt a file must be the
+    thing that notices, not the build twenty minutes later."""
+    problems: list[str] = []
+    for match in re.finditer(r"<[A-Za-z][A-Za-z0-9.]*", source):
+        end_at = tag_end(source, match.start())
+        if end_at == -1:
+            continue
+        tag = source[match.start():end_at + 1]
+        for attribute in ("scope=", "tabIndex=", "role=", "aria-label="):
+            if tag.count(attribute) > 1:
+                line = source.count("\n", 0, match.start()) + 1
+                problems.append(f"line {line}: {attribute.rstrip('=')} appears twice")
+    return problems
 
 
 def make_focusable(source: str, rel: str, skipped: list[str]) -> tuple[str, int]:
@@ -224,15 +318,31 @@ def main() -> int:
 
     planned: dict[Path, str] = {}
     skipped: list[str] = []
-    scopes = focusables = 0
+    corrupt: list[str] = []
+    scopes = focusables = repairs = 0
     for path in files:
         original = path.read_text()
-        text, added = add_scopes(original)
+        text, added, mended, notes = add_scopes(original)
         text, fixed = make_focusable(text, str(path), skipped)
         scopes += added
         focusables += fixed
+        repairs += mended
+        skipped.extend(f"{path}: {note}" for note in notes)
+        # Verify the OUTPUT, not the input. The first version of this script emitted a
+        # duplicate scope on a header that already had one and only found out when the
+        # production build refused it - a failure the script itself should have caught.
+        for problem in duplicate_attributes(text):
+            corrupt.append(f"{path} {problem}")
         if text != original:
             planned[path] = text
+
+    if corrupt:
+        print("ABORTED - NOTHING was written. The patched output has duplicate JSX")
+        print("attributes, which ESLint (react/jsx-no-duplicate-props) rejects:")
+        print()
+        for problem in corrupt:
+            print(f"  {problem}")
+        return 1
 
     css = GLOBALS_CSS.read_text() if GLOBALS_CSS.exists() else ""
     if not css:
@@ -253,7 +363,7 @@ def main() -> int:
     if not planned:
         print("nothing to do - already applied")
         return 0
-    if scopes == 0 and focusables == 0 and GUARD_TEST.exists() and ":focus-visible" in css:
+    if scopes == 0 and focusables == 0 and repairs == 0 and GUARD_TEST.exists() and ":focus-visible" in css:
         print("ABORTED: matched no headers and no containers - the scanner is broken,")
         print("not the tree. Nothing was written.")
         return 1
@@ -265,6 +375,8 @@ def main() -> int:
     print()
     print(f"scope=\"col\" added to {scopes} column headers")
     print(f"tab stop added to {focusables} scrolling tables")
+    if repairs:
+        print(f"repaired {repairs} header(s) that a previous run gave a duplicate scope")
     for note in skipped:
         print(f"note  {note}")
     print()
