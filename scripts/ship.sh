@@ -25,6 +25,18 @@ COMPOSE="docker compose -f docker-compose.prod.yml"
 echo "### 1/5 fetching scripts"
 git fetch mirror dev
 git checkout FETCH_HEAD -- scripts/
+# `git checkout <commit> -- path` only WRITES the files present in that commit; it never
+# removes ones deleted since. A script retired upstream therefore came back to life here
+# on the next fetch - which is how a reverted, known-broken patch script reappeared and
+# got committed a second time. Delete what the fetched commit no longer carries.
+stale=$(comm -23 \
+  <(git ls-files scripts/ | sort) \
+  <(git ls-tree -r --name-only FETCH_HEAD -- scripts/ | sort))
+if [ -n "$stale" ]; then
+  echo "    retiring scripts deleted upstream:"
+  printf '      %s\n' $stale
+  printf '%s\n' $stale | xargs -r git rm -qf --
+fi
 chmod +x scripts/*.sh
 
 if [ "${1:-}" = "--no-patch" ]; then
