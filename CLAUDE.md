@@ -97,7 +97,7 @@ performance data. ~50 internal users at launch. Data source: BigQuery. Serving: 
 backend/app/{main.py, core/, models/, schemas/, api/v1/, services/, sync/}
 backend/{alembic/, tests/}
 frontend/{app/, components/{charts,tables,filters,layout}/, lib/, tests/}
-.github/workflows/{ci.yml, deploy-backend.yml, deploy-frontend.yml}
+scripts/  (ship.sh, run-backend-tests.sh, run-frontend-tests.sh, patch scripts)
 docs/  (the technical spec + this file's source decisions)
 ```
 Step 1 (DONE, in repo): sql/bigquery/daily_performance_v1.sql, sql/postgres/001+002,
@@ -141,22 +141,25 @@ flow.**
   `production`.
 - Promotion is the OWNER'S call: they test on `dev`, and when a change is finalised `dev`
   is merged into `production`. Never merge to `production` unasked.
-- Both branches are gated by CI (`.github/workflows/ci.yml` watches `production`, `dev` and
-  `main`) - a branch CI does not watch is a branch where nothing is checked.
+- Both branches are gated by the SAME checks, run before delivery and again on the server:
+  ruff, mypy --strict, pytest (`./scripts/run-backend-tests.sh`), tsc, vitest
+  (`./scripts/run-frontend-tests.sh`), next build. A branch nothing checks is a branch
+  where nothing is checked.
 - Keep the two from drifting: after a promotion, `dev` should be brought back in line with
   `production` so the next change starts from what is live.
 - Never merge with failing or skipped checks. State explicitly anything that could not
   be verified locally (e.g. needs GCP/Firebase).
-- **GitLab is the ONLY repository that matters** (owner decision, 2026-08-11). It is the
-  source of truth and the deployment remote; `production` and `dev` live there.
-- GitHub is a transport pipe ONLY, because the assistant's sandbox cannot reach GitLab:
-  work is pushed to GitHub, the server fetches it from there, and the server pushes to
-  GitLab. Never raise GitHub PRs, CI results, branch cleanup or mirror bookkeeping with the
-  owner - it is plumbing, not their concern. Report status in terms of GitLab and the
-  deployed host.
-- Verification therefore happens LOCALLY before delivery (ruff, mypy --strict, pytest,
-  tsc, lint, vitest, next build) and again in the server's docker build. GitHub Actions is
-  not a gate the owner should ever hear about.
+- **GitLab is the ONLY repository. There is no other.** (owner decision, 2026-08-11,
+  restated as a standing order 2026-08-25.) It is the source of truth, the deployment
+  remote, and the only repository ever to be named to the owner. `production` and `dev`
+  live there.
+- How a script physically reaches the server is an internal detail of
+  `./scripts/ship.sh` and is NEVER surfaced: no remote names, no raw fetch/push commands,
+  no branch bookkeeping, no CI belonging to anything other than GitLab. Every command
+  handed to the owner is `./scripts/ship.sh <script>.py` or a GitLab/server command.
+  Report status only in terms of GitLab and the deployed host.
+- Verification happens LOCALLY before delivery (ruff, mypy --strict, pytest, tsc, lint,
+  vitest, next build) and again in the server's docker build. Those are the gates.
 
 
 ## Owner preferences

@@ -463,15 +463,15 @@ dismissal in localStorage; admins get a floating megaphone composer.
 
 ### Delivery pipeline (how code reaches production)
 
-The assistant's sandbox can reach GitHub but NOT GitLab; the server can reach both.
-Flow: verify locally (ruff, mypy, pytest, tsc, lint, vitest, next build) -> push to the
-GitHub transport branch -> on the server: `git fetch <github-url> dev` +
-`git checkout FETCH_HEAD -- <explicit file paths>` (NEVER whole directories - the sandbox
-tree is stale for server-drifted files) -> anchored patch scripts for drifted files
+GitLab is the only repository: the source of truth and the deployment remote.
+Flow: verify locally (ruff, mypy, pytest, tsc, lint, vitest, next build) -> on the server
+`./scripts/ship.sh <script>.py`, which collects the change, applies it, runs only the
+suite that can be affected, and restarts only if that suite passes -> anchored patch
+scripts for drifted files
 (two-pass: verify every anchor exactly once, else write nothing; idempotent via marker)
 -> docker build + import smoke test (`python -c "import app.main"`) in a throwaway
 container BEFORE anything restarts -> `alembic upgrade head` -> `up -d --build` ->
-commit + push to GitLab (`origin`). Alembic revision ids must be NEW - a reused id
+commit + push to GitLab (`origin`) - the only repository. Alembic revision ids must be NEW - a reused id
 silently no-ops the idempotency check (this bit once: d4e5f6a7b8c9 collided with July's
 app-master migration).
 
@@ -820,7 +820,7 @@ Findings from three audits (API, frontend, infrastructure):
   uses `renderMode: "richText"` so an upstream app name cannot reach `innerHTML`;
   announcement dismissals are scoped per user and shape-checked.
 - Dev compose binds Postgres/Redis to loopback; `.gitignore` covers `*.rdb`, `backups/` and
-  Firebase `*adminsdk*.json` key filenames; CI `GITHUB_TOKEN` is reduced to `contents: read`.
+  Firebase `*adminsdk*.json` key filenames.
   (There is no separate secret-scan denylist - `.gitignore` is the whole control. A plain
   `.sql` dump is not covered, only `*.sql.gz`/`*.dump`.)
 

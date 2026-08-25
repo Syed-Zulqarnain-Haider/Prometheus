@@ -3,14 +3,16 @@
 #
 # Written because the assistant has no access to this machine - it can only hand over
 # commands - and a four-line ssh chain with a backslash at every line end is a paste
-# waiting to be mangled by a terminal.
+# waiting to be mangled by a terminal. How a change physically arrives is this script's
+# business and nobody else's: the only command anyone should ever need is
+#   ./scripts/ship.sh <script>.py
 #
 # Usage, from the repository root:
 #   ./scripts/ship.sh <patch-script.py> [more-scripts.py ...]
 #   ./scripts/ship.sh --no-patch                 # just test + build + restart
 #
 # Order, and every step gates the next:
-#   1. fetch the transport remote and take ONLY scripts/ from it (surgical - no merge)
+#   1. collect the change into scripts/ (surgical - no merge, no history entanglement)
 #   2. run each patch script; any failure stops here, before anything is built
 #   3. backend suite  (skipped when no Python changed)
 #   4. frontend tsc + vitest  (skipped when no TS/TSX changed)
@@ -22,7 +24,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-echo "### 1/5 fetching scripts"
+echo "### 1/5 collecting the change"
 git fetch mirror dev
 git checkout FETCH_HEAD -- scripts/
 # `git checkout <commit> -- path` only WRITES the files present in that commit; it never
