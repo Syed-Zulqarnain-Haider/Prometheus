@@ -62,7 +62,7 @@ describe("sidebar navigation", () => {
     // inferred from the URL - /pod-owners is admin-only and lives nowhere near /admin -
     // so the list is explicit. Gating a new page is a decision, and adding it here is
     // how that decision gets seen by a reviewer rather than slipping through.
-    const INTENTIONALLY_GATED = [...ADMIN_ONLY, "/pod-owners", "/apps-admin"];
+    const INTENTIONALLY_GATED = [...ADMIN_ONLY, "/pod-owners", "/security"];
     for (const item of NAV_ITEMS.filter((i) => i.requiresAdmin)) {
       expect(
         INTENTIONALLY_GATED.includes(item.href) || item.href.startsWith("/admin"),
