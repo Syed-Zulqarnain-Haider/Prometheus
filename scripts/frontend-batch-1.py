@@ -361,15 +361,30 @@ NAV_TEST_SOURCE = '''/**
  * Read from the filesystem on purpose: asserting against a hand-written list of routes
  * would need updating by exactly the person who forgot to update the nav.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { NAV_ITEMS } from "@/lib/nav";
 
-const FRONTEND = fileURLToPath(new URL("../", import.meta.url));
+/** The frontend root, found by looking for it rather than derived from import.meta.url:
+ *  under the jsdom environment that URL is an http: one, and fileURLToPath throws on it
+ *  before a single assertion runs. Walk up from the working directory instead. */
+function frontendRoot(): string {
+  let directory = process.cwd();
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (existsSync(join(directory, "app")) && existsSync(join(directory, "lib", "nav.ts"))) {
+      return directory;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error(`could not locate the frontend root from ${process.cwd()}`);
+}
+
+const FRONTEND = frontendRoot();
 
 /** Routes that are deliberately not in the sidebar. Each needs a reason. */
 const NOT_IN_NAV: Record<string, string> = {
@@ -497,9 +512,10 @@ def main() -> int:
     patch_progress()
     patch_metadata()
 
-    if not NAV_TEST.exists() or "appears in" not in NAV_TEST.read_text(encoding="utf-8"):
+    current = NAV_TEST.read_text(encoding="utf-8") if NAV_TEST.exists() else ""
+    if current != NAV_TEST_SOURCE:
         writes[NAV_TEST] = NAV_TEST_SOURCE
-        note("wrote frontend/tests/nav-coverage.test.ts")
+        note(("updated" if current else "wrote") + " frontend/tests/nav-coverage.test.ts")
 
     if problems:
         report()
