@@ -214,19 +214,39 @@ def scrub(path: Path) -> str | None:
         if replacement.splitlines()[0] in "\n".join(lines):
             continue  # already upgraded
         hit = next((i for i, line in enumerate(lines) if signature in line), None)
-        if hit is None:
-            problems.append(
-                f"{path.name}: could not find {signature!r} to replace with the standing "
-                f"order - the bullet has been reworded; tell me and I will re-anchor it."
-            )
+        if hit is not None:
+            start, end = unit_bounds(lines, hit)
+            print(f"\n  {path.name}:{start + 1}-{end}  (standing order replaces the old bullet)")
+            for line in lines[start:end]:
+                print(f"    - {line}")
+            for line in replacement.splitlines():
+                print(f"    + {line}")
+            lines[start:end] = replacement.splitlines()
             continue
-        start, end = unit_bounds(lines, hit)
-        print(f"\n  {path.name}:{start + 1}-{end}  (standing order)")
-        for line in lines[start:end]:
-            print(f"    - {line}")
+
+        # The bullet has been reworded, so there is nothing to replace. Failing here would
+        # leave memory silent on the subject, which is the outcome this whole script exists
+        # to prevent - so APPEND to the branching-policy section instead, and say where.
+        section = next(
+            (i for i, line in enumerate(lines)
+             if line.startswith("#") and re.search(r"merge|branch", line, re.I)),
+            None,
+        )
+        if section is None:
+            print(f"\n  {path.name}: no branching-policy section - appending a new one")
+            lines.extend(["", "## Repository", "", *replacement.splitlines()])
+            continue
+        end = section + 1
+        while end < len(lines) and not lines[end].startswith("#"):
+            end += 1
+        while end > section + 1 and not lines[end - 1].strip():
+            end -= 1
+        print(f"\n  {path.name}: appending the standing order to {lines[section].strip()!r} "
+              f"at line {end + 1} (its old bullet has been reworded, so there was nothing "
+              f"to replace)")
         for line in replacement.splitlines():
             print(f"    + {line}")
-        lines[start:end] = replacement.splitlines()
+        lines[end:end] = replacement.splitlines()
 
     out = "\n".join(lines)
     if not out.endswith("\n"):
@@ -249,6 +269,20 @@ def scrub(path: Path) -> str | None:
 
 
 def main() -> int:
+    memory = ROOT / "CLAUDE.md"
+    if memory.exists():
+        lines = memory.read_text(encoding="utf-8").splitlines()
+        start = next((i for i, line in enumerate(lines)
+                      if line.startswith("#") and re.search(r"merge|branch", line, re.I)), None)
+        if start is not None:
+            end = start + 1
+            while end < len(lines) and not lines[end].startswith("#"):
+                end += 1
+            print("  CLAUDE.md branching policy as it stands on this server:")
+            for number in range(start, end):
+                print(f"  {number + 1:5}: {lines[number]}")
+            print()
+
     pending: dict[Path, str] = {}
     for path in TARGETS:
         if not path.exists():
