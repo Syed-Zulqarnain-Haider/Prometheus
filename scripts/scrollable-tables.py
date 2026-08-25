@@ -22,6 +22,7 @@ Revert: git checkout -- frontend/
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,8 +68,27 @@ STYLES = '''
 
    A short table is untouched - max-height only bites past the cap - so a six-row
    table looks exactly as it did and a sixty-row one scrolls. */
+/* The shell exists only to hang the bottom fade on: the fade must NOT scroll with the
+   content, so it cannot live on the scroller itself. */
+.table-scroll-shell {
+  position: relative;
+}
+
+.table-scroll-shell::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.75rem;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--color-bg-card), transparent);
+}
+
 .table-scroll {
-  max-height: var(--table-max-height, 26rem);
+  /* A whole number of rows: half a row peeking out reads as a rendering fault, whereas a
+     clean edge plus the fade reads as "there is more". 13 x 2rem + header. */
+  max-height: var(--table-max-height, 28rem);
   overflow: auto;
   /* Reserve the scrollbar's width always, so a table crossing the threshold does
      not shift its columns sideways the moment the bar appears. */
@@ -168,11 +188,48 @@ NEW_DESTRUCTURE = '''  isLoading,
 OLD_SLICE = ".slice(0, 10),"
 NEW_SLICE = "// slice(0, undefined) keeps everything - the cap is opt-in.\n        .slice(0, limit),"
 
+#: The table's closing tags, matched with whatever indentation is on disk rather than
+#: whatever it had in the copy I read. Adds the shell's closing div and the row count.
+CLOSE_RE = re.compile(
+    r"(?P<table>[ \t]*</table>\n)(?P<i>[ \t]*)</div>\n(?P<end>[ \t]*</CardContent>)"
+)
+
+
+def close_replacement(match: "re.Match[str]") -> str:
+    indent = match.group("i")
+    return (
+        match.group("table")
+        + f"{indent}  </div>\n"
+        + f"{indent}</div>\n"
+        + f"{indent}{{/* How much there is. An inner scroller hides the size of the thing\n"
+        + f"{indent}    you are looking at, and this table used to hide it outright by\n"
+        + f"{indent}    keeping ten rows. Rendered only once the body actually scrolls, so\n"
+        + f"{indent}    a short table gains no furniture it does not need. */}}\n"
+        + f"{indent}{{!isLoading && !isError && sorted.length > ROWS_BEFORE_SCROLL && (\n"
+        + f'{indent}  <p className="px-3 pt-2 text-[11px] tabular-nums text-muted-foreground">\n'
+        + f"{indent}    {{sorted.length}} rows - scroll for the rest\n"
+        + f"{indent}  </p>\n"
+        + f"{indent})}}\n"
+        + match.group("end")
+    )
+
+OLD_ROWSCONST = "export type Row = Record<string, MetricValue>;"
+NEW_ROWSCONST = '''export type Row = Record<string, MetricValue>;
+
+/** Rows that fit before the body starts scrolling - matches --table-max-height in
+ *  globals.css. Only used to decide whether the row count is worth showing. */
+const ROWS_BEFORE_SCROLL = 12;'''
+
 OLD_DEPS = "[rows, sortCol],"
 NEW_DEPS = "[rows, sortCol, limit],"
 
 OLD_WRAPPER = '<div className="overflow-x-auto" tabIndex={0}>'
-NEW_WRAPPER = '<div className="table-scroll" tabIndex={0}>'
+#: The shell carries the bottom fade (it must not scroll with the content); the inner
+#: div is the scroller. Indentation is cosmetic in JSX, so a fixed indent here is safe.
+NEW_WRAPPER = (
+    '<div className="table-scroll-shell">\n'
+    '            <div className="table-scroll" tabIndex={0}>'
+)
 
 
 def patch_table() -> None:
@@ -191,12 +248,19 @@ def patch_table() -> None:
         (OLD_SLICE, NEW_SLICE, "every row rendered unless a limit is passed"),
         (OLD_DEPS, NEW_DEPS, "limit in the memo dependencies"),
         (OLD_WRAPPER, NEW_WRAPPER, "body scrolls with a sticky header"),
+        (OLD_ROWSCONST, NEW_ROWSCONST, "row-count threshold"),
     ):
         if out is None:
             return
         out = swap(TABLE, out, old, new, what)
     if out is None:
         return
+    matches = len(CLOSE_RE.findall(out))
+    if matches != 1:
+        fail(f"revenue-table.tsx: the table's closing tags matched {matches} times, expected 1")
+        return
+    out = CLOSE_RE.sub(close_replacement, out, count=1)
+    note("  revenue-table.tsx: row count under a scrolling body")
     if ".slice(0, 10)" in out:
         fail("a hard-coded top-10 slice survived in revenue-table.tsx")
         return
