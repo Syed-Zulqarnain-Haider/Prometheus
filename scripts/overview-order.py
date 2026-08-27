@@ -107,6 +107,41 @@ def pick(components: dict[str, str], pattern: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+IMPORT_RE = re.compile(r"import\s*\{(?P<names>[^}]*)\}\s*from\s*\"(?P<path>@/[^\"]+)\"")
+
+
+def component_sources() -> dict[str, str]:
+    """{ComponentName: its source text}, followed through the page's own imports."""
+    out: dict[str, str] = {}
+    if not CLIENT.exists():
+        return out
+    for match in IMPORT_RE.finditer(CLIENT.read_text()):
+        rel = match.group("path").replace("@/", "frontend/", 1)
+        for candidate in (Path(rel + ".tsx"), Path(rel + ".ts")):
+            path = ROOT / candidate
+            if path.exists():
+                text = path.read_text()
+                for name in match.group("names").split(","):
+                    name = name.strip().split()[-1] if name.strip() else ""
+                    if name:
+                        out[name] = text
+                break
+    return out
+
+
+def by_heading(components: dict[str, str], heading: str) -> str | None:
+    """The grid id of the widget whose own source renders ``heading``.
+
+    The name the owner uses for a widget is the one on screen, not the one in the
+    component's filename - "Pod Owner Performance" is rendered by ``PodTable``, and a
+    matcher looking for "PodOwner" found nothing and reported success at finding nothing.
+    So the heading itself is what is searched for.
+    """
+    sources = component_sources()
+    hits = [gid for comp, gid in components.items() if heading in sources.get(comp, "")]
+    return hits[0] if len(hits) == 1 else None
+
+
 def section_order() -> bool:
     label = "order"
     if not LAYOUT.exists() or not CLIENT.exists():
@@ -123,7 +158,11 @@ def section_order() -> bool:
 
     kpis = pick(components, r"^KpiRow$")
     trend = pick(components, r"MonthlyTrend")
-    pod_owner = pick(components, r"PodOwner")
+    # By the heading on screen first; the component name is only a fallback, and a
+    # deliberately loose one - PodTable is a table, PodSplit is a donut.
+    pod_owner = by_heading(components, "Pod Owner Performance") or pick(
+        components, r"^Pod\w*Table$|PodOwner"
+    )
     missing = [
         name
         for name, value in (
@@ -137,7 +176,7 @@ def section_order() -> bool:
         skipped.append(
             f"[{label}] could not identify {', '.join(missing)} in {CLIENT} - reordering\n"
             "  around a widget that might be the wrong one is worse than not reordering.\n"
-            "  What the page renders:\n"
+            "  What the page renders (component -> grid id):\n"
             + "\n".join(f"      | {comp} -> {gid}" for comp, gid in sorted(components.items()))
         )
         return False
