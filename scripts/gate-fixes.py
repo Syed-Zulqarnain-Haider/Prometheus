@@ -189,6 +189,78 @@ def section_advisor() -> None:
         )
 
 
+# ── C. the default-window test ─────────────────────────────────────────────────────
+FILTERS_TEST = ROOT / "frontend/tests/filters.test.ts"
+
+NEW_DEFAULT_TEST = """it("defaults to this month so far - the 1st through today", () => {{
+{i}  // The default window is a product decision, so it is pinned here rather than read
+{i}  // back from the module: a test that derives the answer from the code it is testing
+{i}  // agrees with any change, including a mistake. The business reports in calendar
+{i}  // months, so the figure on screen when the dashboard opens should be the one
+{i}  // anybody would quote; a rolling 30 days spans two months and matches no report
+{i}  // that gets filed.
+{i}  const f = defaultFilters();
+{i}  expect(f.preset).toBe("mtd");
+
+{i}  const {{ from, to }} = presetRange("mtd");
+{i}  expect(f.dateFrom).toBe(from);
+{i}  expect(f.dateTo).toBe(to);
+
+{i}  // Month-to-date means FROM THE 1st, inclusive of today - not a rolling window that
+{i}  // happens to be about a month long. Asserting the shape of `from` is what tells
+{i}  // those two apart; comparing it to presetRange's own output would not.
+{i}  expect(from).toMatch(/-01$/);
+{i}  expect(to >= from).toBe(true);
+{i}}});"""
+
+
+def section_default_window() -> None:
+    label = "default window"
+    if not FILTERS_TEST.exists():
+        report.append(f"[{label}] {FILTERS_TEST} does not exist here - nothing to update")
+        return
+    text = FILTERS_TEST.read_text()
+    if 'toBe("mtd")' in text:
+        report.append(f"[{label}] already describes the month-to-date default - left alone")
+        return
+
+    # The test that pins the default, found by what it asserts rather than by its title.
+    head = re.search(r"^(?P<indent>[ \t]*)it\(\s*\"[^\"]*30D[^\"]*\"", text, re.M)
+    if head is None:
+        skipped.append(
+            f"[{label}] {FILTERS_TEST}: no it(...) mentioning 30D, so which test pins the\n"
+            "  default is a guess. Nothing changed.\n" + window(text, "defaultFilters")
+        )
+        return
+
+    open_at = text.find("{", head.end())
+    close_at = matching_brace(text, open_at) if open_at != -1 else None
+    if close_at is None:
+        skipped.append(
+            f"[{label}] {FILTERS_TEST}: could not find the end of that test's body.\n"
+            "  Nothing changed.\n" + window(text, "30D")
+        )
+        return
+    tail = text[close_at + 1 :]
+    if not tail.lstrip().startswith(");"):
+        skipped.append(
+            f"[{label}] {FILTERS_TEST}: the test body does not close as expected, so its\n"
+            "  expected, so the boundaries are not certain. Nothing changed.\n"
+            + window(text, "30D")
+        )
+        return
+    end = close_at + 1 + tail.index(");") + 2
+
+    indent = head.group("indent")
+    replacement = NEW_DEFAULT_TEST.format(i=indent)
+    text = text[: head.start()] + indent + replacement + text[end:]
+    FILTERS_TEST.write_text(text)
+    report.append(
+        f"[{label}] {FILTERS_TEST}: the default-window test now describes month-to-date, "
+        "the default it was changed to"
+    )
+
+
 def main() -> int:
     if not (ROOT / "backend").is_dir() or not (ROOT / "frontend").is_dir():
         print("ABORTED: run this from the repository root.", file=sys.stderr)
@@ -196,6 +268,7 @@ def main() -> int:
 
     section_expected_tables()
     section_advisor()
+    section_default_window()
 
     print("PATCHED, NOT YET VERIFIED - the test run is the verification, not this script.")
     for line in report:

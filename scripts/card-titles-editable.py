@@ -900,10 +900,13 @@ CARD_TITLE_NEW = '''const CardTitle = React.forwardRef<HTMLDivElement, React.HTM
 # The KPI label is matched by SHAPE, not by its exact classes: a KPI card's caption is
 # "the element that renders {label}", and the class list on it is styling that moves.
 # Anchoring on the full class string made this miss the moment the card was restyled.
+# ...and not by its tag either. The deployed card wraps the caption in a <span> next to
+# an info tooltip; an earlier version of this file used a <div>. Both are "the element
+# that renders {label}", which is the only part that is actually the caption.
 KPI_LABEL_RE = re.compile(
-    r"(?P<open><div[^>]*className=\"[^\"]*uppercase[^\"]*\"[^>]*>)"
+    r"(?P<open><(?P<tag>div|span)[^>]*className=\"[^\"]*uppercase[^\"]*\"[^>]*>)"
     r"(?P<gap1>\s*)\{label\}(?P<gap2>\s*)"
-    r"(?P<close></div>)"
+    r"(?P<close></(?P=tag)>)"
 )
 
 PAGE_TITLE_OLD = '''      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>'''
