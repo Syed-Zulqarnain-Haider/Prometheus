@@ -54,6 +54,8 @@ VERSIONS = ROOT / "backend/alembic/versions"
 # Globally NEW id. A reused id makes the "already there?" glob succeed against somebody
 # else's file and the migration silently never runs.
 MIGRATION_ID = "c4d9e17b6a02"
+# Used only if the revision history has forked. Also globally new.
+MERGE_ID = "d1f0c8a24b6e"
 
 failures: list[str] = []
 notes: list[str] = []
@@ -443,6 +445,36 @@ def section_overview_order() -> list[str]:
             new_order.append(key)
     new_order += [k for k in ordered_keys if k not in new_order]
 
+    # Moving whole rows gets the rows in the right order but says nothing about which
+    # widget sits on the LEFT of a shared row - and two of the three leaders turned out
+    # to be side by side, which made "Pod Owner first" come out as "HOU first". Within a
+    # row, the leaders are permuted into the requested order across the x-positions they
+    # already occupy: the row's geometry is untouched, only which widget is in which slot
+    # changes. Skipped (and reported) if their widths differ, because swapping a 4-wide
+    # widget into an 8-wide slot would leave a hole.
+    lead_rank = {lead: i for i, lead in enumerate(lead_ids)}
+    for row in rows.values():
+        in_row = [e for e in row if e["id"] in lead_rank]
+        if len(in_row) < 2:
+            continue
+        if len({e["w"] for e in in_row}) != 1:
+            notes.append(
+                f"{section}: {[e['id'] for e in in_row]} share a row but have different "
+                "widths - left in their existing left-to-right order"
+            )
+            continue
+        slots = sorted(int(e["x"]) for e in in_row)
+        ordered_leads = sorted(in_row, key=lambda e: lead_rank[e["id"]])
+        for slot, entry in zip(slots, ordered_leads, strict=True):
+            entry["x"] = str(slot)
+        # The phone layout stacks in ARRAY order, so the list has to follow the columns.
+        for position, entry in zip(
+            [i for i, e in enumerate(row) if e["id"] in lead_rank],
+            ordered_leads,
+            strict=True,
+        ):
+            row[position] = entry
+
     lines: list[str] = []
     visual: list[str] = []
     y = 0
@@ -547,7 +579,7 @@ from __future__ import annotations
 from alembic import op
 
 revision: str = "{rev}"
-down_revision: str | None = "{down}"
+down_revision: str | tuple[str, ...] | None = "{down}"
 branch_labels: None = None
 depends_on: None = None
 
@@ -563,25 +595,61 @@ def downgrade() -> None:
 '''
 
 
-def detect_head(section: str) -> str | None:
-    """Find the single revision nothing points at. Detected, never assumed."""
+MERGE_TEMPLATE = '''"""merge the forked revision heads
+
+Two revisions ended up with nothing after them - separate branches of the history that
+were never joined. `alembic upgrade head` will not choose between them, so a deploy that
+runs it stops here. This revision is a merge point and nothing else: no schema changes,
+no data changes, it exists purely to give the graph a single head again.
+
+Heads merged: {heads}
+
+Revision ID: {rev}
+Revises: {heads}
+Create Date: {created}
+"""
+
+from __future__ import annotations
+
+revision: str = "{rev}"
+down_revision: str | tuple[str, ...] | None = ({down})
+branch_labels: None = None
+depends_on: None = None
+
+
+def upgrade() -> None:
+    """Nothing to do - merging is a statement about the graph, not about the database."""
+
+
+def downgrade() -> None:
+    """Splitting a merge back into branches is not something to do automatically."""
+'''
+
+
+def detect_heads(section: str) -> list[str]:
+    """Every revision nothing points at. Detected, never assumed.
+
+    Tuple down_revisions (merge points) are parsed too - miss those and an already-merged
+    parent looks like a live head, which would fork the history a second time.
+    """
     revisions: set[str] = set()
     parents: set[str] = set()
     for path in VERSIONS.glob("*.py"):
         text = path.read_text()
-        rev = re.search(r'^revision(?::\s*str)?\s*=\s*["\']([^"\']+)["\']', text, re.M)
-        down = re.search(
-            r'^down_revision(?::[^=]+)?\s*=\s*["\']([^"\']+)["\']', text, re.M
+        rev = re.search(
+            r'^revision(?::\s*[^=\n]+)?\s*=\s*["\']([^"\']+)["\']', text, re.M
         )
         if rev:
             revisions.add(rev.group(1))
+        down = re.search(r"^down_revision(?::[^=\n]+)?\s*=\s*(.+)$", text, re.M)
         if down:
-            parents.add(down.group(1))
-    heads = revisions - parents
-    if len(heads) != 1:
-        fail(section, f"expected exactly one alembic head, found {sorted(heads)}")
-        return None
-    return heads.pop()
+            parents.update(re.findall(r'["\']([^"\']+)["\']', down.group(1)))
+    heads = sorted(revisions - parents)
+    if not heads:
+        fail(
+            section, "found no alembic head at all - the versions directory looks wrong"
+        )
+    return heads
 
 
 def section_migration() -> None:
@@ -594,15 +662,40 @@ def section_migration() -> None:
             f"{section}: migration {MIGRATION_ID} already present - left alone"
         )
         return
-    head = detect_head(section)
-    if head is None:
+    heads = detect_heads(section)
+    if not heads:
         return
+
     stamp = datetime.now(UTC)
+    parent = heads[0]
+
+    if len(heads) > 1:
+        # The history has forked: two revisions with nothing after them. `alembic upgrade
+        # head` refuses to guess between them, which is what ship.sh runs, so this is a
+        # deploy blocker regardless of what else is in the batch. Merging is the standard
+        # fix and it changes no schema - it only joins the graph back together.
+        if list(VERSIONS.glob(f"*{MERGE_ID}*.py")):
+            fail(
+                section,
+                f"merge {MERGE_ID} already exists but there are still multiple heads "
+                f"{heads} - the history forked again and needs a look, not another merge",
+            )
+            return
+        merge_path = VERSIONS / f"{stamp:%Y%m%d_%H%M}_{MERGE_ID}_merge_heads.py"
+        pending[merge_path] = MERGE_TEMPLATE.format(
+            rev=MERGE_ID,
+            down=", ".join(f'"{h}"' for h in heads),
+            heads=", ".join(heads),
+            created=stamp.isoformat(),
+        )
+        parent = MERGE_ID
+        notes.append(f"{section}: {merge_path.name} merges the forked heads {heads}")
+
     path = VERSIONS / f"{stamp:%Y%m%d_%H%M}_{MIGRATION_ID}_reset_overview_layouts.py"
     pending[path] = MIGRATION_TEMPLATE.format(
-        rev=MIGRATION_ID, down=head, created=stamp.isoformat()
+        rev=MIGRATION_ID, down=parent, created=stamp.isoformat()
     )
-    notes.append(f"{section}: {path.name} (down_revision={head})")
+    notes.append(f"{section}: {path.name} (down_revision={parent})")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -402,6 +402,37 @@ def resolve_union(type_expr: str, text: str) -> list[str] | None:
     return LITERAL_RE.findall(alias.group(1))
 
 
+REACT_IMPORT_RE = re.compile(r'import\s+\{(?P<names>[^}]*)\}\s+from\s+"react";\n')
+
+
+def prune_unused_react_import(text: str, name: str) -> str:
+    """Drop `name` from the React import once nothing outside the imports uses it.
+
+    The obvious check - "is the word still in the file?" - is worthless here, because the
+    import line itself contains it. That is exactly the mistake this undoes: converting a
+    file's ONLY useState leaves `import { useState }` behind and lint calls it out. So
+    usage is counted with the import lines taken out first.
+    """
+    body = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("import ")
+    )
+    if re.search(rf"\b{re.escape(name)}\b", body):
+        return text
+
+    match = REACT_IMPORT_RE.search(text)
+    if match is None:
+        return text
+    kept = [
+        part.strip()
+        for part in match.group("names").split(",")
+        if part.strip() and part.strip().split(" as ")[0].strip() != name
+    ]
+    if not kept:
+        return text[: match.start()] + text[match.end() :]
+    replacement = "import { " + ", ".join(kept) + ' } from "react";\n'
+    return text[: match.start()] + replacement + text[match.end() :]
+
+
 def section_url_tabs() -> Section:
     section = Section("url-tabs")
     if URL_TAB_TS.exists() and URL_TAB_TS.read_text() != URL_TAB_SOURCE:
@@ -466,12 +497,12 @@ def section_url_tabs() -> Section:
             )
         patched = text[: match.start()] + replacement + text[match.end() :]
 
-        # Dropping the only useState in a file would orphan its import and fail lint.
-        if "useState" not in patched and "useState" in text:
-            section.skip(
-                f"{path}: that was the file's only useState - the import would dangle"
-            )
-            continue
+        # That may have been the file's ONLY useState, in which case the import is now
+        # dead weight and lint says so.
+        pruned = prune_unused_react_import(patched, "useState")
+        if pruned != patched:
+            section.done.append(f"{path}: dropped the now-unused useState import")
+            patched = pruned
 
         patched = add_import(patched, 'import { useUrlTab } from "@/lib/use-url-tab";')
         section.writes[path] = patched
