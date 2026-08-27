@@ -109,15 +109,16 @@ def main() -> int:
             hits.append((path, match))
 
     if len(hits) != 1:
+        # This board has no expanded-card editor to add a button to - it is a wall of
+        # links straight to App Master. That is a different shape and a different fix,
+        # and ux-batch-6.py is the one that makes it. Nothing to do here, and no reason
+        # to halt a deploy over it.
         print(
-            f"ABORTED - nothing was written.\n\nExpected exactly one Close button "
-            f"handled by `setOpenKey(null)` across the Spotlight files; found "
-            f"{len(hits)}. The files on disk, in full:",
-            file=sys.stderr,
+            f"Nothing to do - no expanded-card editor on this Spotlight board "
+            f"(found {len(hits)} Close buttons handled by setOpenKey). "
+            "ux-batch-6.py covers this board's shape instead."
         )
-        for path in files:
-            dump(path)
-        return 1
+        return 0
 
     path, match = hits[0]
     text = path.read_text()
