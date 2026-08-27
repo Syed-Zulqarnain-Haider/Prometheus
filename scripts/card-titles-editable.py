@@ -897,13 +897,14 @@ CARD_TITLE_NEW = '''const CardTitle = React.forwardRef<HTMLDivElement, React.HTM
   ),
 );'''
 
-KPI_LABEL_OLD = '''        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {label}
-        </div>'''
-
-KPI_LABEL_NEW = '''        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <EditableTitle>{label}</EditableTitle>
-        </div>'''
+# The KPI label is matched by SHAPE, not by its exact classes: a KPI card's caption is
+# "the element that renders {label}", and the class list on it is styling that moves.
+# Anchoring on the full class string made this miss the moment the card was restyled.
+KPI_LABEL_RE = re.compile(
+    r"(?P<open><div[^>]*className=\"[^\"]*uppercase[^\"]*\"[^>]*>)"
+    r"(?P<gap1>\s*)\{label\}(?P<gap2>\s*)"
+    r"(?P<close></div>)"
+)
 
 PAGE_TITLE_OLD = '''      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>'''
 PAGE_TITLE_NEW = '''      <h1 className="text-2xl font-semibold tracking-tight">
@@ -965,6 +966,46 @@ def patch_host(label: str, path: Path, old: str, new: str, import_line: str) -> 
     report.append(f"[{label}] {path}: heading is renamable in place")
 
 
+def patch_kpi(path: Path, import_line: str) -> None:
+    """The KPI caption, found by shape rather than by its class list.
+
+    If it cannot be found the file is PRINTED rather than guessed at - a KPI card is
+    the one heading on the Overview somebody is most likely to want renamed, so
+    "skipped, work it out next time" is not good enough on its own.
+    """
+    label = "kpi cards"
+    if not path.exists():
+        skipped.append(f"[{label}] {path} does not exist here - KPI captions stay fixed.")
+        return
+    text = path.read_text()
+    if "EditableTitle" in text:
+        report.append(f"[{label}] already wired - left alone")
+        return
+
+    hits = list(KPI_LABEL_RE.finditer(text))
+    if len(hits) != 1:
+        skipped.append(
+            f"[{label}] {path}: found {len(hits)} elements rendering {{label}} with an\n"
+            "  uppercase class, expected exactly one. Nothing was changed there; the other\n"
+            "  headings are unaffected. The file, so the next edit can be exact:\n"
+            + "\n".join(f"      | {ln}" for ln in text.splitlines())
+        )
+        return
+
+    hit = hits[0]
+    replacement = (
+        hit.group("open")
+        + hit.group("gap1")
+        + "<EditableTitle>{label}</EditableTitle>"
+        + hit.group("gap2")
+        + hit.group("close")
+    )
+    text = text[: hit.start()] + replacement + text[hit.end() :]
+    text = use_client(add_import(text, import_line, "@/components/ui/editable-title"))
+    pending[path] = text
+    report.append(f"[{label}] {path}: KPI captions are renamable in place")
+
+
 def write_frontend() -> None:
     lib = ROOT / "frontend/lib/ui-labels.ts"
     component = ROOT / "frontend/components/ui/editable-title.tsx"
@@ -988,13 +1029,7 @@ def write_frontend() -> None:
         CARD_TITLE_NEW,
         import_line,
     )
-    patch_host(
-        "kpi cards",
-        ROOT / "frontend/components/overview/kpi-card.tsx",
-        KPI_LABEL_OLD,
-        KPI_LABEL_NEW,
-        import_line,
-    )
+    patch_kpi(ROOT / "frontend/components/overview/kpi-card.tsx", import_line)
     patch_host(
         "page headings",
         ROOT / "frontend/components/layout/page-header.tsx",
