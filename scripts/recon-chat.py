@@ -182,6 +182,61 @@ scan(CHAT_FILES, r"cache|redis|scope_token|perms_token|aggregate_cache_key", con
 print("\n-- what the model is actually told (system prompt) --")
 scan(CHAT_FILES, r"system|SYSTEM_PROMPT|role\s*[:=]\s*[\"']system", context=6, limit=40)
 
+rule("7c. presence - why the live list may be missing people")
+print("""  Online status is almost always "last_seen_at is within N seconds". Three things
+  decide whether it is right, and all three are invisible from the UI:
+
+    a) WHO writes last_seen_at - a dedicated heartbeat, or every authenticated
+       request? A heartbeat mounted only on /chat means everyone reading the
+       dashboard reads as offline.
+    b) HOW OFTEN - if the ping interval is longer than the online window, a user
+       flickers between online and offline while sitting still.
+    c) WHO is listed - if the people list is filtered by row scope or by existing
+       conversations, "all live persons" was never all of them.
+""")
+
+PRESENCE = [
+    path for path in PY + TS
+    if re.search(r"presence|last_seen|online|heartbeat", 
+                 path.read_text(encoding="utf-8", errors="ignore"), re.I)
+]
+print(f"  presence-related modules: {[str(x.relative_to(ROOT)) for x in PRESENCE]}\n")
+
+print("-- (a) what writes last_seen_at, and from where --")
+scan(PRESENCE, r"last_seen|touch|heartbeat|presence|update\(.*seen", context=4, limit=60)
+
+print("\n-- (b) the online window and the ping interval --")
+scan(PRESENCE, r"ONLINE|WINDOW|interval|refetchInterval|seconds|timedelta|minutes", context=2, limit=50)
+
+print("\n-- (c) who the people list returns, and any filter on it --")
+scan([x for x in PY if "people" in x.name or "presence" in x.name],
+     r"^async def |^def |select\(|where\(|scope|role|active", context=2, limit=60)
+
+rule("7d. contact requests - the accept / reject lifecycle")
+print("""  The owner's requirement: a new person sends a request, the other person accepts
+  or rejects, and only after acceptance can they message each other. Checking that
+  the SERVER enforces it - a UI that hides the composer is not enforcement.
+""")
+CHAT_MODULES = [
+    path for path in PY
+    if re.search(r"conversation|chat|message|invite|join.?code",
+                 path.read_text(encoding="utf-8", errors="ignore"), re.I)
+]
+print("-- statuses a conversation can hold --")
+scan(CHAT_MODULES, r"pending|accepted|rejected|blocked|status\s*[:=]|requested_by", context=3, limit=60)
+
+print("\n-- the endpoints that create / accept / reject a request --")
+scan(files(BE / "app" / "api", "*.py"),
+     r'@router\.(post|put|patch|delete)\("[^"]*(conversation|chat|invite|request|accept|reject)',
+     context=6, limit=40)
+
+print("\n-- IS SENDING BLOCKED BEFORE ACCEPTANCE? the send path must refuse a pending --")
+scan(CHAT_MODULES, r"def send|send_message|insert.*message|403|HTTPException", context=5, limit=50)
+
+print("\n-- the client side of the request flow --")
+scan(TS, r"useCreateInvite|useJoinByCode|useOpenDirect|requested_by_me|accept|reject|pending",
+     context=2, limit=60)
+
 rule("8. is a Gemini SDK even installed?")
 for name in ("backend/pyproject.toml", "backend/requirements.txt"):
     path = ROOT / name
