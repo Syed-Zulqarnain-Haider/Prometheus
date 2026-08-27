@@ -35,6 +35,9 @@ from pathlib import Path
 
 ROOT = Path(".")
 COMPOSE = ["docker", "compose", "-f", "docker-compose.prod.yml"]
+# ASCII unit separator: it cannot occur in an email, a status or a date, so splitting
+# a row on it can never chop a value in half the way a pipe did.
+SEP = "\x1f"
 
 findings: list[tuple[str, str, str]] = []  # (severity, area, message)
 
@@ -58,8 +61,8 @@ def sql(query: str) -> tuple[list[list[str]], str | None]:
             "db",
             "sh",
             "-c",
-            'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F"|" -v ON_ERROR_STOP=1 '
-            f"-c {shell_quote(query)}",
+            f'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F"{SEP}" '
+            f"-v ON_ERROR_STOP=1 -c {shell_quote(query)}",
         ],
         capture_output=True,
         text=True,
@@ -70,7 +73,7 @@ def sql(query: str) -> tuple[list[list[str]], str | None]:
             proc.stderr or proc.stdout
         ).strip() else "psql failed"
     rows = [
-        line.split("|") for line in proc.stdout.strip().splitlines() if line.strip()
+        line.split(SEP) for line in proc.stdout.strip().splitlines() if line.strip()
     ]
     return rows, None
 
@@ -206,7 +209,10 @@ def audit_access(present: set[str]) -> None:
     )
     print(f"  {len(rows)} account(s):")
     admins = 0
-    for email, active, expires, roles in rows:
+    for row in rows:
+        if len(row) != 4:
+            continue  # a shape we did not ask for is not a row to reason about
+        email, active, expires, roles = row
         flags = []
         if active != "t":
             flags.append("INACTIVE")
@@ -268,11 +274,11 @@ def audit_data(present: set[str]) -> None:
     print("=" * 72)
 
     if "fact_daily_performance" in present:
-        row = one(
-            "SELECT count(*)||'|'||coalesce(min(date)::text,'-')||'|'||"
-            "coalesce(max(date)::text,'-') FROM fact_daily_performance",
-            "?|?|?",
-        ).split("|")
+        rows, _ = sql(
+            "SELECT count(*)::text, coalesce(min(date)::text,'-'), "
+            "coalesce(max(date)::text,'-') FROM fact_daily_performance"
+        )
+        row = rows[0] if rows and len(rows[0]) == 3 else ["?", "?", "?"]
         print(f"  fact rows: {row[0]}, covering {row[1]} to {row[2]}")
         lag = one(
             "SELECT (current_date - max(date))::text FROM fact_daily_performance", "?"
@@ -309,7 +315,10 @@ def audit_data(present: set[str]) -> None:
             "FROM sync_runs ORDER BY started_at DESC LIMIT 5"
         )
         print("  last sync runs:")
-        for status, started, loaded in rows:
+        for row in rows:
+            if len(row) != 3:
+                continue
+            status, started, loaded = row
             print(f"    {started[:19]}  {status:<10} {loaded} rows")
         if rows and rows[0][0].lower() not in ("success", "ok", "succeeded"):
             note(
@@ -376,7 +385,10 @@ def audit_audit_log(present: set[str]) -> None:
         "AND grantee NOT IN ('postgres', current_user)"
     )
     if grants:
-        for grantee, privilege in grants:
+        for row in grants:
+            if len(row) != 2:
+                continue
+            grantee, privilege = row
             note(
                 "FIX",
                 "audit",
