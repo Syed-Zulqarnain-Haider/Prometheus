@@ -144,6 +144,44 @@ print((result2.stdout or result2.stderr or "").strip()[:4000])
 rule("7. the admin UI that is supposed to configure it")
 scan(TS, r"chat.?status|useSendChat|provider|assistant|api.?key", context=2, limit=60)
 
+rule("7b. RBAC - can the assistant answer about apps the asker cannot see?")
+print("""  The widget tells every user "I only ever see the data you're allowed to see".
+  These are the four ways that sentence is either true or a lie:
+
+    a) does the chat path build its queries through QueryBuilder(context) - the same
+       object the REST API uses, which injects the caller's row scopes into WHERE -
+       or does it query the fact table directly?
+    b) does the MODEL write SQL? Text-to-SQL cannot be scope-safe: the scope has to be
+       injected by code the model cannot edit, not asked for in a prompt.
+    c) are metric-group permissions applied, or can a viewer ask for profit?
+    d) is any answer CACHED on a key that omits the caller's scope? That leaks across
+       users even when every query was correctly scoped.
+""")
+
+CHAT_FILES = [
+    path for path in PY
+    if re.search(r"gemini|anthropic|openai|\bllm\b|assistant|/chat|chat_", 
+                 path.read_text(encoding="utf-8", errors="ignore"), re.I)
+]
+print(f"  chat-related backend modules: {[str(p.relative_to(ROOT)) for p in CHAT_FILES]}\n")
+
+print("-- (a) does it go through the scoped query builder? --")
+scan(CHAT_FILES, r"QueryBuilder|build_scope_filter|fact_scope_filter|UserContext|context\.scopes",
+     context=3)
+
+print("\n-- (b) does the MODEL produce SQL, or call fixed tools? --")
+scan(CHAT_FILES, r"SELECT |FROM fact|text\(|execute\(|tool|function_call|schema|prompt",
+     context=3, limit=80)
+
+print("\n-- (c) metric permissions --")
+scan(CHAT_FILES, r"metric_groups|permitted_measures|Group\.|require_capability", context=2)
+
+print("\n-- (d) cache keys - do they carry the caller's scope? --")
+scan(CHAT_FILES, r"cache|redis|scope_token|perms_token|aggregate_cache_key", context=3)
+
+print("\n-- what the model is actually told (system prompt) --")
+scan(CHAT_FILES, r"system|SYSTEM_PROMPT|role\s*[:=]\s*[\"']system", context=6, limit=40)
+
 rule("8. is a Gemini SDK even installed?")
 for name in ("backend/pyproject.toml", "backend/requirements.txt"):
     path = ROOT / name
