@@ -158,19 +158,27 @@ def apply_swaps(label: str, path: Path, swaps: list[Swap], *, already: str = "")
 
 
 # ── 1. the stylesheet ──────────────────────────────────────────────────────────────
-CSS = """
-/* ── tf-bubble: the floating corner buttons ──────────────────────────────────────
-   The assistant, the privacy shield and the announcement button are three unrelated
-   components. This is the one place that says what a floating button looks like, so
-   changing the colour or the resting opacity is one edit here, not three.
+CSS_START = "/* tf-bubble:start v2 - managed by scripts/bubble-theme.py */"
+CSS_END = "/* tf-bubble:end */"
+# The header of the FIRST version, which had no sentinels. Kept so a file already
+# carrying that block can be replaced rather than appended to a second time.
+CSS_V1_HEADER = "/* \u2500\u2500 tf-bubble: the floating corner buttons"
 
-   --tf-bubble-opacity is written to the root element at runtime by <BubbleTheme />
-   from the admin setting. The fallback below is what renders before that resolves,
-   and if it never resolves - so these can never come up invisible.
+CSS = (
+    CSS_START
+    + """
+/* The floating corner buttons - the assistant, the privacy shield and the announcement
+   button - are three unrelated components. This is the one place that says what a
+   floating button looks like, so changing the colour or the resting opacity is one edit
+   here rather than three.
 
-   Unlayered on purpose: the buttons carry their own Tailwind bg-*/opacity-*
-   utilities, and coming after them in source order is what makes these the last
-   word without needing !important on every rule.                                */
+   --tf-bubble-opacity is written to the root element at runtime by <BubbleTheme /> from
+   the admin setting. The fallback below is what renders before that resolves, and if it
+   never resolves - so these can never come up invisible.
+
+   These rules are deliberately OUTSIDE any @layer. The buttons carry Tailwind
+   background and opacity utilities of their own, and coming after those in source order
+   is what lets these win without an !important on every line. */
 :root {
   --color-bubble: #8ecae6;
   --color-bubble-strong: #5fb0d8;
@@ -193,7 +201,6 @@ CSS = """
 .tf-bubble:hover,
 .tf-bubble:focus-visible,
 .tf-bubble:focus-within,
-.tf-bubble:has(:focus-visible),
 .tf-bubble-active {
   opacity: 1;
 }
@@ -221,6 +228,37 @@ CSS = """
   }
 }
 """
+    + CSS_END
+    + "\n"
+)
+
+
+def comment_balance_ok(css: str) -> bool:
+    """Every /* is closed by the NEXT */ and nothing outside a comment looks like prose.
+
+    This exists because of a real failure: a comment describing Tailwind utilities wrote
+    ``bg-*`` followed by ``/opacity-*``, which spells ``*/`` and closed the comment three
+    lines early. Everything after it became CSS, the build died on an unexpected ``!``,
+    and neither tsc nor vitest could see it - the stylesheet is only parsed by the image
+    build. A stylesheet this script writes gets checked here instead.
+    """
+    depth = 0
+    i = 0
+    while i < len(css):
+        if css.startswith("/*", i):
+            if depth:
+                return False  # a nested open means an earlier one never closed
+            depth = 1
+            i += 2
+            continue
+        if css.startswith("*/", i):
+            if not depth:
+                return False  # a close with nothing open: the comment ended early
+            depth = 0
+            i += 2
+            continue
+        i += 1
+    return depth == 0
 
 
 def section_css() -> None:
@@ -228,10 +266,38 @@ def section_css() -> None:
     if not path.exists():
         skipped.append(f"[css] {path} is missing - the bubbles keep their own looks.")
         return
-    text = path.read_text()
-    if "tf-bubble" in text:
-        report.append("[css] already present - left alone")
+
+    if not comment_balance_ok(CSS):
+        skipped.append(
+            "[css] the stylesheet this script would write has an unbalanced comment, so\n"
+            "  part of it would be parsed as CSS and the image build would fail. Refusing\n"
+            "  to write it - fix the comment in this script."
+        )
         return
+
+    text = path.read_text()
+    if CSS_START in text and CSS_END in text:
+        block = text[text.index(CSS_START) : text.index(CSS_END) + len(CSS_END)]
+        if block == CSS.rstrip("\n"):
+            report.append("[css] already present and current - left alone")
+            return
+        text = text.replace(block, CSS.rstrip("\n"), 1)
+        path.write_text(text)
+        report.append(f"[css] {path}: the managed block was REPLACED with the current one")
+        return
+
+    # An earlier, unsentinelled version of the block. It was appended at the end of the
+    # file, so everything from its header down is ours to replace - which is how a file
+    # already carrying the broken comment gets repaired rather than appended to twice.
+    if CSS_V1_HEADER in text:
+        text = text[: text.index(CSS_V1_HEADER)].rstrip("\n") + "\n" + CSS
+        path.write_text(text)
+        report.append(
+            f"[css] {path}: REPAIRED - the first version of this block ended its own "
+            "comment early (a `*/` inside the prose), which broke the image build"
+        )
+        return
+
     path.write_text(text.rstrip("\n") + "\n" + CSS)
     report.append(f"[css] {path}: light-blue tokens + .tf-bubble / .tf-bubble-skin appended")
 
