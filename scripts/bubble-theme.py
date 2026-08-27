@@ -74,11 +74,65 @@ class Swap:
         self.old, self.new, self.required, self.why = old, new, required, why
 
 
-def apply_swaps(label: str, path: Path, swaps: list[Swap]) -> bool:
+def ensure_after(label: str, path: Path, anchor: str, line: str, why: str) -> bool:
+    """Make sure ``line`` sits exactly once, immediately after ``anchor``.
+
+    Written this way after the first version of this script added a line by pattern and
+    KEPT the pattern, so a second run added the line a second time - a repeated keyword
+    argument, which is a syntax error, so nothing in the package could be imported at all.
+
+    "Insert if a marker is absent" would not have been enough. That only stops the NEXT
+    run; a file already double-written stays broken forever, and the fix has to be run by
+    hand at exactly the moment nobody can run anything. So every existing copy is removed
+    first and exactly one is put back: running this on a correct file changes nothing,
+    running it on a doubled file repairs it.
+    """
     if not path.exists():
         skipped.append(f"[{label}] {path} does not exist here - nothing changed.")
         return False
     text = path.read_text()
+    if text.count(anchor) != 1:
+        skipped.append(
+            f"[{label}] {path}: expected exactly one anchor, found {text.count(anchor)}:\n"
+            f"      {anchor.strip()[:150]}\n"
+            "    on disk near it:\n" + window(text, anchor.strip()[:40])
+        )
+        return False
+
+    before = text.count(line)
+    cleaned = text.replace(line, "")
+    if cleaned.count(anchor) != 1:
+        skipped.append(
+            f"[{label}] {path}: the anchor and the added line overlap, so removing one "
+            "would damage the other. Nothing was changed."
+        )
+        return False
+
+    at = cleaned.index(anchor) + len(anchor)
+    path.write_text(cleaned[:at] + line + cleaned[at:])
+    if before > 1:
+        report.append(
+            f"[{label}] {path}: REPAIRED - the line was there {before} times, now once ({why})"
+        )
+    elif before == 1:
+        report.append(f"[{label}] {path}: already correct - {why}")
+    else:
+        report.append(f"[{label}] {path}: {why}")
+    return True
+
+
+def apply_swaps(label: str, path: Path, swaps: list[Swap], *, already: str = "") -> bool:
+    """Replacements whose new text does not contain the old, so a second run finds
+    nothing to do. ``already`` names what a finished file contains, so that second run
+    says "already applied" rather than reporting every anchor as missing - the two look
+    the same from outside and mean completely different things."""
+    if not path.exists():
+        skipped.append(f"[{label}] {path} does not exist here - nothing changed.")
+        return False
+    text = path.read_text()
+    if already and already in text:
+        report.append(f"[{label}] {path}: already applied - left alone")
+        return True
 
     missing = [s for s in swaps if s.required and text.count(s.old) != 1]
     if missing:
@@ -262,47 +316,35 @@ def section_client_type() -> bool:
     on `data?.bubble_opacity_pct` and the whole build stops - so this is the one piece
     that cannot be left half-done and quietly degrade.
     """
-    return apply_swaps(
+    return ensure_after(
         "setting/client-type",
         ROOT / "frontend/lib/api-hooks.ts",
-        [
-            Swap(
-                "export interface ClientSettings {\n  data_freshness_threshold_hours: number;\n",
-                "export interface ClientSettings {\n  data_freshness_threshold_hours: number;\n"
-                f"  {SETTING_KEY}: number;\n",
-                why="ClientSettings carries the opacity",
-            )
-        ],
+        "export interface ClientSettings {\n  data_freshness_threshold_hours: number;\n",
+        f"  {SETTING_KEY}: number;\n",
+        "ClientSettings carries the opacity",
     )
 
 
 def section_backend_plumbing() -> None:
-    schema = ROOT / "backend/app/schemas/system.py"
-    ok = apply_swaps(
+    ok = ensure_after(
         "setting/schema",
-        schema,
-        [
-            Swap(
-                "    data_freshness_threshold_hours: int\n",
-                "    data_freshness_threshold_hours: int\n"
-                f"    {SETTING_KEY}: int\n",
-                why="ClientSettings carries the opacity",
-            )
-        ],
+        ROOT / "backend/app/schemas/system.py",
+        "    data_freshness_threshold_hours: int\n",
+        f"    {SETTING_KEY}: int\n",
+        "ClientSettings carries the opacity",
     )
     if not ok:
         return
-    apply_swaps(
+    service_anchor = (
+        "        data_freshness_threshold_hours=int(await get_value(db, "
+        '"data_freshness_threshold_hours")),\n'
+    )
+    ensure_after(
         "setting/service",
         ROOT / "backend/app/services/settings_service.py",
-        [
-            Swap(
-                '        data_freshness_threshold_hours=int(await get_value(db, "data_freshness_threshold_hours")),\n',
-                '        data_freshness_threshold_hours=int(await get_value(db, "data_freshness_threshold_hours")),\n'
-                f'        {SETTING_KEY}=int(await get_value(db, "{SETTING_KEY}")),\n',
-                why="client_settings() returns it",
-            )
-        ],
+        service_anchor,
+        f'        {SETTING_KEY}=int(await get_value(db, "{SETTING_KEY}")),\n',
+        "client_settings() returns it",
     )
 
 
@@ -399,7 +441,8 @@ def section_buttons() -> None:
     apply_swaps(
         "bubble/privacy-shield",
         ROOT / "frontend/components/effects/privacy-shield.tsx",
-        [
+        already="tf-bubble",
+        swaps=[
             Swap(
                 '"fixed right-4 z-[60] hidden h-11 w-11 items-center justify-center rounded-full shadow-lg [@media(hover:hover)]:flex",',
                 '"tf-bubble tf-bubble-skin fixed right-4 z-[60] hidden h-11 w-11 items-center justify-center rounded-full shadow-lg [@media(hover:hover)]:flex",',
@@ -435,7 +478,8 @@ def section_buttons() -> None:
     apply_swaps(
         "bubble/announcement",
         ROOT / "frontend/components/layout/announcement-bar.tsx",
-        [
+        already="tf-bubble",
+        swaps=[
             Swap(
                 'className="fixed right-4 z-[60] opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100"',
                 'className="tf-bubble fixed right-4 z-[60]"',
@@ -458,7 +502,8 @@ def section_buttons() -> None:
     apply_swaps(
         "bubble/assistant",
         ROOT / "frontend/components/chat/chat-widget.tsx",
-        [
+        already="tf-bubble",
+        swaps=[
             Swap(
                 'className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition hover:scale-105"',
                 'className="tf-bubble tf-bubble-skin flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition hover:scale-105"',
