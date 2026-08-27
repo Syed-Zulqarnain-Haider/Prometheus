@@ -98,4 +98,36 @@ hits(FE / "components" / "compare" / "compare-client.tsx", r"label|title|metric|
 rule("F6. the glossary as it stands")
 dump(FE / "app" / "(app)" / "glossary" / "page.tsx", cap=120)
 
+rule("NAV ORDER. why a reordered sidebar does not stay reordered")
+print("""  The order is written to localStorage keyed by user id. localStorage is PER
+  BROWSER: a different browser, a different machine, a private window, or cleared
+  site data and the arrangement is gone - it was never on the account.
+
+  Dashboard layouts are already persisted server-side per user, so the mechanism
+  exists and the nav simply never used it. Three things to confirm:
+
+    a) is the write actually reached, and is the key stable? (`me.user_id` was
+       trimmed out of /me recently - if it is now undefined the key still works,
+       but only by accident.)
+    b) does grouping override it? The reorder is applied BEFORE grouping, so a
+       move across sections has no lasting visual effect - the item snaps back
+       into its own group, which looks exactly like "it did not save".
+    c) what does the existing per-user layout endpoint look like, so nav order
+       can use the same one instead of inventing a second mechanism.
+""")
+dump(FE / "components" / "layout" / "sidebar.tsx", cap=210)
+
+print("\n-- (a)/(b) the order + grouping logic --")
+hits(FE / "components" / "layout" / "sidebar.tsx",
+     r"ORDER_KEY|localStorage|setOrder|applyOrder|groupItems|move\(|orderKey|user_id")
+
+print("\n-- (c) the per-user preference endpoints that already exist --")
+for path in (FE / "lib" / "api-hooks.ts", ROOT / "backend" / "app" / "api" / "v1" / "layouts.py",
+             ROOT / "backend" / "app" / "api" / "v1" / "profile.py"):
+    hits(path, r"layout|preference|column.?order|nav|PUT|POST|@router")
+
+print("\n-- what /me actually returns now (the key depends on it) --")
+hits(ROOT / "backend" / "app" / "api" / "v1" / "auth.py", r"def me|user_id|class MeOut|response_model")
+hits(ROOT / "backend" / "app" / "schemas" / "auth.py", r"class .*Out|user_id|uid")
+
 print("\nread-only: nothing was written.")
