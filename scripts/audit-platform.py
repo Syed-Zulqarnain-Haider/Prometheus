@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Grant the first super admin, then audit the whole platform and say what is wrong.
-
-WHY SUPER ADMIN IS UNREACHABLE
-------------------------------
-Nothing is broken. The migration created the role and gave it its permissions, but
-promoting the FIRST super admin was deliberately left as a manual step - there is no
-self-service bootstrap, on purpose, because a self-service route to the top role is a
-self-service route for an attacker too. The step was simply never done, so the role
-exists with nobody in it.
-
-This grants it, additively, to the OLDEST ACTIVE ADMIN account - the founding account.
-That is a heuristic, so the run prints exactly who was promoted and the one line that
-moves it to somebody else. It refuses if a super admin already exists: promoting a
-second one silently is not a thing a script should do on its own.
+"""Audit the whole platform and say what is wrong. Read-only.
 
 THE AUDIT
 ---------
@@ -112,83 +99,6 @@ def tables() -> set[str]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. THE FIX: promote the first super admin
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def promote_super_admin(present: set[str]) -> None:
-    print("=" * 72)
-    print("SUPER ADMIN")
-    print("=" * 72)
-    if not {"users", "roles", "user_roles"} <= present:
-        note(
-            "FIX", "super-admin", "identity tables are missing - cannot promote anyone"
-        )
-        print("  identity tables missing; skipped.")
-        return
-
-    exists = one("SELECT count(*) FROM roles WHERE name='super_admin'", "0")
-    if exists == "0":
-        note(
-            "FIX",
-            "super-admin",
-            "the super_admin ROLE does not exist - the migration that creates it has "
-            "not been applied to this database",
-        )
-        print("  The super_admin role is not in this database at all.")
-        return
-
-    holders, _ = sql(
-        "SELECT u.email FROM users u "
-        "JOIN user_roles ur ON ur.user_id = u.id "
-        "JOIN roles r ON r.id = ur.role_id "
-        "WHERE r.name='super_admin' ORDER BY u.email"
-    )
-    if holders:
-        print("  Already held by: " + ", ".join(r[0] for r in holders))
-        return
-
-    candidates, _ = sql(
-        "SELECT u.email, u.created_at FROM users u "
-        "JOIN user_roles ur ON ur.user_id = u.id "
-        "JOIN roles r ON r.id = ur.role_id "
-        "WHERE r.name='admin' AND u.is_active "
-        "AND (u.access_expires_at IS NULL OR u.access_expires_at > now()) "
-        "ORDER BY u.created_at ASC LIMIT 1"
-    )
-    if not candidates:
-        note(
-            "DECIDE",
-            "super-admin",
-            "nobody holds an active admin role, so there is no defensible account to "
-            "promote automatically",
-        )
-        print("  No active admin to promote. Nothing done.")
-        return
-
-    email = candidates[0][0]
-    _, error = sql(
-        "INSERT INTO user_roles (user_id, role_id) "
-        "SELECT u.id, r.id FROM users u, roles r "
-        f"WHERE u.email = '{email}' AND r.name = 'super_admin' "
-        "ON CONFLICT DO NOTHING"
-    )
-    if error:
-        note("FIX", "super-admin", f"promotion failed: {error}")
-        print(f"  FAILED: {error}")
-        return
-
-    print(f"  PROMOTED: {email} (oldest active admin, created {candidates[0][1]})")
-    print("  It is additive - the account keeps every role it already had.")
-    print("  To move it to somebody else instead, run:")
-    print(
-        "    docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "
-        '"$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM user_roles WHERE role_id='
-        "(SELECT id FROM roles WHERE name=\\'super_admin\\'); INSERT INTO user_roles "
-        "(user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE "
-        "u.email=\\'THEIR_EMAIL\\' AND r.name=\\'super_admin\\';\"'"
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Who can do what
 # ─────────────────────────────────────────────────────────────────────────────
@@ -480,7 +390,6 @@ def main() -> int:
     present = tables() if live else set()
 
     if live:
-        promote_super_admin(present)
         audit_access(present)
         audit_data(present)
         audit_settings(present)

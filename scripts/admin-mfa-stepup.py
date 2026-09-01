@@ -17,7 +17,7 @@ router, so it covers every admin action including the new super-admin management
 Three settings drive it, all default OFF: require_admin_mfa, require_email_verified,
 admin_step_up_minutes (30). Off-by-default is the safety interlock: enabling TOTP in the
 Firebase console and enforcing it here are two deliberate, ordered steps, so no admin is
-locked out before they enrol. The gate only ever applies to admin / super_admin; ordinary
+locked out before they enrol. The gate only ever applies to admin; ordinary
 users are never touched, and the existing suite stays green because nothing fires until an
 admin turns it on.
 

@@ -32,7 +32,7 @@ API = ROOT / "backend" / "app" / "api"
 SERVICES = ROOT / "backend" / "app" / "services"
 TESTS = ROOT / "backend" / "tests"
 
-ROLES = ("admin", "super_admin", "executive", "pod_owner", "marketing", "finance", "viewer")
+ROLES = ("admin", "executive", "pod_owner", "marketing", "finance", "viewer")
 GUARD = re.compile(r"require_capability|require_role|require_admin|enforce_admin|CurrentUser|get_current")
 
 #: `Alias = Annotated[UserContext, Depends(require_capability("export"))]` is a guard, and
