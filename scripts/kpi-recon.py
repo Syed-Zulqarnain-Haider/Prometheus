@@ -145,6 +145,26 @@ def main() -> int:
     sub("frontend/components/filters/dimensions.ts")
     dump("frontend/components/filters/dimensions.ts", cap=70)
 
+    # ── F. schema sync staleness ────────────────────────────────────────────────────
+    head("F.  SCHEMA SYNC  -  why the diff does not show the LATEST schema after apply")
+    print(
+        "  Owner: 'when I update the schema it should update the latest schema'. The\n"
+        "  suspects, in order: a cached BigQuery schema that apply does not bust; the\n"
+        "  page not refetching the diff after the sync returns; or the diff comparing\n"
+        "  against the registry file baked into the image rather than live Postgres."
+    )
+    seen: set[Path] = set()
+    for pattern in (r"schema_reconcile|schema_sync|schema_diff",
+                    r"SchemaDiff|schemaSync|schema-diff|Check schema"):
+        for path in find(pattern, "backend/app", "frontend/components", "frontend/lib"):
+            if path in seen:
+                continue
+            seen.add(path)
+            sub(str(path))
+            dump(str(path.relative_to(ROOT)), cap=240)
+    if not seen:
+        print("  Nothing matched - tell me the exact page title and I will re-anchor.")
+
     print(f"\n\n{RULE}\nNothing was written. Every section above only read files.\n{RULE}")
     return 0
 
