@@ -72,11 +72,14 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from typing import Any
 
+from app.core.fact_table import FACT_TABLE
 from app.schemas.auth import ScopeOut, UserContext
 from app.services.chat_service import _openai_tools, _run_tool, _tool_result_content
 from app.services.query_builder import QueryBuilder
+from sqlalchemy import insert
 
 ALL_GROUPS = [
     "store_installs",
@@ -111,6 +114,36 @@ def _context(*scopes: tuple[str, str | None]) -> UserContext:
     )
 
 
+async def _seed(session: Any) -> None:
+    """Three apps across two pods, inside WINDOW.
+
+    The ``fact_session`` fixture hands over an EMPTY fact table - _seed_metrics_fact
+    belongs to ``metrics_env``, not to this one. The first version of this file assumed
+    otherwise, so every query returned no rows: the restrictions all "passed" because
+    there was nothing to leak, and only the admin controls failed. Seeding here is what
+    makes a green run mean something.
+    """
+    for key, pod, publisher, revenue in (
+        ("appA", "POD_A", "PubA", 1000),
+        ("appZ", "POD_A", "PubA", 10),
+        ("appB", "POD_B", "PubB", 70),
+    ):
+        await session.execute(
+            insert(FACT_TABLE).values(
+                date=date(2026, 6, 1),
+                platform="ios",
+                canonical_key=key,
+                app_name=key.upper(),
+                pod=pod,
+                publisher=publisher,
+                hou="HOU_A",
+                store_total_installs=10,
+                total_ua_spend_usd=100,
+                total_revenue_usd=revenue,
+            )
+        )
+
+
 async def _ask(db: Any, context: UserContext, tool: str, args: dict[str, Any]) -> str:
     """Exactly the string the model gets back from one tool call - no more, no less."""
     return _tool_result_content(await _run_tool(db, QueryBuilder(context), tool, args))
@@ -124,6 +157,7 @@ async def test_an_app_scoped_user_cannot_break_out_by_naming_another_app(
 ) -> None:
     # The attack, in its most direct form: the model asks for appB by name on behalf of a
     # user granted only appA. This is what a successful prompt injection produces.
+    await _seed(fact_session)
     payload = await _ask(
         fact_session,
         _context(("app", GRANTED)),
@@ -137,6 +171,7 @@ async def test_an_app_scoped_user_cannot_break_out_by_naming_another_app(
 async def test_an_admin_making_the_identical_call_does_see_it(fact_session: Any) -> None:
     # The control. Without this, the test above passes just as happily against a broken
     # fixture, an always-erroring tool, or a query that returns nothing for anyone.
+    await _seed(fact_session)
     payload = await _ask(
         fact_session,
         _context(("all", None)),
@@ -152,6 +187,7 @@ async def test_scope_still_lets_the_user_see_what_they_were_granted(
 ) -> None:
     # The other way a scoping bug hides: denying everyone everything. A wall that blocks
     # the owner of the data is also broken.
+    await _seed(fact_session)
     payload = await _ask(
         fact_session,
         _context(("app", GRANTED)),
@@ -168,6 +204,7 @@ async def test_an_unscoped_breakdown_is_still_narrowed_to_the_grant(
 ) -> None:
     # No filter at all in the arguments: the scope has to be injected by us, not requested
     # by the model. "Client filters can only narrow" means the floor is the grant.
+    await _seed(fact_session)
     scoped = await _ask(
         fact_session,
         _context(("app", GRANTED)),
@@ -190,6 +227,7 @@ async def test_totals_for_a_forbidden_app_are_not_that_app_s_totals(
 ) -> None:
     # Totals return numbers, not names - the leak here would be silent. So compare against
     # the same question asked by someone who IS allowed: the answers must differ.
+    await _seed(fact_session)
     scoped = await _ask(
         fact_session, _context(("app", GRANTED)), "get_totals", {"apps": [FORBIDDEN], **WINDOW}
     )
@@ -204,6 +242,7 @@ async def test_totals_for_a_forbidden_app_are_not_that_app_s_totals(
 
 
 async def test_a_pod_scoped_user_cannot_reach_another_pod(fact_session: Any) -> None:
+    await _seed(fact_session)
     scoped = await _ask(
         fact_session,
         _context(("pod", "POD_A")),
@@ -224,6 +263,7 @@ async def test_a_pod_scoped_user_cannot_reach_another_pod(fact_session: Any) -> 
 async def test_two_grants_are_a_union_and_still_a_wall(fact_session: Any) -> None:
     # Effective access is the UNION of a user's scope rows - so a second grant must widen
     # to exactly appZ, and not one row further.
+    await _seed(fact_session)
     payload = await _ask(
         fact_session,
         _context(("app", GRANTED), ("app", "appZ")),
@@ -242,8 +282,12 @@ async def test_two_grants_are_a_union_and_still_a_wall(fact_session: Any) -> Non
 async def test_a_tool_the_model_invents_is_refused_not_executed(fact_session: Any) -> None:
     # A model that has been told to "run this SQL" will try calling a tool that does. The
     # dispatcher must not have one, and must say so rather than raising into a 502.
+    await _seed(fact_session)
     out = await _run_tool(
-        fact_session, QueryBuilder(_context(("app", GRANTED))), "run_sql", {"sql": "SELECT 1"}
+        fact_session,
+        QueryBuilder(_context(("app", GRANTED))),
+        "run_sql",
+        {"sql": "SELECT 1", **WINDOW},
     )
 
     assert out == {"error": "unknown tool: run_sql"}

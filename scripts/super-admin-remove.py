@@ -118,6 +118,16 @@ REVERSALS: list[tuple[str, str, str]] = [
         'ROLE_CAPABILITIES: dict[str, set[str]] = {\n    "admin": {"export", "share_report", "admin_panel"},\n    "super_admin": {"export", "share_report", "admin_panel"},',
         'ROLE_CAPABILITIES: dict[str, set[str]] = {\n    "admin": {"export", "share_report", "admin_panel"},',
     ),
+    (
+        'backend/app/core/step_up.py',
+        'PRIVILEGED_ROLES = frozenset({"admin", "super_admin"})',
+        'PRIVILEGED_ROLES = frozenset({"admin"})',
+    ),
+    (
+        'backend/app/core/step_up.py',
+        'The gate applies ONLY to admin / super_admin; ordinary users are never',
+        'The gate applies ONLY to admin; ordinary users are never',
+    ),
 ]
 
 
@@ -200,15 +210,23 @@ def single_head() -> str | None:
     revs: dict[str, str | None] = {}
     for path in VERSIONS.glob("*.py"):
         text = path.read_text()
-        rev = re.search(r'^revision\s*=\s*["\']([^"\']+)', text, re.M)
-        down = re.search(r'^down_revision\s*=\s*["\']([^"\']+)', text, re.M)
+        # Alembic templates write either `revision = "x"` or `revision: str = "x"`.
+        # Missing the annotated form leaves that file's parent looking like a head, which
+        # is how a single-headed graph reports as several.
+        rev = re.search(r'^revision(?:\s*:[^=]+)?\s*=\s*["\']([^"\']+)', text, re.M)
+        down = re.search(r'^down_revision(?:\s*:[^=]+)?\s*=\s*["\']([^"\']+)', text, re.M)
         if rev:
             revs[rev.group(1)] = down.group(1) if down else None
     if not revs:
         return None
     parents = {d for d in revs.values() if d}
     heads = sorted(set(revs) - parents)
-    return heads[0] if len(heads) == 1 else None
+    if len(heads) == 1:
+        return heads[0]
+    print(f"  alembic heads found ({len(heads)}): {heads or '(none)'}")
+    for head in heads:
+        print(f"    {head} <- {revs.get(head)}")
+    return None
 
 
 def main() -> int:
@@ -255,6 +273,16 @@ def main() -> int:
             text = re.sub(r"^import uuid\n", "", text, count=1, flags=re.M)
         path.write_text(text)
         report.append(f"[revert] {path}")
+
+    step_up_test = ROOT / "backend/tests/test_step_up.py"
+    if step_up_test.exists():
+        text = step_up_test.read_text()
+        found = re.search(r"^(?:async )?def test_super_admin_is_gated_too\b", text, re.M)
+        if found:
+            nxt = re.search(r"^(?:async )?def \w+", text[found.end():], re.M)
+            end = found.end() + nxt.start() if nxt else len(text)
+            step_up_test.write_text(text[: found.start()] + text[end:])
+            report.append(f"[revert] {step_up_test}: dropped test_super_admin_is_gated_too")
 
     if SUPER_TEST.exists():
         SUPER_TEST.unlink()
