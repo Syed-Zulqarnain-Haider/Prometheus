@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
 """The Overview headline row becomes the owner's Looker card set, with icons.
 
-WHAT THE OWNER ASKED FOR, AND WHAT THE SCREENSHOT SETTLED
----------------------------------------------------------
+RE-ANCHORED against the deployed kpi-card.tsx after the first attempt refused to write.
+That refusal was the script working: the card had grown three things this rewrite would
+otherwise have DELETED - a 7-day moving average on the sparkline, per-day date tooltips,
+and an "Avg / day" line under each figure. All three are preserved and passed through.
+
+WHAT THE OWNER ASKED FOR
+------------------------
 "kpis like the looker" plus "icons in first page in executive overview page". The
-screenshot shows eight cards - Total Installs, Ads Revenue, IAP, Gross Revenue, Tech
-Cost, UA Cost, Net Revenue, ROAS - each with a value, a delta against the comparison
-period, and a sparkline. Tech Cost is dropped on the owner's instruction ("leave tech
+screenshot shows eight cards - Total Installs, Ads Revenue, IAP, Gross Revenue, Tech Cost,
+UA Cost, Net Revenue, ROAS. Tech Cost is dropped on the owner's instruction ("leave tech
 cost we dont need that"), so seven ship.
 
 EVERY DISPLAYED FIGURE COMES FROM THE SERVER
 --------------------------------------------
-gross_revenue_usd, net_revenue_usd and roas are computed by period_ratios.py (see
-derived-metrics.py) with the same formula, rounding and RBAC gate the tables use - so a
-card and the column under it cannot disagree. Nothing here recomputes a displayed number.
+gross_revenue_usd, net_revenue_usd and roas are computed by period_ratios.py (shipped by
+derived-metrics.py, already live) with the same formula, rounding and RBAC gate the table
+rows use - so a card and the column under it cannot disagree. Nothing here recomputes a
+displayed number.
 
-The one client-side derivation is a SPARKLINE SHAPE: the timeseries endpoint serves
-registry columns, not derived ones, so the gross/net/ROAS trend lines are assembled from
-their component series. A sparkline carries no readable figure - it is a shape - and the
-value beside it is the server's. Called out here rather than buried, because "computed in
-TypeScript" is exactly the drift the rest of this batch removes.
+Two client-side derivations, both called out rather than buried:
+  * a SPARKLINE SHAPE, because the timeseries endpoint serves registry columns and not
+    derived ones, so the gross/net/ROAS lines are composed from their components. A
+    sparkline carries no readable figure and the value beside it is the server's.
+  * "Avg / day" = period total / days in the selected range, which is what the card
+    already did. Deliberately NOT shown for ROAS: the mean of daily ratios weights a $10
+    day like a $100,000 one, and period ROAS is already the headline figure - the same
+    reasoning the previous card applied to Profit %.
 
 A card whose metric the caller cannot see is DROPPED, not zeroed: the summary omits
 measures outside the caller's metric groups, so a viewer sees the installs card and no
 revenue at all, rather than a row of confident zeros.
-
-The card gains an optional icon. That is the only change to kpi-card.tsx - two anchored
-edits, the props type and the destructuring, both of which report loudly and write
-nothing if the deployed file has moved.
 """
 
 from __future__ import annotations
@@ -38,51 +42,45 @@ from pathlib import Path
 ROOT = Path(".")
 CARD = ROOT / "frontend/components/overview/kpi-card.tsx"
 ROW = ROOT / "frontend/components/overview/kpi-row.tsx"
-TEST = ROOT / "frontend/tests/looker-kpis.test.ts"
 HELPERS = ROOT / "frontend/lib/kpi-definitions.ts"
+TEST = ROOT / "frontend/tests/looker-kpis.test.ts"
 
 report: list[str] = []
 
-CARD_EDITS = [
+CARD_EDITS: list[tuple[str, str, str]] = [
     (
-        "icon in the props type",
-        """  spark?: number[];
-  loading?: boolean;
-  description?: string;
-}) {""",
-        """  spark?: number[];
-  loading?: boolean;
-  description?: string;
-  icon?: ReactNode;
-}) {""",
+        "ReactNode import",
+        'import { useMemo } from "react";',
+        'import { useMemo, type ReactNode } from "react";',
     ),
     (
         "icon in the destructuring",
-        """  spark,
-  loading,
-  description,
-}: {""",
-        """  spark,
-  loading,
-  description,
-  icon,
-}: {""",
+        "  description,\n  loading,\n}: {",
+        "  description,\n  loading,\n  icon,\n}: {",
+    ),
+    (
+        "icon in the props type",
+        "  description?: string;\n  loading?: boolean;\n}) {",
+        "  description?: string;\n  loading?: boolean;\n"
+        "  /** Small leading glyph beside the label - decorative, never the only cue. */\n"
+        "  icon?: ReactNode;\n}) {",
     ),
     (
         "icon rendered beside the label",
         (
-            '        <div className="text-[11px] font-semibold uppercase '
+            '          <span className="text-[11px] font-semibold uppercase '
             'tracking-[0.14em] text-muted-foreground">\n'
-            "          {label}\n"
-            "        </div>"
+            "            <EditableTitle>{label}</EditableTitle>\n"
+            "          </span>"
         ),
         (
-            '        <div className="flex items-center gap-1.5 text-[11px] '
-            'font-semibold uppercase tracking-[0.14em] text-muted-foreground">\n'
-            "          {icon ? <span aria-hidden "
-            'className="text-muted-foreground/70">{icon}</span> : null}\n'
-            "          {label}\n"
-            "        </div>"
+            '          <span className="flex items-center gap-1.5 text-[11px] font-semibold '
+            'uppercase tracking-[0.14em] text-muted-foreground">\n'
+            "            {icon ? (\n"
+            '              <span aria-hidden className="shrink-0 opacity-70">{icon}</span>\n'
+            "            ) : null}\n"
+            "            <EditableTitle>{label}</EditableTitle>\n"
+            "          </span>"
         ),
     ),
 ]
@@ -176,19 +174,27 @@ export function sparkMetrics(defs: KpiDef[] = LOOKER_KPIS): string[] {
  *  Shape only - never a displayed figure. One component: pass it through. Two: the
  *  second is subtracted for a difference card and divided for a ratio card, matching
  *  what the server computed for the value beside it. A ratio point with no denominator
- *  is 0 in the SHAPE (the line simply sits on the floor there); the ratio VALUE stays
- *  null, which is what the card renders.
+ *  is null in the SHAPE - a gap in the line, never a drawn collapse to zero.
  */
-export function composeSpark(series: number[][], format: KpiFormat): number[] {
+export function composeSpark(series: number[][], format: KpiFormat): (number | null)[] {
   if (series.length === 0) return [];
   if (series.length === 1) return series[0];
   const [a, b] = series;
   const length = Math.min(a.length, b.length);
-  const out: number[] = [];
+  const out: (number | null)[] = [];
   for (let i = 0; i < length; i += 1) {
-    out.push(format === "ratio" ? (b[i] ? a[i] / b[i] : 0) : a[i] - b[i]);
+    out.push(format === "ratio" ? (b[i] ? a[i] / b[i] : null) : a[i] - b[i]);
   }
   return out;
+}
+
+/** Does an "Avg / day" figure mean anything for this card?
+ *
+ *  Not for a ratio: the mean of daily ROAS weights a $10 day like a $100,000 one, and
+ *  the period figure is already the headline. The same reasoning the card applied to
+ *  Profit % before this change. */
+export function hasDailyAverage(def: KpiDef): boolean {
+  return def.format !== "ratio";
 }
 
 /** Cards whose metric the caller may see. A summary omits measures outside the caller's
@@ -204,6 +210,7 @@ export function visibleKpis(
 
 ROW_SRC = '''"use client";
 
+import { differenceInCalendarDays, parseISO } from "date-fns";
 import {
   BadgeDollarSign,
   Coins,
@@ -222,6 +229,7 @@ import type { Filters } from "@/lib/filters";
 import { formatNumber, formatPercent, formatUSD } from "@/lib/format";
 import {
   composeSpark,
+  hasDailyAverage,
   LOOKER_KPIS,
   sparkMetrics,
   visibleKpis,
@@ -247,13 +255,43 @@ function render(value: unknown, format: KpiFormat): string {
   return formatUSD(n);
 }
 
+/** How the sparkline tooltip formats a hovered point - matching the card's own units. */
+function sparkFormatter(format: KpiFormat): ((value: number) => string) | undefined {
+  if (format === "number") return (v: number) => formatNumber(v);
+  if (format === "ratio") return (v: number) => formatPercent(v);
+  return undefined; // USD is the card's default
+}
+
 export function KpiRow({ filters }: { filters: Filters }) {
   const summary = useSummary(filters);
   const timeseries = useTimeseries(filters, sparkMetrics(), "day");
 
+  // One daily axis serves every card: each sparkline is a column of this same response.
+  // The bucket is an ISO timestamp; the date part is all the tooltip needs.
+  const sparkDates = (timeseries.data?.series ?? []).map((row) =>
+    String(row.bucket ?? "").slice(0, 10),
+  );
+
   const current = summary.data?.current as Record<string, number | null> | undefined;
   const previous = summary.data?.previous as Record<string, number | null> | null | undefined;
   const loading = summary.isLoading;
+
+  // Days in the SELECTED RANGE, not the number of buckets that came back: a day with no
+  // rows is still a day the average has to account for, and dividing by the rows present
+  // would quietly inflate every figure whenever the feed is short.
+  const days = (() => {
+    const span =
+      differenceInCalendarDays(parseISO(filters.dateTo), parseISO(filters.dateFrom)) + 1;
+    return Number.isFinite(span) && span > 0 ? span : 0;
+  })();
+
+  /** The daily average of a period total, already formatted. */
+  const perDay = (total: number | null | undefined, format: KpiFormat): string | undefined => {
+    if (total == null || days === 0) return undefined;
+    return format === "number"
+      ? formatNumber(Math.round(total / days))
+      : formatUSD(total / days, { compact: true });
+  };
 
   // A card whose metric this caller cannot see is dropped, not zeroed: the summary omits
   // measures outside their permitted groups, so a viewer gets the installs card and no
@@ -263,20 +301,29 @@ export function KpiRow({ filters }: { filters: Filters }) {
   return (
     <div className="space-y-4" data-tour="kpis">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
-        {cards.map((kpi) => {
+        {cards.map((kpi, index) => {
           const series = kpi.sparkFrom.map((m) => metricValues(timeseries.data, m));
+          const value = current?.[kpi.field];
           return (
-            <KpiCard
+            <div
               key={kpi.field}
-              label={kpi.label}
-              icon={ICONS[kpi.field]}
-              value={render(current?.[kpi.field], kpi.format)}
-              current={current?.[kpi.field] ?? undefined}
-              previous={previous?.[kpi.field] ?? undefined}
-              spark={composeSpark(series, kpi.format)}
-              description={kpi.description}
-              loading={loading}
-            />
+              className="anim-rise"
+              style={{ animationDelay: `${0 + index * 60}ms` }}
+            >
+              <KpiCard
+                label={kpi.label}
+                icon={ICONS[kpi.field]}
+                value={render(value, kpi.format)}
+                current={value ?? undefined}
+                previous={previous?.[kpi.field] ?? undefined}
+                spark={composeSpark(series, kpi.format)}
+                sparkDates={sparkDates}
+                sparkFormat={sparkFormatter(kpi.format)}
+                average={hasDailyAverage(kpi) ? perDay(value, kpi.format) : undefined}
+                description={kpi.description}
+                loading={loading}
+              />
+            </div>
           );
         })}
       </div>
@@ -289,6 +336,7 @@ TEST_SRC = '''import { describe, expect, it } from "vitest";
 
 import {
   composeSpark,
+  hasDailyAverage,
   LOOKER_KPIS,
   sparkMetrics,
   visibleKpis,
@@ -342,12 +390,22 @@ describe("Looker KPI definitions", () => {
     expect(composeSpark([[100, 200], [40, 50]], "usd")).toEqual([60, 150]);
   });
 
-  it("composes a ratio sparkline and puts a zero-denominator point on the floor", () => {
-    expect(composeSpark([[100, 50], [50, 0]], "ratio")).toEqual([2, 0]);
+  it("leaves a gap where a ratio has no denominator, rather than drawing zero", () => {
+    // A day with no spend has no ROAS. Plotting 0 draws a collapse that did not happen.
+    expect(composeSpark([[100, 50], [50, 0]], "ratio")).toEqual([2, null]);
   });
 
   it("passes a single-component sparkline straight through", () => {
     expect(composeSpark([[1, 2, 3]], "usd")).toEqual([1, 2, 3]);
+  });
+
+  it("offers no daily average for a ratio", () => {
+    // The mean of daily ROAS weights a $10 day like a $100,000 one - the same reason
+    // the card never showed one for Profit %.
+    const roas = LOOKER_KPIS.find((k) => k.label === "ROAS")!;
+    const revenue = LOOKER_KPIS.find((k) => k.label === "Gross Revenue")!;
+    expect(hasDailyAverage(roas)).toBe(false);
+    expect(hasDailyAverage(revenue)).toBe(true);
   });
 });
 '''
@@ -365,10 +423,6 @@ def window(path: Path, needle: str) -> str:
 
 
 def main() -> int:
-    if not (ROOT / "frontend").is_dir():
-        print("ABORTED: run this from the repository root.", file=sys.stderr)
-        return 1
-
     if not CARD.exists() or not ROW.exists():
         print(f"ABORTED: missing {CARD} or {ROW}", file=sys.stderr)
         return 1
@@ -391,13 +445,6 @@ def main() -> int:
             return 1
         for _, old, new in CARD_EDITS:
             card = card.replace(old, new, 1)
-        if "import type { ReactNode }" not in card:
-            marker = '"use client";\n'
-            react_import = 'import type { ReactNode } from "react";\n'
-            if card.startswith(marker):
-                card = card.replace(marker, marker + "\n" + react_import, 1)
-            else:
-                card = react_import + "\n" + card
         CARD.write_text(card)
         report.append(f"[card] {CARD}: optional icon beside the label")
 
@@ -407,14 +454,14 @@ def main() -> int:
     report.append(f"[row] {ROW}: seven Looker cards, every figure server-computed")
     if TEST.parent.is_dir():
         TEST.write_text(TEST_SRC)
-        report.append(f"[test] {TEST}: eight cases pinning which field each card reads")
+        report.append(f"[test] {TEST}: nine cases pinning which field each card reads")
 
     print("PATCHED, NOT YET VERIFIED - tsc + vitest are the verification, not this script.")
     for line in report:
         print(f"  - {line}")
     print(
-        "\nRequires derived-metrics.py to be deployed first: the Gross Revenue and Net"
-        "\nRevenue cards read gross_revenue_usd / net_revenue_usd from /metrics/summary."
+        "\nThe card's moving average, date tooltips and Avg/day are PRESERVED and passed"
+        "\nthrough - the first attempt would have deleted them, which is why it refused."
     )
     return 0
 
