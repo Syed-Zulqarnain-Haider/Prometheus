@@ -63,6 +63,18 @@ EDITS: list[tuple[str, str, str, str, int]] = [
         "            bundles=bundles or [],\n            categories=categories or [],\n        )",
         1,
     ),
+    # ── saved reports round-trip it too ──────────────────────────────────────────
+    # reports_service holds its own tuple of narrowing dimensions and asserts at import
+    # that it matches MetricFilters exactly. Miss it and a saved report re-runs WITHOUT
+    # the filter - wider than the person who saved it chose. (Learned the hard way: the
+    # guard failed the whole suite at collection, which is the right way to find out.)
+    (
+        "backend/app/services/reports_service.py",
+        "categories joins the dimensions a saved report keeps",
+        '    "apple_accounts",\n    "packages",\n    "bundles",\n)',
+        '    "apple_accounts",\n    "packages",\n    "bundles",\n    "categories",\n)',
+        1,
+    ),
     # ── the options dropdown ──────────────────────────────────────────────────────
     (
         "backend/app/api/v1/meta.py",
