@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Close the check-then-act races, take exports off the event loop, gate targets.
+"""Close the check-then-act races and take exports off the event loop.
 
-FIVE FIXES FROM THE RELIABILITY REVIEW
+FOUR FIXES FROM THE RELIABILITY REVIEW
 --------------------------------------
 1. LAST-ADMIN RACE (ops #3). Two admins demoting each other concurrently both pass the
    last-admin guard on their pre-commit snapshots, both commits land, zero active admins
@@ -30,16 +30,16 @@ FIVE FIXES FROM THE RELIABILITY REVIEW
    generously (100k rows - no real report approaches it; the cap exists so one runaway
    export cannot occupy the process).
 
-5. TARGETS GATED (RBAC #6, owner decision from the review). /meta/targets served the
-   company's revenue plan to every authenticated role including viewer - the one place
-   revenue-class data escaped the metric-group model. It now requires at least one
-   revenue-adjacent metric group; the viewer profile (store_installs only) is refused
-   with the standard envelope.
+(A fifth item, gating /meta/targets behind a revenue-class metric group, was in the
+first version of this script. Recon against the deployed tree shows it already shipped -
+the route's docstring now reads "only callers permitted a revenue measure see the
+figures" - so it is dropped here rather than applied twice.)
 
-The races themselves cannot be exercised by a single-connection test - stated plainly:
+The two database races cannot be exercised by a single-connection test - stated plainly:
 they are verified by construction (the lock is the first statement of the transaction,
-the re-read happens after acquisition). What IS tested: the targets gate, as a route test
-against the real app - viewer refused, admin served.
+the re-read happens after acquisition). What IS tested, without a database: the Firebase
+init loser accepting the winner's app, the report row cap being real, and both export
+builders leaving the event loop.
 """
 
 from __future__ import annotations
@@ -48,17 +48,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(".")
-TEST = ROOT / "backend/tests/test_targets_gate.py"
+TEST = ROOT / "backend/tests/test_race_hardening.py"
 
 report: list[str] = []
 
 EDITS: list[tuple[str, str, str, str]] = [
-    # ── 1. last-admin race ─────────────────────────────────────────────────────────
+    # ── 1. last-admin race ─────────────────────────────────────────────────────
     (
         "backend/app/services/admin_service.py",
         "sqlalchemy text import",
-        "from sqlalchemy import delete, func, insert, or_, select",
-        "from sqlalchemy import delete, func, insert, or_, select, text",
+        "from sqlalchemy import and_, delete, func, insert, or_, select",
+        "from sqlalchemy import and_, delete, func, insert, or_, select, text",
     ),
     (
         "backend/app/services/admin_service.py",
@@ -115,7 +115,7 @@ def is_active_admin(
         is_active=user.is_active, roles=current_roles, access_expires_at=user.access_expires_at
     ) and not await admin_service.other_active_admins_exist(db, user.id):""",
     ),
-    # ── 2. approval race ───────────────────────────────────────────────────────────
+    # ── 2. approval race ───────────────────────────────────────────────────────
     (
         "backend/app/services/access_service.py",
         "sqlalchemy text import",
@@ -171,7 +171,7 @@ def is_active_admin(
         raise RequestAlreadyDecided(f"request already {req.status}")
     req.status = "rejected\"""",
     ),
-    # ── 3. firebase cold-start race ────────────────────────────────────────────────
+    # ── 3. firebase cold-start race ──────────────────────────────────────────────
     (
         "backend/app/core/security.py",
         "the init race loser accepts the winner's app",
@@ -236,63 +236,89 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status""",
         """    payload = await anyio.to_thread.run_sync(reports_service.build_xlsx, result)
     return Response(""",
     ),
-    # ── 5. targets gated away from viewer ──────────────────────────────────────────
-    (
-        "backend/app/api/v1/meta.py",
-        "fastapi imports for the refusal",
-        """from fastapi import APIRouter, Depends, Query""",
-        """from fastapi import APIRouter, Depends, HTTPException, Query, status""",
-    ),
-    (
-        "backend/app/api/v1/meta.py",
-        "revenue targets require a revenue-class metric group",
-        '''    """Revenue targets for a year (read-only) - powers the Overview progress donut.
-
-    Visible to any authenticated user; only admins can set them (``/admin/targets``).
-    """
-    annual, monthly = await admin_service.targets_for_year(db, year)''',
-        '''    """Revenue targets for a year (read-only) - powers the Overview progress donut.
-
-    Requires a revenue-adjacent metric group: this was the one endpoint where
-    revenue-class data (the company's plan) escaped the metric-group model, readable by
-    the store_installs-only viewer profile. Only admins can set targets
-    (``/admin/targets``).
-    """
-    revenue_groups = {"ua_spend", "ad_revenue", "iap_revenue", "profitability"}
-    if not revenue_groups & set(context.metric_groups):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted to view targets")
-    annual, monthly = await admin_service.targets_for_year(db, year)''',
-    ),
 ]
 
-TEST_SRC = '''"""/meta/targets is revenue-class data: the viewer profile does not get the plan.
+TEST_SRC = '''"""The pieces of the race batch that CAN be tested without a second connection.
 
-The one endpoint where revenue figures escaped the metric-group model - its docstring
-said "visible to any authenticated user", and the reliability review flagged it for an
-owner decision. The decision: gate it. This pins the gate through the real app.
+The two advisory-lock fixes are verified by construction - the lock is the first statement
+of the transaction - and pinned here by reading the source, which is a regression guard,
+not a proof. The Firebase cold-start race IS proven behaviourally: the loser of the
+initialize_app race must accept the winner's app instead of turning a real user into a 500.
 """
 
 from __future__ import annotations
 
-from tests.conftest import MetricsEnv
+import inspect
+from typing import Any
+
+import pytest
+from app.api.v1 import admin as admin_routes
+from app.api.v1 import export as export_routes
+from app.core import security
+from app.services import access_service, admin_service, reports_service
 
 
-def _auth(role: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer valid-{role}"}
+# ── 3. the Firebase cold-start race ─────────────────────────────────────────────
 
 
-async def test_a_viewer_is_refused_the_revenue_plan(metrics_env: MetricsEnv) -> None:
-    resp = await metrics_env.client.get("/api/v1/meta/targets?year=2026", headers=_auth("viewer"))
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"]
+def _race(monkeypatch: pytest.MonkeyPatch, *, winner_lands: bool) -> None:
+    apps: dict[str, Any] = {}
+    monkeypatch.setattr(security.firebase_admin, "_apps", apps, raising=False)
+
+    def initialize_app(*args: Any, **kwargs: Any) -> None:
+        if winner_lands:
+            apps["[DEFAULT]"] = object()  # the other request got there first
+        raise ValueError("The default Firebase app already exists.")
+
+    monkeypatch.setattr(security.firebase_admin, "initialize_app", initialize_app)
+    monkeypatch.setattr(security.firebase_auth, "verify_id_token", lambda token: {"uid": "u1"})
 
 
-async def test_revenue_roles_still_read_targets(metrics_env: MetricsEnv) -> None:
-    for role in ("admin", "finance", "marketing", "executive"):
-        resp = await metrics_env.client.get(
-            "/api/v1/meta/targets?year=2026", headers=_auth(role)
-        )
-        assert resp.status_code == 200, (role, resp.status_code, resp.text)
+def test_the_init_race_loser_accepts_the_winners_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    _race(monkeypatch, winner_lands=True)
+    claims = security.FirebaseTokenVerifier().verify("token")
+    assert claims["uid"] == "u1"
+
+
+def test_a_real_init_failure_is_still_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same exception type, but nobody created an app: that is a real problem, not a race,
+    # and swallowing it would hide a broken deployment behind 401s.
+    _race(monkeypatch, winner_lands=False)
+    with pytest.raises(ValueError):
+        security.FirebaseTokenVerifier().verify("token")
+
+
+# ── 1 + 2. the advisory locks, by construction ──────────────────────────────────
+
+
+def test_admin_mutations_take_the_lock_before_the_guard_reads() -> None:
+    assert "pg_advisory_xact_lock" in inspect.getsource(admin_service.serialize_admin_mutations)
+    src = inspect.getsource(admin_routes)
+    guard = src.index("Last-active-admin lockout guard")
+    lock = src.index("serialize_admin_mutations(db)")
+    assert lock < guard, "the lock must be taken before the last-admin guard reads"
+    assert src.count("serialize_admin_mutations(db)") >= 2  # update AND delete
+
+
+def test_deciding_an_access_request_locks_then_re_reads() -> None:
+    for fn in (access_service.approve, access_service.reject):
+        src = inspect.getsource(fn)
+        assert "pg_advisory_xact_lock" in src, fn.__name__
+        assert src.index("pg_advisory_xact_lock") < src.index("request already"), fn.__name__
+
+
+# ── 4. exports: bounded, and off the event loop ─────────────────────────────────
+
+
+def test_report_queries_are_capped() -> None:
+    assert reports_service.EXPORT_MAX_ROWS == 100_000
+    assert "limit=EXPORT_MAX_ROWS" in inspect.getsource(reports_service.run_report)
+
+
+def test_both_export_builders_leave_the_event_loop() -> None:
+    src = inspect.getsource(export_routes)
+    assert "anyio.to_thread.run_sync(reports_service.build_csv" in src
+    assert "anyio.to_thread.run_sync(reports_service.build_xlsx" in src
 '''
 
 
@@ -347,15 +373,15 @@ def main() -> int:
         report.append(f"[fix] {path}")
     if TEST.parent.is_dir():
         TEST.write_text(TEST_SRC)
-        report.append(f"[test] {TEST}: viewer refused, revenue roles served")
+        report.append(f"[test] {TEST}: init race, row cap, exports off the loop")
 
     print("PATCHED, NOT YET VERIFIED - the test run is the verification, not this script.")
     for line in report:
         print(f"  - {line}")
     print(
-        "\nStated plainly: the three races are closed by construction (lock first, then"
-        "\nread) and cannot be exercised from a single-connection test - the targets gate"
-        "\nis the tested piece of this batch."
+        "\nStated plainly: the two database races are closed by construction (lock first,"
+        "\nthen read) and cannot be exercised from a single-connection test. The init race,"
+        "\nthe row cap and the worker-thread exports are the tested pieces."
     )
     return 0
 

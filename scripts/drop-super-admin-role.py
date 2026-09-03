@@ -40,19 +40,23 @@ REVISION = "d1c0ff3esuper"
 
 
 def heads() -> list[str]:
-    """Revisions nobody points at - i.e. where a new migration must attach."""
-    revs: dict[str, Path] = {}
+    """Revisions nobody points at - i.e. where a new migration must attach.
+
+    A merge migration says ``down_revision = ("a", "b")``. The first version of this
+    read only single-string values, so both merged parents looked like heads and the
+    script refused to attach to either. Every quoted id in the value now counts.
+    """
+    revs: set[str] = set()
     downs: set[str] = set()
     for path in sorted(VERSIONS.glob("*.py")):
         text = path.read_text()
-        rev = re.search(r"^revision(?::\s*[^=]+)?\s*=\s*[\"']([^\"']+)[\"']", text, re.M)
+        rev = re.search(r"^revision(?::[^=]+)?\s*=\s*[\"']([^\"']+)[\"']", text, re.M)
         if rev:
-            revs[rev.group(1)] = path
-        for down in re.finditer(
-            r"^down_revision(?::\s*[^=]+)?\s*=\s*[\"']([^\"']+)[\"']", text, re.M
-        ):
-            downs.add(down.group(1))
-    return sorted(set(revs) - downs)
+            revs.add(rev.group(1))
+        down = re.search(r"^down_revision(?::[^=]+)?\s*=\s*(.+)$", text, re.M)
+        if down:
+            downs.update(re.findall(r"[\"']([^\"']+)[\"']", down.group(1)))
+    return sorted(revs - downs)
 
 
 MIGRATION = '''"""Remove the super_admin role and everything it still carried.
