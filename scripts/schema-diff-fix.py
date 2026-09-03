@@ -44,6 +44,9 @@ exactly what the owner saw. These pin the expectation to the effective registry.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
 from app.core.metric_registry import (
     REGISTRY,
     Col,
@@ -51,16 +54,23 @@ from app.core.metric_registry import (
     expected_bq_schema,
     set_dynamic_columns,
 )
+from app.services import fact_schema
+from app.services.response_models import build_response_model
+
+
+@pytest.fixture(autouse=True)
+def _no_dynamic_leak() -> Iterator[None]:
+    """Same discipline as test_schema_reconcile: the dynamic set is module-level state, so
+    a test that adopts a column must not leave it adopted for the rest of the suite."""
+    yield
+    set_dynamic_columns([])
+    build_response_model.cache_clear()
+    fact_schema._last_refresh = 0.0
 
 
 def test_an_adopted_dynamic_column_is_expected_by_the_diff() -> None:
-    try:
-        set_dynamic_columns(
-            [Col("adopted_metric", "FLOAT64", "NUMERIC(18,4)", Group.UNCLASSIFIED)]
-        )
-        assert expected_bq_schema()["adopted_metric"] == "FLOAT64"
-    finally:
-        set_dynamic_columns([])
+    set_dynamic_columns([Col("adopted_metric", "FLOAT64", "NUMERIC(18,4)", Group.UNCLASSIFIED)])
+    assert expected_bq_schema()["adopted_metric"] == "FLOAT64"
 
 
 def test_dropping_the_dynamic_column_drops_the_expectation() -> None:
@@ -70,7 +80,6 @@ def test_dropping_the_dynamic_column_drops_the_expectation() -> None:
 
 
 def test_static_pass_through_columns_are_still_expected() -> None:
-    set_dynamic_columns([])
     expected = expected_bq_schema()
     for col in REGISTRY:
         if col.source_expr is None:
@@ -80,7 +89,6 @@ def test_static_pass_through_columns_are_still_expected() -> None:
 def test_computed_columns_are_still_never_expected_in_the_source() -> None:
     # Computed columns are produced by the sync, not read from the view; expecting them
     # would flag every one of them as missing.
-    set_dynamic_columns([])
     expected = expected_bq_schema()
     for col in REGISTRY:
         if col.source_expr is not None:
@@ -111,7 +119,7 @@ def main() -> int:
     TEST.write_text(TEST_SRC)
     print("PATCHED, NOT YET VERIFIED - the test run is the verification, not this script.")
     print(f"  - {REGISTRY_FILE}: expected_bq_schema reads the effective registry")
-    print(f"  - {TEST}: four cases")
+    print(f"  - {TEST}: four cases, with the reconcile suite's no-leak fixture")
     return 0
 
 
